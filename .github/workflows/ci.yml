@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-common:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+          MYSQL_DATABASE: cps_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --host=127.0.0.1 --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+      redis:
+        image: redis:7.4
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Verify MySQL transactions and Redis writes
+        env:
+          MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+          REDIS_CONTAINER: ${{ job.services.redis.id }}
+        run: |
+          result=$(docker exec -i "$MYSQL_CONTAINER" mysql --user=root --batch --skip-column-names cps_test <<'SQL'
+          CREATE TEMPORARY TABLE t00_probe (id INT PRIMARY KEY, amount DECIMAL(10,2)) ENGINE=InnoDB;
+          START TRANSACTION;
+          INSERT INTO t00_probe VALUES (1, 12.34);
+          ROLLBACK;
+          SELECT IF(COUNT(*) = 0, 'rollback-ok', 'rollback-failed') FROM t00_probe;
+          START TRANSACTION;
+          INSERT INTO t00_probe VALUES (1, 12.34);
+          COMMIT;
+          SELECT amount FROM t00_probe WHERE id = 1;
+          SQL
+          )
+          test "$result" = $'rollback-ok\n12.34'
+          result=$(docker exec "$MYSQL_CONTAINER" mysql --user=root --batch --skip-column-names -e 'SELECT VERSION()')
+          [[ "$result" == 8.* ]]
+          test "$(docker exec "$REDIS_CONTAINER" redis-cli SET t00:probe ready EX 30)" = OK
+          test "$(docker exec "$REDIS_CONTAINER" redis-cli GET t00:probe)" = ready
+          docker exec "$REDIS_CONTAINER" redis-cli DEL t00:probe
+      # T01 will supply the missing alliance SDKs before full-reactor compilation.
+      - name: Compile ruoyi-common and its prerequisites
+        run: ./mvnw -B -pl ruoyi-common -am compile

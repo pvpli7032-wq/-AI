@@ -11,6 +11,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="amount"    column="amount"    />
         <result property="balanceBefore"    column="balance_before"    />
         <result property="balanceAfter"    column="balance_after"    />
+        <result property="orderCommissionId"    column="order_commission_id"    />
         <result property="relatedOrderId"    column="related_order_id"    />
         <result property="description"    column="description"    />
         <result property="createTime"    column="create_time"    />
@@ -18,7 +19,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <sql id="selectSysCommissionFlowVo">
         select id, user_id, flow_type, amount, balance_before, balance_after, 
-               related_order_id, description, create_time
+               order_commission_id, related_order_id, description, create_time
         from sys_commission_flow
     </sql>
 
@@ -43,6 +44,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where id = #{id}
     </select>
 
+    <select id="selectByBusinessKey" resultMap="SysCommissionFlowResult" useCache="false" flushCache="true">
+        <include refid="selectSysCommissionFlowVo"/>
+        where user_id = #{userId} and flow_type = #{flowType}
+          and order_commission_id = #{orderCommissionId}
+        for update
+    </select>
+
     <insert id="insertSysCommissionFlow" parameterType="com.ruoyi.system.domain.SysCommissionFlow" useGeneratedKeys="true" keyProperty="id">
         insert into sys_commission_flow
         <trim prefix="(" suffix=")" suffixOverrides=",">
@@ -51,6 +59,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="amount != null">amount,</if>
             <if test="balanceBefore != null">balance_before,</if>
             <if test="balanceAfter != null">balance_after,</if>
+            <if test="orderCommissionId != null">order_commission_id,</if>
             <if test="relatedOrderId != null">related_order_id,</if>
             <if test="description != null">description,</if>
             <if test="createTime != null">create_time,</if>
@@ -61,34 +70,23 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="amount != null">#{amount},</if>
             <if test="balanceBefore != null">#{balanceBefore},</if>
             <if test="balanceAfter != null">#{balanceAfter},</if>
+            <if test="orderCommissionId != null">#{orderCommissionId},</if>
             <if test="relatedOrderId != null">#{relatedOrderId},</if>
             <if test="description != null">#{description},</if>
             <if test="createTime != null">#{createTime},</if>
          </trim>
     </insert>
 
+    <!-- 保留既有方法和接口；账务流水只能追加，纠错必须另记冲正分录。 -->
     <update id="updateSysCommissionFlow" parameterType="com.ruoyi.system.domain.SysCommissionFlow">
-        update sys_commission_flow
-        <trim prefix="SET" suffixOverrides=",">
-            <if test="userId != null">user_id = #{userId},</if>
-            <if test="flowType != null and flowType != ''">flow_type = #{flowType},</if>
-            <if test="amount != null">amount = #{amount},</if>
-            <if test="balanceBefore != null">balance_before = #{balanceBefore},</if>
-            <if test="balanceAfter != null">balance_after = #{balanceAfter},</if>
-            <if test="relatedOrderId != null">related_order_id = #{relatedOrderId},</if>
-            <if test="description != null">description = #{description},</if>
-        </trim>
-        where id = #{id}
+        signal sqlstate '45000' set message_text = 'Commission ledger is append-only; append a reversal instead'
     </update>
 
     <delete id="deleteSysCommissionFlowById" parameterType="Long">
-        delete from sys_commission_flow where id = #{id}
+        signal sqlstate '45000' set message_text = 'Commission ledger is append-only; append a reversal instead'
     </delete>
 
     <delete id="deleteSysCommissionFlowByIds" parameterType="String">
-        delete from sys_commission_flow where id in 
-        <foreach item="id" collection="array" open="(" separator="," close=")">
-            #{id}
-        </foreach>
+        signal sqlstate '45000' set message_text = 'Commission ledger is append-only; append a reversal instead'
     </delete>
 </mapper>

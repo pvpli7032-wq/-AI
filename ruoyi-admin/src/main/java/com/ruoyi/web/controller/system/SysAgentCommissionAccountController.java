@@ -102,6 +102,28 @@ public class SysAgentCommissionAccountController extends BaseController
     }
 
     /**
+     * 冻结代理佣金账户，不修改账户余额
+     */
+    @PreAuthorize("@ss.hasPermi('system:commissionAccount:edit')")
+    @Log(title = "冻结代理佣金账户", businessType = BusinessType.UPDATE)
+    @PutMapping("/freeze/{accountId}")
+    public AjaxResult freeze(@PathVariable("accountId") Long accountId)
+    {
+        return toAjax(sysAgentCommissionAccountService.freezeAccount(accountId));
+    }
+
+    /**
+     * 解冻代理佣金账户，不修改账户余额
+     */
+    @PreAuthorize("@ss.hasPermi('system:commissionAccount:edit')")
+    @Log(title = "解冻代理佣金账户", businessType = BusinessType.UPDATE)
+    @PutMapping("/unfreeze/{accountId}")
+    public AjaxResult unfreeze(@PathVariable("accountId") Long accountId)
+    {
+        return toAjax(sysAgentCommissionAccountService.unfreezeAccount(accountId));
+    }
+
+    /**
      * 删除代理佣金账户
      */
     @PreAuthorize("@ss.hasPermi('system:commissionAccount:remove')")

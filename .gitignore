@@ -1,6 +1,12 @@
 # Compiled class file
 *.class
 
+# Maven compilation and test results
+**/target/
+
+# Interrupted local SDK stub builds (JAR outputs are covered by *.jar below)
+ruoyi-union-sdk/lib/.sdk-stub-build.*/
+
 # Log file
 *.log
 

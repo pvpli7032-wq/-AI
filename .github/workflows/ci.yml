@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  compile-common:
+  build-and-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -65,6 +65,23 @@ jobs:
           test "$(docker exec "$REDIS_CONTAINER" redis-cli SET t00:probe ready EX 30)" = OK
           test "$(docker exec "$REDIS_CONTAINER" redis-cli GET t00:probe)" = ready
           docker exec "$REDIS_CONTAINER" redis-cli DEL t00:probe
-      # T01 will supply the missing alliance SDKs before full-reactor compilation.
-      - name: Compile ruoyi-common and its prerequisites
-        run: ./mvnw -B -pl ruoyi-common -am compile
+      - name: Build placeholder alliance SDKs
+        run: bash scripts/build-sdk-stub.sh
+      - name: Compile all backend modules
+        run: ./mvnw -B -DskipTests compile
+      - name: Run backend tests
+        run: ./mvnw -B test
+      - name: Require executed tests in each foundation module
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          for module in ("ruoyi-system", "ruoyi-framework", "ruoyi-admin"):
+              reports = (Path(module) / "target/surefire-reports").glob("TEST-*.xml")
+              suites = [ET.parse(report).getroot() for report in reports]
+              executed = sum(int(suite.get("tests", "0")) - int(suite.get("skipped", "0")) for suite in suites)
+              if executed < 1:
+                  raise SystemExit(f"{module}: no tests executed")
+              print(f"{module}: {executed} tests executed")
+          PY

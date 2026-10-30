@@ -12,17 +12,19 @@
 ## 技术约定
 
 - 后端 Java 21、Spring Boot 4；后台 Vue 2 + Element UI；小程序为原生框架。
-- 新业务代码放 `cps-core` 模块，表名用 `cps_` 前缀。不要在旧的 `sys_order_commission`、`sys_commission_flow`、`sys_agent_commission_*`、`sys_tbk_agent_apply` 上扩展。
+- **在基座现有代码上增加功能。现有模块、表、接口、页面都保留，不删除、不重写。** 对不上的地方补字段、修路径，缺的功能新增。
+- 新功能按现有模块放：联盟接口在 `ruoyi-union-sdk`，业务逻辑在 `ruoyi-system`，接口在 `ruoyi-admin`，定时任务在 `ruoyi-quartz`。
+- 现有表加字段；新增的表用 `cps_` 前缀，对应 `docs/plan.md` 第 5.3 节。
 - 配置中的 `${VAR}` 没有默认值，缺变量应用启动会失败。新增变量同步到 `.env.example`，值留空。
 - 改表只新增迁移脚本，不修改已合并的脚本。
-- 不提交 jar 文件。
+- 除 `ruoyi-union-sdk/lib` 下的三家联盟 SDK 外，不提交 jar 文件。
 
 ## 金额和账务硬规则
 
 这些规则任何任务都不能违反：
 
 - 金额用 `BigDecimal`，禁止 `double` 和 `float`。用户金额算到分，向下取整。
-- 账户余额只能经 `ledger` 模块改变，其他模块不能直接更新余额。
+- 账户余额只能经统一的入账方法改变（基于 `CommissionCalculateServiceImpl.updateUserAccount`），其他代码不能直接更新余额。
 - 流水只追加，不修改、不删除；纠错用冲正分录。
 - 任何入账、追回、提现都要有唯一键保证幂等，重复执行结果不变。
 - 改余额必须锁账户行或用版本号，禁止先读后写。

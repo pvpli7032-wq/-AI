@@ -1,4 +1,6 @@
-# 第一批任务：修通基座
+# 第一批任务：跑通基座
+
+原则：在基座现有代码上修通和增加，不删除、不重写现有模块、接口、页面。
 
 按顺序执行，上一个合并后再开始下一个。每个任务单独开 PR。开工前读 `AGENTS.md`。
 
@@ -10,7 +12,7 @@
 
 **要求：**
 - CI 使用 Java 21，提供 MySQL 8 和 Redis 服务。
-- 此时全量编译会因缺 SDK jar 失败，CI 先只编译 `ruoyi-common`。
+- SDK jar 补回前全量编译会失败，CI 先只编译 `ruoyi-common`。
 - 在 PR 说明里报告当前环境：Java 版本、Maven 是否能下载依赖、能否启动 MySQL 和 Redis、是否有 Docker、能否联网。
 
 **验收：**
@@ -18,75 +20,71 @@
 ./mvnw -B -pl ruoyi-common -am compile
 ```
 
-## T01 去掉官方 SDK jar 依赖
+## T01 补回 SDK jar，全量编译通过
 
-**目标：** 全量编译通过。三家联盟 SDK jar 不能进公开仓库，改成 HTTP 签名直连。
+**前置：** 人工从三家开放平台下载 SDK，放到 `ruoyi-union-sdk/lib`。这一步到位后才开始。
 
-**范围：** `ruoyi-union-sdk`，以及引用这些 SDK 类的文件：`ruoyi-system` 的 `TbkSdkService`、`JdSdkService`、`PddApiServiceImpl`、`SysAgentUnionRelationServiceImpl`，`ruoyi-admin` 的 `TbkController`。
+**目标：** 现有代码不改逻辑，全量编译通过。
 
-**不能动：** 对外接口的路径和入参；大淘客、好单库模块。
+**范围：** `ruoyi-union-sdk/pom.xml` 的 jar 文件名、`.gitignore` 放行 `ruoyi-union-sdk/lib/*.jar`、CI 改为全量编译。
 
-**要求：**
-- 删除 `ruoyi-union-sdk/pom.xml` 里的 system scope 依赖，以及只为旧 SDK 引入的 `javax.servlet-api`、`jackson-*-asl`。
-- `TbkModule`、`JdModule`、`PddModule` 保留通用 `execute(params)`，内部改为 HTTP 请求和各平台签名。
-- 超时和错误码统一处理，日志不输出密钥。
-- 签名算法以三家官方文档为准。无法确认的写进 PR 说明，不要猜。
+**不能动：** 现有业务代码。下载的 SDK 版本和基座不同导致编译错误时，只做最小适配，并在 PR 里列出。
 
 **验收：**
 ```bash
 ./mvnw -B -DskipTests compile
-./mvnw -B -pl ruoyi-union-sdk -am test
 ```
-三家各有签名单元测试，期望值来自官方示例或独立计算，不能从被测代码复制。真实调用由人工联调。
 
-## T02 统一数据库基线
+## T02 统一建库脚本
 
 **目标：** 空 MySQL 能一键建库，应用能启动。
 
-**范围：** `sql/`、新增 Flyway 依赖和迁移目录。
+**范围：** `sql/`、新增 Flyway 依赖和迁移目录、新增 `docker-compose.yml` 启动 MySQL 和 Redis。
 
 **要求：**
-- 把现有脚本合并成一个 V1 基线，解决 `sys_tbk_agent_apply` 两版定义冲突，以 `sql/cps-202604112202-mt.sql` 为准。
-- 基线只含若依基础表、菜单字典、Quartz 表和假数据，去掉操作日志和登录日志数据。
-- 补齐代码用到但建表语句缺失的字段，或记录在 PR 里说明由后续任务替换。
-- 提供 `docker-compose.yml` 启动 MySQL 和 Redis，用于本地开发。
+- 以 `sql/cps-202604112202-mt.sql` 为准生成 V1 基线，表全部保留。`sys_tbk_agent_apply` 两版定义以它为准，原有 SQL 文件不删。
+- 新增一个迁移脚本，补齐代码用到但建表语句缺失的字段，包括 `sys_order_commission` 的 `buyer_user_id`、`estimated_commission`、`commission_rate`、`actual_commission`，`sys_commission_flow` 的 `related_order_id`、`description`。逐一核对实体、Mapper 和建表语句，列出全部差异。
 
 **验收：** CI 用空库执行迁移，以测试用环境变量启动 `ruoyi-admin`，请求 `/captchaImage` 返回 200。
 
-## T03 裁剪和收口
+## T03 修通现有功能
 
-**目标：** 去掉用不到的模块，关闭生产调试入口。
+**目标：** 基座已有的后台和小程序功能都能用。
 
-**范围：** `giteeai`、`hdk`、抖音适配、相关配置和小程序调用。
-
-**要求：**
-- 删除前列出全部引用，确认无业务依赖。
-- 生产配置关闭 swagger 和 Druid 控制台。
-- 删除 `ruoyi-ui/src/utils/jsencrypt.js` 里的内置密钥对，改成部署时配置，前端不保留私钥。
+**范围：** 只修以下问题，不改功能：
+- 后台佣金账户、流水页面的接口路径和后端不一致（`ruoyi-ui/src/api/system/commissionAccount.js`、`commissionFlow.js` 对应 `SysAgentCommissionAccountController`、`SysCommissionFlowController`）
+- 后台有冻结和解冻入口，后端缺接口，补上
+- `sys_agent_commission_config` 缺 Mapper XML，补上
+- 小程序刷新 token 接口 `/miniapp/auth/refresh` 后端缺失，补上
+- 小程序邀请参数 `invitationCode` 和 `inviteCode` 不一致，统一
 
 **验收：**
 ```bash
 ./mvnw -B test
 ```
-`ruoyi-ui` 能构建；后台登录流程可用。
+新增的接口有测试；`ruoyi-ui` 能构建。PR 里列出后台菜单逐页检查结果。
 
-## T04 C 端用户和鉴权
+## T04 安全和金额修补
 
-**目标：** 小程序用户和后台账号分开，身份只来自登录态。
+**目标：** 修掉会导致冒充和算错钱的问题，为后续功能打底。
 
-**范围：** 新建 `cps-core` 模块；新增 `cps_user`、`cps_invite_relation` 表；`MiniappAuthController`；`SecurityConfig`；小程序 `app.js`、`utils/auth.js`、分享相关页面。
+**范围：** `MiniappAuthController`、`MiniappTbkController`、`MiniappJdController`、`MiniappPddController`、`MiniappDtkController`、`SecurityConfig`、`CommissionCalculateServiceImpl`、账户 Mapper。
+
+**不能动：** 现有接口路径和页面流程。未登录用户现有的商品浏览保持可用。
 
 **要求：**
-- 去掉 `MiniappAuthController.java:195` 写死的密码，小程序用户不再写入 `sys_user`。
-- C 端 token 不能用于后台接口，后台 token 不能用于 C 端接口。
-- 邀请码只在新用户首次授权时绑定，统一参数名，修复 `invitationCode` 和 `inviteCode` 不一致。
-- 实现 `/miniapp/auth/refresh`，或删除前端调用并改成重新登录。
-- 转链接口要求登录，从登录态取用户，不再接收 `userId`、`pid`。
+- `MiniappAuthController.java:195` 写死的密码改为每个用户随机生成。小程序用户不能用它登录后台。
+- 带用户身份的转链取登录态用户。请求里的 `userId` 参数保留兼容但不再作为身份依据，`pid` 不接受客户端传入。
+- `updateUserAccount` 改成原子更新：加版本号或行锁，防止并发覆盖；流水加业务唯一键，重复调用不重复入账。
+- 生产配置关闭 swagger 和 Druid 控制台（配置关闭，代码保留）。
 
 **验收：** 集成测试覆盖：
-- 新用户首次登录带邀请码，绑定成功
-- 老用户带邀请码，不绑定
-- 自己邀请自己，不绑定
-- C 端 token 访问后台接口，返回 401 或 403
-- 未登录调用转链，返回 401
-- 请求里伪造 userId，不影响实际用户
+- 同一账户并发入账 100 次，余额和流水合计一致（真实 MySQL）
+- 相同业务键重复入账，只生效一次
+- 小程序创建的用户无法登录后台
+- 请求里伪造 `userId`，不影响实际用户
+- 客户端传入 `pid`，不生效
+
+## 后续
+
+第二批开始增加业务功能：粘贴解析、带用户转链、PID 池、查券记录，然后是订单同步、规则、返利、提现、对账，依据 `docs/plan.md`。

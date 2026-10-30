@@ -63,7 +63,7 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 | 邀请参数名不一致 | `app.js` 读 `invitationCode`，分享用 `inviteCode` | 分享进来绑不上邀请关系 |
 | 配置里有非空的密钥类条目 | `application.yml` | 上线前全部更换，关闭 swagger |
 
-**处理原则：** 旧的佣金、代理相关表和接口全部不用，新建一套业务模块。修旧代码比重写更贵，因为表、实体、Mapper、页面四层都对不上。
+**处理原则：** 在基座现有代码上增加功能和逻辑。现有模块、表、接口、页面都保留，不删除、不重写；对不上的地方补字段、修路径；缺的功能新增。
 
 ---
 
@@ -262,7 +262,7 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 
 ### 4.7 账务设计
 
-**原则：余额不是一个能直接改的数字，而是流水加出来的。** 这是和基座 `updateUserAccount` 最大的区别。
+**原则：余额不是一个能直接改的数字，而是流水加出来的。** 落地在基座现有的 `sys_agent_commission_account`（已有 `balance`、`frozen_amount`、`withdrawn`）和 `sys_commission_flow` 上，在 `updateUserAccount` 基础上补幂等和并发控制。
 
 **账户：**
 
@@ -359,9 +359,9 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 
 ### 5.1 模块
 
-在 `ruoyi-system` 外新建 `cps-core` 模块，不混在若依代码里：
+沿用基座现有模块：联盟接口加在 `ruoyi-union-sdk`，业务逻辑加在 `ruoyi-system`，接口加在 `ruoyi-admin`，定时任务加在 `ruoyi-quartz`。以下是按职责划分的业务包：
 
-| 模块 | 职责 |
+| 业务包 | 职责 |
 |---|---|
 | `union` | 三家联盟适配：解析、查佣金、转链、拉订单、拉维权、拉处罚 |
 | `attribution` | PID 池、查券记录、归因决策、无主订单 |
@@ -396,34 +396,37 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 
 ### 5.3 数据表
 
-金额字段用 `decimal(14,2)`，联盟原始佣金用 `decimal(14,4)`。旧的 `sys_order_commission`、`sys_commission_flow`、`sys_agent_commission_*`、`sys_tbk_agent_apply` 不再使用。
+现有表全部保留。新增金额字段用 `decimal(14,2)`，联盟原始佣金用 `decimal(14,4)`。
 
-**用户**
+**沿用并补字段的现有表**
+
+| 表 | 用途 | 要补的内容 |
+|---|---|---|
+| `sys_user`、`sys_wechat_user` | 小程序用户 | 加手机号、风险等级字段 |
+| `sys_tbk_agent_apply` | 邀请码和上级关系 | 新用户首次登录自动生成一条已生效记录，普通用户直接可用，代理申请功能保留 |
+| `sys_order_commission` | 订单主表 | 加 `buyer_user_id`、`sub_order_no`、预估和实际佣金、状态和时间字段；唯一键改为平台 + 订单号 + 子订单号；订单行按子订单存 |
+| `sys_commission_flow` | 资金流水 | 补代码用到的字段，加业务唯一键防重复 |
+| `sys_agent_commission_account` | 用户账户 | 加版本号；`balance` 允许为负 |
+| `sys_commission_config`、`sys_agent_commission_config` | 默认比例 | 作为基础规则的默认值 |
+| `sys_union_platform` | 推广位 | 加类型字段区分追踪和默认 PID |
+
+**查券和归因（新增）**
 
 | 表 | 关键字段 | 说明 |
 |---|---|---|
-| `cps_user` | openid(唯一)、unionid、phone、invite_code(唯一)、status、risk_level | C 端用户和后台账号分开，不进 `sys_user` |
-| `cps_invite_relation` | invitee_id(唯一)、inviter_id、bind_time、source | 一人一个邀请人 |
-
-**查券和归因**
-
-| 表 | 关键字段 | 说明 |
-|---|---|---|
-| `cps_pid_pool` | platform、pid(唯一)、kind(追踪/默认)、status | 默认 PID 不进追踪轮换 |
 | `cps_pid_lease` | pid、item_id、user_id、expire_at | 索引 (pid, item_id, expire_at) |
 | `cps_query_log` | user_id、platform、raw_hash、item_id、result、commission_rate、shown_rebate、pid | 失败也记，既做归因又做漏斗 |
 | `cps_order_claim` | user_id、platform、order_no、status | 手动提交订单号 |
 | `cps_attribution` | order_line_id、user_id、method、confidence、decided_by、is_current | 只追加 |
 
-**订单**
+**订单（新增）**
 
 | 表 | 关键字段 | 说明 |
 |---|---|---|
 | `cps_order_raw` | platform、payload(JSON)、fetched_at、content_hash | 原始数据，只追加，能重放 |
-| `cps_order_line` | platform + order_no + sub_order_no(唯一)、item_id、pay_amount、est_commission、final_commission、union_status、status、pay_time、receive_time、settle_time | 一个子订单一行 |
 | `cps_order_event` | order_line_id、from_status、to_status、source、raw_id | 状态变更历史 |
 
-**规则**
+**规则（新增）**
 
 | 表 | 关键字段 | 说明 |
 |---|---|---|
@@ -431,15 +434,13 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 | `cps_rule_version` | rule_id、version、config(JSON)、effective_at、created_by | 只追加 |
 | `cps_reward_progress` | user_id、rule_id、valid_count | 累计单数 |
 
-**分账和账务**
+**分账（新增）**
 
 | 表 | 关键字段 | 说明 |
 |---|---|---|
 | `cps_settle_item` | order_line_id、user_id、type(返利/提成/补贴)、rule_version_id、est_amount、final_amount、status、unfreeze_at、paused_at | 每单每人每种一行，唯一键防重复 |
-| `cps_account` | user_id + account_type(唯一)、balance、version | 余额缓存，可负 |
-| `cps_ledger_entry` | biz_type + biz_id + account_id(唯一)、direction、amount、balance_after | 只追加 |
 
-**提现和对账**
+**提现和对账（新增）**
 
 | 表 | 关键字段 | 说明 |
 |---|---|---|
@@ -467,21 +468,22 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 
 ### 5.5 接口清单
 
-**小程序（一律从登录态取用户，不信任参数里的 userId）**
+**小程序（新增接口，一律从登录态取用户，不信任参数里的 userId）**
+
+现有 `/miniapp/*` 接口保留，新增接口沿用同一前缀，路径开发时按现有控制器归类。
 
 | 接口 | 用途 |
 |---|---|
-| `POST /app/auth/login` | 微信登录，带邀请码 |
-| `POST /app/convert/parse` | 解析链接，返回商品和预计返利 |
-| `POST /app/convert/link` | 生成带归因的链接或口令 |
-| `GET /app/orders` | 我的订单 |
-| `POST /app/orders/claim` | 手动提交订单号 |
-| `GET /app/wallet` | 冻结、可用、已提现、负余额 |
-| `GET /app/wallet/flows` | 收支明细 |
-| `POST /app/withdrawals` | 申请提现 |
-| `GET /app/withdrawals` | 提现记录 |
-| `GET /app/invite` | 邀请码、邀请人数、奖励 |
-| `GET /app/rules/activity` | 当前可展示的活动 |
+| `POST /miniapp/convert/parse` | 解析链接，返回商品和预计返利 |
+| `POST /miniapp/convert/link` | 生成带归因的链接或口令 |
+| `GET /miniapp/orders` | 我的订单 |
+| `POST /miniapp/orders/claim` | 手动提交订单号 |
+| `GET /miniapp/wallet` | 冻结、可用、已提现、负余额 |
+| `GET /miniapp/wallet/flows` | 收支明细 |
+| `POST /miniapp/withdrawals` | 申请提现 |
+| `GET /miniapp/withdrawals` | 提现记录 |
+| `GET /miniapp/invite` | 邀请码、邀请人数、奖励 |
+| `GET /miniapp/rules/activity` | 当前可展示的活动 |
 
 **后台**
 
@@ -489,7 +491,7 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 
 ### 5.6 小程序页面
 
-保留：登录、协议、关于。改造：首页（粘贴入口为主）、用户中心（去掉代理门禁）、分享页。新增：查券结果、我的订单、提交订单号、钱包、提现、邀请。下线：代理申请、商品搜索列表（【建议】第一版隐藏，集中验证粘贴查券）。
+现有 10 个页面全部保留。在首页增加粘贴入口，用户中心增加订单、钱包、邀请入口。新增：查券结果、我的订单、提交订单号、钱包、提现、邀请。
 
 界面设计按流程先出规格再实作。
 
@@ -502,7 +504,7 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 | 阶段 | 内容 | 完成标准 | 工作量 |
 |---|---|---|---|
 | 0 前置核实 | 见第 7 节 | 清单全部有书面答案 | 外部依赖，时间不可控 |
-| 1 基座修通 | 补 SDK jar 并编译；统一 SQL；裁掉 dy、hdk、giteeai；新建 `cps_user` 和登录；修第 2.3 节的安全问题 | 本地能启动，小程序能登录，密钥全换 | 中 |
+| 1 基座跑通 | 补回 SDK jar 并编译；统一建库脚本；修通现有功能；修第 2.3 节的问题 | 本地能启动，现有功能可用，小程序能登录，密钥全换 | 中 |
 | 2 查券和归因 | 三家解析、查佣金、带标识转链、PID 池、查券记录 | 三家各下一单真实订单，联盟后台能看到对应标识 | 大 |
 | 3 订单 | 三家同步、回补、状态机、原始数据、归因决策、无主订单 | 真实订单自动进系统，状态正确，重复拉取不重复 | 大 |
 | 4 规则和账务 | 规则版本、试算、返利和奖励计算、台账、解冻、追回、负余额 | 第 4.6 节全部用例通过；余额能由流水重算一致 | 大 |
@@ -525,7 +527,7 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 | 淘口令解析用哪个接口 | 决定入口方案 | 技术 |
 | 第三方打款通道的接口、费用、开票和个税责任 | 决定打款成本 | 财务 |
 | 律师和税务书面意见 | 决定上线合规口径 | 法务、财务 |
-| 三家官方 SDK 与 Spring Boot 4 + Java 21 的兼容性 | 老 SDK 依赖 `javax.servlet`，不行就改 HTTP 直连 | 技术 |
+| 三家官方 SDK 与 Spring Boot 4 + Java 21 的兼容性 | 老 SDK 依赖 `javax.servlet`，基座已加兼容依赖，编译运行时确认 | 技术 |
 
 ---
 
@@ -537,7 +539,6 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 - 并发压测：同一用户同时提现、同时入账，余额无偏差
 - 账户余额与流水重算一致
 - 四方对账未解释差异为 0 元
-- 新表写入不走旧代码路径
 
 **试营业判定：** 开工前把线定好，避免看到数据后改口。
 - 查券成功率、查券到下单转化率

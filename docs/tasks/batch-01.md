@@ -2,7 +2,7 @@
 
 原则：在基座现有代码上修通和增加，不删除、不重写现有模块、接口、页面。
 
-按顺序执行，上一个合并后再开始下一个。每个任务单独开 PR。开工前读 `AGENTS.md`。
+执行顺序和分工见 `parallel.md`，每条线单独开 PR。开工前读 `AGENTS.md`。
 
 ## T00 环境探测和 CI
 
@@ -52,6 +52,7 @@ PR 里贴原始输出，并列出 `ruoyi-system`、`ruoyi-admin` 是否都编译
 
 **要求：**
 - 以 `sql/cps-202604112202-mt.sql` 为准生成 V1 基线，表全部保留。`sys_tbk_agent_apply` 两版定义以它为准，原有 SQL 文件不删。
+- 开启 Flyway 的 `out-of-order`，多条线并行时脚本合并顺序不固定。
 - 新增一个迁移脚本，补齐代码用到但建表语句缺失的字段，包括 `sys_order_commission` 的 `buyer_user_id`、`estimated_commission`、`commission_rate`、`actual_commission`，`sys_commission_flow` 的 `related_order_id`、`description`。逐一核对实体、Mapper 和建表语句，列出全部差异。
 
 **验收：** CI 用空库执行迁移，以测试用环境变量启动 `ruoyi-admin`，请求 `/captchaImage` 返回 200。

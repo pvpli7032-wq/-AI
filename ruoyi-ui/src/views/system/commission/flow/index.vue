@@ -230,7 +230,7 @@ export default {
     },
     /** 导出按钮操作 */
     handleExport() {
-      this.download('system/commission/flow/export', {
+      this.download('system/commissionFlow/export', {
         ...this.queryParams
       }, `佣金流水_${new Date().getTime()}.xlsx`)
     }

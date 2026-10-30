@@ -12,17 +12,19 @@ permissions:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     services:
       mysql:
         image: mysql:8.4
         env:
-          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+          MYSQL_ROOT_PASSWORD: ci-only-root-not-for-production
           MYSQL_DATABASE: cps_test
+          MYSQL_USER: cps_ci
+          MYSQL_PASSWORD: ci-only-app-not-for-production
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping --host=127.0.0.1 --silent"
+          --health-cmd="MYSQL_PWD=ci-only-app-not-for-production mysql --host=127.0.0.1 --user=cps_ci --database=cps_test --execute='SELECT 1' --silent"
           --health-interval=5s
           --health-timeout=5s
           --health-retries=30
@@ -47,7 +49,7 @@ jobs:
           MYSQL_CONTAINER: ${{ job.services.mysql.id }}
           REDIS_CONTAINER: ${{ job.services.redis.id }}
         run: |
-          result=$(docker exec -i "$MYSQL_CONTAINER" mysql --user=root --batch --skip-column-names cps_test <<'SQL'
+          result=$(docker exec -i -e MYSQL_PWD=ci-only-app-not-for-production "$MYSQL_CONTAINER" mysql --user=cps_ci --batch --skip-column-names cps_test <<'SQL'
           CREATE TEMPORARY TABLE t00_probe (id INT PRIMARY KEY, amount DECIMAL(10,2)) ENGINE=InnoDB;
           START TRANSACTION;
           INSERT INTO t00_probe VALUES (1, 12.34);
@@ -60,17 +62,15 @@ jobs:
           SQL
           )
           test "$result" = $'rollback-ok\n12.34'
-          result=$(docker exec "$MYSQL_CONTAINER" mysql --user=root --batch --skip-column-names -e 'SELECT VERSION()')
+          result=$(docker exec -e MYSQL_PWD=ci-only-app-not-for-production "$MYSQL_CONTAINER" mysql --user=cps_ci --batch --skip-column-names -e 'SELECT VERSION()')
           [[ "$result" == 8.* ]]
           test "$(docker exec "$REDIS_CONTAINER" redis-cli SET t00:probe ready EX 30)" = OK
           test "$(docker exec "$REDIS_CONTAINER" redis-cli GET t00:probe)" = ready
           docker exec "$REDIS_CONTAINER" redis-cli DEL t00:probe
       - name: Build placeholder alliance SDKs
         run: bash scripts/build-sdk-stub.sh
-      - name: Compile all backend modules
-        run: ./mvnw -B -DskipTests compile
-      - name: Run backend tests
-        run: ./mvnw -B test
+      - name: Package backend and run unit tests
+        run: ./mvnw -B package
       - name: Require executed tests in each foundation module
         run: |
           python3 - <<'PY'
@@ -85,3 +85,115 @@ jobs:
                   raise SystemExit(f"{module}: no tests executed")
               print(f"{module}: {executed} tests executed")
           PY
+      - name: Migrate an empty database and verify packaged application
+        env:
+          MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+          REDIS_CONTAINER: ${{ job.services.redis.id }}
+          TOKEN_SECRET: ci-only-token-secret-never-use-in-production-0123456789
+          DB_USERNAME: cps_ci
+          DB_PASSWORD: ci-only-app-not-for-production
+          DRUID_USERNAME: ci-only-admin
+          DRUID_PASSWORD: ci-only-druid-not-for-production
+          TBK_APP_KEY: ci-placeholder
+          TBK_APP_SECRET: ci-placeholder
+          TBK_ADZONE_ID: "0"
+          PDD_CLIENT_ID: ci-placeholder
+          PDD_CLIENT_SECRET: ci-placeholder
+          PDD_POSITION_ID: ci-placeholder
+          JD_APP_KEY: ci-placeholder
+          JD_APP_SECRET: ci-placeholder
+          JD_SITE_ID: "0"
+          JD_POSITION_ID: "0"
+          DTK_APP_KEY: ci-placeholder
+          DTK_APP_SECRET: ci-placeholder
+          DTK_ADZONE_ID: "0"
+          WX_MINIAPP_APPID: wx-ci-placeholder
+          WX_MINIAPP_SECRET: ci-placeholder
+          SPRING_DATASOURCE_DRUID_MASTER_URL: jdbc:mysql://127.0.0.1:3306/cps_test?useUnicode=true&characterEncoding=utf8&useSSL=true&serverTimezone=GMT%2B8
+          SPRING_DATA_REDIS_HOST: 127.0.0.1
+          SPRING_DATA_REDIS_PORT: "6379"
+          SPRING_DATA_REDIS_DATABASE: "1"
+        run: |
+          set -euo pipefail
+          mysql_query() {
+            docker exec -e MYSQL_PWD="$DB_PASSWORD" "$MYSQL_CONTAINER" \
+              mysql --user="$DB_USERNAME" --batch --skip-column-names cps_test --execute="$1"
+          }
+          test "$(mysql_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'cps_test'")" = 0
+
+          logging_config="$RUNNER_TEMP/cps-ci-logback.xml"
+          app_log="$RUNNER_TEMP/cps-ci-application.log"
+          response_file="$RUNNER_TEMP/cps-ci-captcha.json"
+          cat > "$logging_config" <<'XML'
+          <configuration>
+              <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
+                  <encoder><pattern>%level %logger{36} - %msg%n</pattern></encoder>
+              </appender>
+              <root level="info"><appender-ref ref="console" /></root>
+          </configuration>
+          XML
+
+          java -Djava.awt.headless=true \
+            -Dlogback.configurationFile="$logging_config" -Dlogging.config="$logging_config" \
+            -jar ruoyi-admin/target/ruoyi-admin.jar \
+            --server.address=127.0.0.1 --server.port=8080 \
+            --ruoyi.profile="$RUNNER_TEMP/cps-ci-uploads" > "$app_log" 2>&1 &
+          app_pid=$!
+          cleanup() {
+            status=$?
+            trap - EXIT
+            if kill -0 "$app_pid" 2>/dev/null; then
+              kill "$app_pid" 2>/dev/null || true
+              for attempt in {1..20}; do
+                kill -0 "$app_pid" 2>/dev/null || break
+                sleep 1
+              done
+              if kill -0 "$app_pid" 2>/dev/null; then
+                kill -KILL "$app_pid" 2>/dev/null || true
+              fi
+            fi
+            wait "$app_pid" 2>/dev/null || true
+            if (( status != 0 )); then
+              cat "$app_log"
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          ready=false
+          for attempt in {1..120}; do
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              echo "Packaged application exited before becoming ready" >&2
+              exit 1
+            fi
+            http_status=$(curl --silent --max-time 2 --output "$response_file" \
+              --write-out '%{http_code}' http://127.0.0.1:8080/captchaImage || true)
+            if [[ "$http_status" = 200 ]]; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          kill -0 "$app_pid"
+          python3 - "$response_file" <<'PY'
+          import base64
+          import json
+          from pathlib import Path
+          import re
+          import sys
+
+          response = json.loads(Path(sys.argv[1]).read_text())
+          assert response.get("code") == 200, response
+          assert response.get("captchaEnabled") is True, response
+          assert re.fullmatch(r"[0-9a-f]{32}", response.get("uuid", "")), response
+          image = base64.b64decode(response["img"], validate=True)
+          assert len(image) > 100 and image.startswith(b"\xff\xd8") and image.endswith(b"\xff\xd9")
+          print("/captchaImage: HTTP 200, business code 200, UUID and JPEG verified")
+          PY
+          captcha_uuid=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["uuid"])' "$response_file")
+          test "$(docker exec "$REDIS_CONTAINER" redis-cli -n "$SPRING_DATA_REDIS_DATABASE" EXISTS "captcha_codes:$captcha_uuid")" = 1
+          test "$(mysql_query "SELECT GROUP_CONCAT(version ORDER BY installed_rank) FROM flyway_schema_history WHERE version IN ('1', '2') AND success = 1")" = 1,2
+          test "$(mysql_query 'SELECT COUNT(*) FROM flyway_schema_history WHERE success = 0')" = 0
+          mysql_query 'SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank'
+          kill -0 "$app_pid"

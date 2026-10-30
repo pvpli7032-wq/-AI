@@ -47,6 +47,16 @@ user:
 
 # Spring配置
 spring:
+  flyway:
+    enabled: true
+    # Keep Flyway capability probes off Druid's pooled application connections.
+    url: ${spring.datasource.druid.master.url}
+    user: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    locations: classpath:db/migration
+    out-of-order: true
+    baseline-on-migrate: false
+    clean-disabled: true
   # 资源信息
   messages:
     # 国际化资源文件路径

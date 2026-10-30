@@ -1,6 +1,7 @@
 package com.ruoyi.system.mapper;
 
 import java.util.List;
+import org.apache.ibatis.annotations.Param;
 import com.ruoyi.system.domain.SysCommissionFlow;
 
 /**
@@ -11,6 +12,10 @@ import com.ruoyi.system.domain.SysCommissionFlow;
  */
 public interface SysCommissionFlowMapper 
 {
+    /** 使用当前读，避免可重复读事务里的旧快照漏掉已提交的入账。 */
+    SysCommissionFlow selectByBusinessKey(@Param("userId") Long userId,
+        @Param("flowType") String flowType, @Param("orderCommissionId") Long orderCommissionId);
+
     /**
      * 查询佣金流水
      * 

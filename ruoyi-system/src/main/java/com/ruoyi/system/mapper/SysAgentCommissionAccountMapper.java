@@ -1,7 +1,9 @@
 package com.ruoyi.system.mapper;
 
 import java.util.List;
+import org.apache.ibatis.annotations.Param;
 import com.ruoyi.system.domain.SysAgentCommissionAccount;
+import com.ruoyi.system.domain.SysOrderCommission;
 
 /**
  * 代理佣金账户Mapper接口
@@ -11,6 +13,21 @@ import com.ruoyi.system.domain.SysAgentCommissionAccount;
  */
 public interface SysAgentCommissionAccountMapper 
 {
+    /** 并发首次入账时只创建一个零余额账户，不覆盖已有余额。 */
+    int ensureAccount(@Param("userId") Long userId);
+
+    /** 仅在入账事务内使用，锁定账户直至提交。 */
+    SysAgentCommissionAccount selectByUserIdForUpdate(@Param("userId") Long userId);
+
+    /** 结算和退款先锁定订单，再按用户ID顺序锁定账户。 */
+    SysOrderCommission selectOrderCommissionForUpdate(@Param("id") Long id);
+
+    /** 保存结算字段；与账户、流水处于同一事务。 */
+    int updateOrderSettlement(SysOrderCommission order);
+
+    /** 冻结/解冻只更新状态，不触及任何金额。 */
+    int updateAccountStatus(@Param("id") Long id, @Param("status") String status);
+
     /**
      * 查询代理佣金账户
      * 

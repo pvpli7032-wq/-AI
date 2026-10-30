@@ -3,7 +3,7 @@ import request from '@/utils/request'
 // 查询佣金账户列表
 export function listAccount(query) {
   return request({
-    url: '/system/commission/account/list',
+    url: '/system/commissionAccount/list',
     method: 'get',
     params: query
   })
@@ -12,7 +12,7 @@ export function listAccount(query) {
 // 查询佣金账户详细
 export function getAccount(accountId) {
   return request({
-    url: '/system/commission/account/' + accountId,
+    url: '/system/commissionAccount/' + accountId,
     method: 'get'
   })
 }
@@ -20,7 +20,7 @@ export function getAccount(accountId) {
 // 冻结账户
 export function freezeAccount(accountId) {
   return request({
-    url: '/system/commission/account/freeze/' + accountId,
+    url: '/system/commissionAccount/freeze/' + accountId,
     method: 'put'
   })
 }
@@ -28,7 +28,7 @@ export function freezeAccount(accountId) {
 // 解冻账户
 export function unfreezeAccount(accountId) {
   return request({
-    url: '/system/commission/account/unfreeze/' + accountId,
+    url: '/system/commissionAccount/unfreeze/' + accountId,
     method: 'put'
   })
 }
@@ -36,7 +36,7 @@ export function unfreezeAccount(accountId) {
 // 导出佣金账户
 export function exportAccount(query) {
   return request({
-    url: '/system/commission/account/export',
+    url: '/system/commissionAccount/export',
     method: 'get',
     params: query
   })

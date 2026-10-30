@@ -255,7 +255,7 @@ export default {
     },
     /** 导出按钮操作 */
     handleExport() {
-      this.download('system/commission/account/export', {
+      this.download('system/commissionAccount/export', {
         ...this.queryParams
       }, `佣金账户_${new Date().getTime()}.xlsx`)
     }

@@ -324,8 +324,51 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
     /**
      * 更新用户佣金账户
      */
+    @Override
+    @Transactional
+    public SysCommissionFlow reverseCommissionFlow(Long originalFlowId, String reason,
+        String idempotencyKey, Long operatorId)
+    {
+        if (originalFlowId == null || originalFlowId <= 0 || operatorId == null || operatorId <= 0
+            || reason == null || reason.isBlank() || reason.length() > 500
+            || idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 128)
+        {
+            throw new ServiceException("冲正需要有效的原流水、原因、幂等键及操作人");
+        }
+        // 流水只能追加，普通读取可避免与账户锁产生反向锁序。
+        SysCommissionFlow original = flowMapper.selectSysCommissionFlowById(originalFlowId);
+        if (original == null || original.getAmount() == null || original.getUserId() == null)
+        {
+            throw new ServiceException("原流水不存在或缺少必要数据");
+        }
+        String type = original.getFlowType();
+        if (!("income_self".equals(type) || "income_promotion".equals(type)
+            || "refund_self".equals(type) || "refund_promotion".equals(type)
+            || "refund".equals(type) || "withdraw".equals(type)))
+        {
+            throw new ServiceException("此类型流水不支持冲正");
+        }
+        original.setIdempotencyKey(idempotencyKey);
+        original.setOperatorId(operatorId);
+        original.setReversalReason(reason);
+        updateUserAccount(original.getUserId(), original.getAmount().negate(), "reversal",
+            originalFlowId, reason, original);
+        SysCommissionFlow result = flowMapper.selectReversalByOriginal(originalFlowId);
+        if (result == null)
+        {
+            throw new ServiceException("冲正流水保存失败");
+        }
+        return result;
+    }
+
     private void updateUserAccount(Long userId, BigDecimal amount, String flowType, 
         Long relatedOrderId, String description)
+    {
+        updateUserAccount(userId, amount, flowType, relatedOrderId, description, null);
+    }
+
+    private void updateUserAccount(Long userId, BigDecimal amount, String flowType,
+        Long relatedOrderId, String description, SysCommissionFlow reversal)
     {
         if (!TransactionSynchronizationManager.isActualTransactionActive())
         {
@@ -338,7 +381,7 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         boolean income = "income_self".equals(flowType) || "income_promotion".equals(flowType);
         boolean debit = "refund_self".equals(flowType) || "refund_promotion".equals(flowType)
             || "withdraw".equals(flowType);
-        if ((!income && !debit) || (income && amount.signum() < 0) || (debit && amount.signum() > 0))
+        if ((!income && !debit && reversal == null) || (income && amount.signum() < 0) || (debit && amount.signum() > 0))
         {
             throw new ServiceException("流水类型或金额方向不正确");
         }
@@ -388,6 +431,30 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
             account.setBalance(account.getBalance().add(amount)); // amount为负数
             account.setWithdrawn(account.getWithdrawn().subtract(amount)); // amount为负数，所以用减法
         }
+        else if (reversal != null)
+        {
+            String originalType = reversal.getFlowType();
+            account.setBalance(account.getBalance().add(amount));
+            if ("income_self".equals(originalType) || "refund_self".equals(originalType))
+            {
+                account.setTotalEarned(account.getTotalEarned().add(amount));
+                account.setSelfEarned(account.getSelfEarned().add(amount));
+            }
+            else if ("income_promotion".equals(originalType) || "refund_promotion".equals(originalType))
+            {
+                account.setTotalEarned(account.getTotalEarned().add(amount));
+                account.setPromotionEarned(account.getPromotionEarned().add(amount));
+            }
+            else if ("withdraw".equals(originalType))
+            {
+                account.setWithdrawn(account.getWithdrawn().subtract(amount));
+            }
+            else if ("refund".equals(originalType))
+            {
+                // 旧版退款只改累计收益与余额，不改自购/推广统计。
+                account.setTotalEarned(account.getTotalEarned().add(amount));
+            }
+        }
 
         account.setUpdateTime(new Date());
 
@@ -399,8 +466,19 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         flow.setBalanceBefore(balanceBefore);
         flow.setBalanceAfter(account.getBalance());
         // 将Long类型的relatedOrderId转换为String类型
-        flow.setOrderCommissionId(relatedOrderId);
-        flow.setRelatedOrderId(relatedOrderId.toString());
+        if (reversal == null)
+        {
+            flow.setOrderCommissionId(relatedOrderId);
+            flow.setRelatedOrderId(relatedOrderId.toString());
+        }
+        else
+        {
+            flow.setOriginalFlowId(reversal.getId());
+            flow.setIdempotencyKey(reversal.getIdempotencyKey());
+            flow.setOperatorId(reversal.getOperatorId());
+            flow.setReversalReason(reversal.getReversalReason());
+            flow.setRelatedOrderId(reversal.getRelatedOrderId());
+        }
         flow.setDescription(description);
         flow.setCreateTime(new Date());
         // 先尝试追加流水，避免对尚不存在的唯一键加间隙锁。
@@ -414,6 +492,15 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         }
         catch (DuplicateKeyException duplicate)
         {
+            if (reversal != null)
+            {
+                SysCommissionFlow existing = flowMapper.selectReversalByOriginal(reversal.getId());
+                if (existing != null && reversal.getIdempotencyKey().equals(existing.getIdempotencyKey()))
+                {
+                    return;
+                }
+                throw new ServiceException("该流水已冲正或幂等键已被使用");
+            }
             SysCommissionFlow existing = flowMapper.selectByBusinessKey(userId, flowType, relatedOrderId);
             if (existing == null)
             {

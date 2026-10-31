@@ -18,6 +18,9 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.system.domain.SysCommissionFlow;
 import com.ruoyi.system.service.ISysCommissionFlowService;
+import com.ruoyi.system.service.ICommissionCalculateService;
+import com.ruoyi.common.utils.SecurityUtils;
+import org.springframework.validation.annotation.Validated;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
 
@@ -33,6 +36,19 @@ public class SysCommissionFlowController extends BaseController
 {
     @Autowired
     private ISysCommissionFlowService sysCommissionFlowService;
+
+    @Autowired
+    private ICommissionCalculateService commissionCalculateService;
+
+    /** 根据原流水追加冲正，操作人来自登录态。 */
+    @PreAuthorize("@ss.hasPermi('system:commission:flow:reversal')")
+    @Log(title = "佣金流水冲正", businessType = BusinessType.INSERT)
+    @PostMapping("/reversal")
+    public AjaxResult reverse(@Validated @RequestBody CommissionFlowReversalRequest request)
+    {
+        return success(commissionCalculateService.reverseCommissionFlow(request.getOriginalFlowId(),
+            request.getReason(), request.getIdempotencyKey(), SecurityUtils.getUserId()));
+    }
 
     /**
      * 查询佣金流水列表

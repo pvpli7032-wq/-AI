@@ -46,6 +46,7 @@ public class UnsafeAccountingMutationsTest
         SysOrderCommissionMapper mapper = mock(SysOrderCommissionMapper.class);
         SysOrderCommissionServiceImpl service = new SysOrderCommissionServiceImpl();
         ReflectionTestUtils.setField(service, "sysOrderCommissionMapper", mapper);
+        ReflectionTestUtils.setField(service, "accountMapper", mock(SysAgentCommissionAccountMapper.class));
         assertThrows(ServiceException.class, () -> service.updateSysOrderCommission(new SysOrderCommission()));
         assertThrows(ServiceException.class, () -> service.deleteSysOrderCommissionById(12L));
         assertThrows(ServiceException.class, () -> service.deleteSysOrderCommissionByIds(new Long[] {12L}));

@@ -1,6 +1,7 @@
 package com.ruoyi.system.service;
 
 import com.ruoyi.system.domain.SysOrderCommission;
+import com.ruoyi.system.domain.SysCommissionFlow;
 import java.math.BigDecimal;
 
 /**
@@ -55,6 +56,8 @@ public interface ICommissionCalculateService
      * @return 是否处理成功
      */
     boolean refundOrder(Long orderCommissionId);
+
+    SysCommissionFlow reverseCommissionFlow(Long originalFlowId, String reason, String idempotencyKey, Long operatorId);
 
     /**
      * 获取自购佣金比例

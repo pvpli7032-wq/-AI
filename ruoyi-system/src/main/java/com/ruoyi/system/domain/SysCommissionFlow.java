@@ -47,6 +47,20 @@ public class SysCommissionFlow extends BaseEntity
     @Excel(name = "关联订单ID")
     private String relatedOrderId;
 
+    private Long originalFlowId;
+    private String idempotencyKey;
+    private Long operatorId;
+    private String reversalReason;
+
+    public Long getOriginalFlowId() { return originalFlowId; }
+    public void setOriginalFlowId(Long value) { originalFlowId = value; }
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public void setIdempotencyKey(String value) { idempotencyKey = value; }
+    public Long getOperatorId() { return operatorId; }
+    public void setOperatorId(Long value) { operatorId = value; }
+    public String getReversalReason() { return reversalReason; }
+    public void setReversalReason(String value) { reversalReason = value; }
+
     /** 流水描述 */
     @Excel(name = "流水描述")
     private String description;

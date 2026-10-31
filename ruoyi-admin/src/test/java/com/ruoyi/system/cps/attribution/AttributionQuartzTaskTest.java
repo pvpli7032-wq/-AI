@@ -31,6 +31,8 @@ public class AttributionQuartzTaskTest {
     private AnnotationConfigApplicationContext context;
     private Object previousBeanFactory, previousApplicationContext;
     private OrderAttributionService attribution;
+    private AttributionTokenService tokens;
+    private PidPoolService pids;
     private Scheduler scheduler;
     private final BlockingQueue<SysJobLog> logs = new LinkedBlockingQueue<>();
     private final CountDownLatch releaseExpiry = new CountDownLatch(1);
@@ -39,10 +41,14 @@ public class AttributionQuartzTaskTest {
         previousBeanFactory = ReflectionTestUtils.getField(SpringUtils.class, "beanFactory");
         previousApplicationContext = ReflectionTestUtils.getField(SpringUtils.class, "applicationContext");
         attribution = mock(OrderAttributionService.class);
+        tokens = mock(AttributionTokenService.class);
+        pids = mock(PidPoolService.class);
         ISysJobLogService logService = mock(ISysJobLogService.class);
         doAnswer(call -> { logs.add(call.getArgument(0)); return null; }).when(logService).addJobLog(any());
         context = new AnnotationConfigApplicationContext();
         context.registerBean(OrderAttributionService.class, () -> attribution);
+        context.registerBean(AttributionTokenService.class, () -> tokens);
+        context.registerBean(PidPoolService.class, () -> pids);
         context.registerBean(ISysJobLogService.class, () -> logService);
         context.register(AttributionQuartzOperations.class, CpsAttributionTask.class);
         context.refresh();
@@ -65,20 +71,23 @@ public class AttributionQuartzTaskTest {
     }
 
     @Test public void realInvocationResolvesIntegerMethodsAndTheirNamedOperations() throws Exception {
-        for (String target : List.of("cpsAttributionTask.expireUnclaimed(1)", "cpsAttributionTask.retrySettlement(500)")) {
+        for (String target : List.of("cpsAttributionTask.expireUnclaimed(1)", "cpsAttributionTask.retrySettlement(500)",
+                "cpsAttributionTask.cleanupTokens(200)", "cpsAttributionTask.cleanupReservations(200)")) {
             assertTrue(ScheduleUtils.whiteList(target));
             JobInvokeUtil.invokeMethod(job(1, target));
         }
         verify(attribution).expireUnclaimed(1);
         verify(attribution).retrySettlement(500);
-        verifyNoMoreInteractions(attribution);
+        verify(tokens).cleanupExpired(200);
+        verify(pids).cleanupExpiredConversionReservations(200);
+        verifyNoMoreInteractions(attribution, tokens, pids);
     }
 
     @Test public void invalidBatchesAreRejectedBeforeAnyBusinessOperation() {
         CpsAttributionTask task = context.getBean(CpsAttributionTask.class);
         assertThrows(IllegalArgumentException.class, () -> task.expireUnclaimed(null));
         assertThrows(IllegalArgumentException.class, () -> task.retrySettlement(null));
-        for (String method : List.of("expireUnclaimed", "retrySettlement")) {
+        for (String method : List.of("expireUnclaimed", "retrySettlement", "cleanupTokens", "cleanupReservations")) {
             for (int invalid : new int[] {0, 501}) {
                 SysJob job = job(1, "cpsAttributionTask." + method + "(" + invalid + ")");
                 InvocationTargetException failure = assertThrows(InvocationTargetException.class,
@@ -86,7 +95,7 @@ public class AttributionQuartzTaskTest {
                 assertTrue(failure.getCause() instanceof IllegalArgumentException);
             }
         }
-        verifyNoInteractions(attribution);
+        verifyNoInteractions(attribution, tokens, pids);
     }
 
     @Test public void quartzSerializesTheSameTaskAndRunsTheOtherTaskWhenOneFails() throws Exception {

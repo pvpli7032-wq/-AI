@@ -61,6 +61,8 @@ public class AttributionQuartzMySqlTest {
     private static JdbcTemplate jdbc;
     private static SysJobMapper jobMapper;
     private static OrderAttributionService attribution;
+    private static AttributionTokenService tokens;
+    private static PidPoolService pids;
     private static final List<OrderEvent> deliveries = new CopyOnWriteArrayList<>();
     private static final AtomicBoolean downstreamFails = new AtomicBoolean();
     private AnnotationConfigApplicationContext context;
@@ -95,13 +97,14 @@ public class AttributionQuartzMySqlTest {
         jobMapper = session.getMapper(SysJobMapper.class);
         DataSourceTransactionManager transactions = new DataSourceTransactionManager(source);
         AttributionSettings settings = new AttributionSettings(jdbc);
-        PidPoolService pids = new PidPoolService(jdbc, settings, transactions);
+        pids = new PidPoolService(jdbc, settings, transactions);
+        tokens = new AttributionTokenService(jdbc);
         StaticListableBeanFactory beans = new StaticListableBeanFactory();
         beans.addBean("settlement", (SettlementService) event -> {
             deliveries.add(event);
             if (downstreamFails.get()) throw new IllegalStateException("synthetic downstream failure");
         });
-        attribution = new OrderAttributionService(jdbc, pids, new AttributionTokenService(jdbc), settings,
+        attribution = new OrderAttributionService(jdbc, pids, tokens, settings,
             new InviteBindingService(session.getMapper(InviteBindingMapper.class), null),
             beans.getBeanProvider(SettlementService.class), transactions);
         jdbc.update("UPDATE sys_config SET config_value='24' WHERE config_key IN ('cps.attribution.claim.hours','cps.attribution.item.match.hours')");
@@ -129,6 +132,8 @@ public class AttributionQuartzMySqlTest {
         doAnswer(call -> { logs.add(call.getArgument(0)); return null; }).when(logService).addJobLog(any());
         context = new AnnotationConfigApplicationContext();
         context.registerBean(OrderAttributionService.class, () -> attribution);
+        context.registerBean(AttributionTokenService.class, () -> tokens);
+        context.registerBean(PidPoolService.class, () -> pids);
         context.registerBean(ISysJobLogService.class, () -> logService);
         context.register(AttributionQuartzOperations.class, CpsAttributionTask.class);
         context.refresh();
@@ -161,7 +166,7 @@ public class AttributionQuartzMySqlTest {
 
     @Test public void migratedJobsUseSafePoliciesAndBackendUpdatesTheirActualTriggers() throws Exception {
         List<SysJob> registered = attributionJobs();
-        assertEquals(2, registered.size());
+        assertEquals(4, registered.size());
         jobs.init();
         int count = scheduler.getJobKeys(GroupMatcher.anyJobGroup()).size();
         jobs.init();
@@ -196,7 +201,8 @@ public class AttributionQuartzMySqlTest {
 
         // Reapplying the registration SQL must preserve an operator's cron, batch and paused state.
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V591__line9_attribution_quartz.sql")).execute(source);
-        assertEquals(2, attributionJobs().size());
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V592__line9_evidence_cleanup_jobs.sql")).execute(source);
+        assertEquals(4, attributionJobs().size());
         SysJob preserved = jobMapper.selectJobById(expiry.getJobId());
         assertEquals(expiry.getCronExpression(), preserved.getCronExpression());
         assertEquals(expiry.getInvokeTarget(), preserved.getInvokeTarget());
@@ -242,6 +248,32 @@ public class AttributionQuartzMySqlTest {
         assertEquals(Long.valueOf(2), jdbc.queryForObject("SELECT COUNT(*) FROM cps_attribution WHERE order_line_id=?", Long.class, expiredOrder));
         assertEquals(Long.valueOf(1), jdbc.queryForObject("SELECT COUNT(*) FROM cps_attribution_settlement_outbox WHERE order_line_id=?", Long.class, claimedOrder));
         assertEquals(Long.valueOf(0), jdbc.queryForObject("SELECT COUNT(*) FROM sys_commission_flow", Long.class));
+    }
+
+    @Test public void cleanupJobsRemoveOnlyEvidencePastItsRetentionPeriod() throws Exception {
+        Instant now = AttributionData.now(jdbc);
+        String oldToken = "a".repeat(32), retainedToken = "b".repeat(32);
+        jdbc.update("INSERT INTO cps_attribution_token(token,platform,item_id,user_id,issued_at,expires_at) VALUES (?,'JD','TEST_ITEM',?,?,?)",
+            oldToken, USER, Timestamp.from(now.minusSeconds(60L * 86400)), Timestamp.from(now.minusSeconds(40L * 86400)));
+        jdbc.update("INSERT INTO cps_attribution_token(token,platform,item_id,user_id,issued_at,expires_at) VALUES (?,'JD','TEST_ITEM',?,?,?)",
+            retainedToken, USER, Timestamp.from(now.minusSeconds(4L * 86400)), Timestamp.from(now.minusSeconds(2L * 86400)));
+        long orphanLease = 987654321L;
+        jdbc.update("INSERT INTO cps_pid_conversion_state(lease_id,published) VALUES (?,FALSE)", orphanLease);
+        jdbc.update("INSERT INTO cps_pid_conversion_attempt(attempt_id,lease_id,created_at) VALUES (?,?,?)", "c".repeat(32), orphanLease, Timestamp.from(now));
+        List<SysJob> registered = attributionJobs();
+        for (String method : List.of("cleanupTokens", "cleanupReservations")) {
+            SysJob job = named(registered, method);
+            job.setCronExpression("0 0 0 1 1 ? 2099");
+            job.setStatus("0");
+            ScheduleUtils.createScheduleJob(scheduler, job);
+        }
+        scheduler.start();
+        runAndAwait(named(registered, "cleanupTokens"));
+        runAndAwait(named(registered, "cleanupReservations"));
+        assertEquals(Long.valueOf(0), jdbc.queryForObject("SELECT COUNT(*) FROM cps_attribution_token WHERE token=?", Long.class, oldToken));
+        assertEquals(Long.valueOf(1), jdbc.queryForObject("SELECT COUNT(*) FROM cps_attribution_token WHERE token=?", Long.class, retainedToken));
+        assertEquals(Long.valueOf(0), jdbc.queryForObject("SELECT COUNT(*) FROM cps_pid_conversion_state WHERE lease_id=?", Long.class, orphanLease));
+        assertEquals(Long.valueOf(0), jdbc.queryForObject("SELECT COUNT(*) FROM cps_pid_conversion_attempt WHERE lease_id=?", Long.class, orphanLease));
     }
 
     private void runAndAwait(SysJob job) throws Exception {

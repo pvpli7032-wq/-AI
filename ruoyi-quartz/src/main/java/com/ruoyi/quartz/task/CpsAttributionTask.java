@@ -12,12 +12,18 @@ public class CpsAttributionTask {
     private static final Logger LOG = LoggerFactory.getLogger(CpsAttributionTask.class);
     private final IntUnaryOperator expireUnclaimed;
     private final IntUnaryOperator retrySettlement;
+    private final IntUnaryOperator cleanupTokens;
+    private final IntUnaryOperator cleanupReservations;
 
     public CpsAttributionTask(
             @Qualifier("cpsExpireUnclaimedOperation") IntUnaryOperator expireUnclaimed,
-            @Qualifier("cpsRetryAttributionSettlementOperation") IntUnaryOperator retrySettlement) {
+            @Qualifier("cpsRetryAttributionSettlementOperation") IntUnaryOperator retrySettlement,
+            @Qualifier("cpsCleanupAttributionTokensOperation") IntUnaryOperator cleanupTokens,
+            @Qualifier("cpsCleanupPidReservationsOperation") IntUnaryOperator cleanupReservations) {
         this.expireUnclaimed = expireUnclaimed;
         this.retrySettlement = retrySettlement;
+        this.cleanupTokens = cleanupTokens;
+        this.cleanupReservations = cleanupReservations;
     }
 
     // JobInvokeUtil resolves numeric arguments as Integer.class, not int.class.
@@ -29,6 +35,16 @@ public class CpsAttributionTask {
     public void retrySettlement(Integer batchSize) {
         int delivered = retrySettlement.applyAsInt(validateBatchSize(batchSize));
         LOG.info("Attribution settlement retry completed: delivered={}", delivered);
+    }
+
+    public void cleanupTokens(Integer batchSize) {
+        int removed = cleanupTokens.applyAsInt(validateBatchSize(batchSize));
+        LOG.info("Attribution token cleanup completed: removed={}", removed);
+    }
+
+    public void cleanupReservations(Integer batchSize) {
+        int removed = cleanupReservations.applyAsInt(validateBatchSize(batchSize));
+        LOG.info("Expired PID reservation cleanup completed: removed={}", removed);
     }
 
     private int validateBatchSize(Integer batchSize) {

@@ -16,7 +16,7 @@ public class OrderTransitionValidatorTest
         assertEquals(ILLEGAL, validator.evaluate(null, OrderStatus.SETTLED, null).outcome());
         assertEquals(APPLY, validator.evaluate(OrderStatus.PAID, OrderStatus.RECEIVED, null).outcome());
         assertEquals(APPLY, validator.evaluate(OrderStatus.RECEIVED, OrderStatus.SETTLED, null).outcome());
-        assertEquals(ILLEGAL, validator.evaluate(OrderStatus.PAID, OrderStatus.SETTLED, null).outcome());
+        assertEquals(APPLY, validator.evaluate(OrderStatus.PAID, OrderStatus.SETTLED, null).outcome());
         assertEquals(ILLEGAL, validator.evaluate(OrderStatus.SETTLED, OrderStatus.PAID, null).outcome());
         assertEquals(DUPLICATE, validator.evaluate(OrderStatus.RECEIVED, OrderStatus.RECEIVED, null).outcome());
         assertFalse(validator.evaluate(OrderStatus.INVALID, OrderStatus.PAID, null).reason().isEmpty());

@@ -15,6 +15,11 @@ public interface OrderEventMapper
     @Select("SELECT line_snapshot FROM cps_order_event_outbox WHERE event_key=#{key}")
     String selectSnapshot(String key);
 
+    /** First refund freezes its pre-refund commission basis, including an explicitly missing basis. */
+    @Select("SELECT o.line_snapshot FROM cps_order_event_outbox o JOIN cps_order_event e ON e.id=o.event_id "
+        + "WHERE e.order_line_id=#{orderId} AND e.to_status IN ('PARTIAL_REFUND','FULL_REFUND') ORDER BY o.id LIMIT 1")
+    String selectFirstRefundSnapshot(long orderId);
+
     @Insert("INSERT INTO cps_order_event(event_key,order_line_id,from_status,to_status,previous_status,source,raw_id,created_at) "
         + "VALUES(#{eventKey},#{orderLineId},#{fromStatus},#{toStatus},#{previous},#{source},#{rawId},#{occurredAt})")
     @Options(useGeneratedKeys=true,keyProperty="eventId")
@@ -23,7 +28,7 @@ public interface OrderEventMapper
     @Insert("INSERT INTO cps_order_event_outbox(event_id,event_key,line_snapshot,occurred_second,occurred_nano,created_at) VALUES(#{eventId},#{eventKey}, "
         + "JSON_OBJECT('platform',#{platform},'orderNo',#{orderNo},'subOrderNo',#{subOrderNo},'itemId',#{itemId}, "
         + "'pid',#{pid},'attributionToken',#{token},'paidAmount',#{paidAmount},'estimatedCommission',#{estimated}, "
-        + "'actualCommission',#{actual},'rawStatus',#{rawStatus},'paidAt',#{paidAtText},'receivedAt',#{receivedAtText},'settledAt',#{settledAtText}),#{seconds},#{nanos},CURRENT_TIMESTAMP(3))")
+        + "'actualCommission',#{actual},'recoveredAmount',#{recovered},'refundBasisAmount',#{refundBasis},'cumulativeRecovery',#{cumulativeRecovery},'recoveryEvidence',#{recoveryEvidence},'rawStatus',#{rawStatus},'paidAt',#{paidAtText},'receivedAt',#{receivedAtText},'settledAt',#{settledAtText}),#{seconds},#{nanos},CURRENT_TIMESTAMP(3))")
     int enqueue(Map<String, Object> event);
 
     @Select("SELECT o.id,o.event_key,o.line_snapshot,o.attempt_count,o.attribution_done,o.settlement_done,o.occurred_second,o.occurred_nano,e.order_line_id,e.from_status,e.to_status,e.previous_status,e.source,e.raw_id,e.created_at,r.payload_text AS raw_response_json "

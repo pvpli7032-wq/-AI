@@ -251,6 +251,14 @@ public final class DtkAdditionalOrderCollectionFeed implements OrderCollectionFe
             ingestion.recordSourceException(raw.id(), "淘宝维权推广者与原订单PID无法核验"); return null;
         }
         String code = text(row, "refundStatus", "refund_status");
+        // DTK id=87: 14/15 deduct from the SELLER, not the affiliate. Keep evidence and
+        // compensation pending; neither an order event nor any rebate recovery is authorized.
+        if ("14".equals(code) || "15".equals(code)) {
+            ingestion.recordSourceException(raw.id(), "淘宝维权refund_status=" + code
+                + ("14".equals(code) ? "：卖家侧补扣等待" : "：卖家侧补扣成功")
+                + "，不是淘客佣金追回；仅留证不动返利，窗口待补偿");
+            return null;
+        }
         OrderStatus target = DtkOrderSemantics.tbkRefund(code, number(row, "refundFee", "refund_fee"),
             number(row, "tbTradeFinishPrice", "tb_trade_finish_price"));
         if (target == null && !"3".equals(code)) {

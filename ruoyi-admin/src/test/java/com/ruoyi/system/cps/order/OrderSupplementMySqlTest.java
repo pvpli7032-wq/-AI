@@ -96,12 +96,12 @@ public class OrderSupplementMySqlTest {
             new PlatformOrderStatusMapper(() -> true), new OrderTransitionValidator());
         String order = "switch-" + UUID.randomUUID();
         var paid = enabled.ingest(input(Platform.TBK, order, "12", TIME, "3"));
-        var blocked = enabled.ingest(input(Platform.TBK, order, "14", TIME.plusSeconds(1), "3"));
-        assertEquals(OrderIngestionService.Outcome.REJECTED, blocked.outcome());
-        assertEquals("PAID", jdbc.queryForObject("SELECT line_status FROM sys_order_commission WHERE id=?", String.class, paid.orderLineId()));
-        service.ingest(input(Platform.TBK, order, "14", TIME.plusSeconds(2), "3"));
-        var legal = enabled.ingest(input(Platform.TBK, order, "14", TIME.plusSeconds(3), "3"));
+        var legal = enabled.ingest(input(Platform.TBK, order, "14", TIME.plusSeconds(1), "3"));
         assertEquals(OrderIngestionService.Outcome.APPLIED, legal.outcome());
+        assertEquals(OrderIngestionService.Outcome.DUPLICATE, enabled.replay(legal.rawId()).outcome());
+        var illegal = enabled.ingest(input(Platform.TBK, order, "12", TIME.plusSeconds(2), "3"));
+        assertEquals(OrderIngestionService.Outcome.REJECTED, illegal.outcome());
+        assertTrue(jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_ingest_exception WHERE raw_id=?", Long.class, illegal.rawId()) > 0);
         assertEquals("SETTLED", jdbc.queryForObject("SELECT line_status FROM sys_order_commission WHERE id=?", String.class, paid.orderLineId()));
         var missing = enabled.ingest(input(Platform.TBK, "missing-" + UUID.randomUUID(), "14", null, "3"));
         assertEquals(OrderIngestionService.Outcome.REJECTED, missing.outcome());

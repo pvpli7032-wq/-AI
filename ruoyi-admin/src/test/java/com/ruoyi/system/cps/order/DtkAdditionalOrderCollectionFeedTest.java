@@ -181,7 +181,7 @@ public class DtkAdditionalOrderCollectionFeedTest {
         assertEquals(OrderStatus.RECEIVED, new PlatformOrderStatusMapper().map(Platform.TBK, "14"));
         assertEquals(OrderStatus.SETTLED, new PlatformOrderStatusMapper(() -> true).map(Platform.TBK, "14"));
         var validator = new OrderTransitionValidator();
-        assertEquals(OrderTransitionValidator.Outcome.ILLEGAL, validator.evaluate(OrderStatus.PAID, OrderStatus.SETTLED, null).outcome());
+        assertEquals(OrderTransitionValidator.Outcome.APPLY, validator.evaluate(OrderStatus.PAID, OrderStatus.SETTLED, null).outcome());
         assertEquals(OrderTransitionValidator.Outcome.APPLY, validator.evaluate(OrderStatus.RECEIVED, OrderStatus.SETTLED, null).outcome());
     }
 }

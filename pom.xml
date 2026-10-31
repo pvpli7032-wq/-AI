@@ -36,6 +36,7 @@
         <cn.hutool_hutool-all.version>5.8.35</cn.hutool_hutool-all.version>
         <knife4j.version>2.0.3</knife4j.version>
         <weixin-java-miniapp.version>4.5.0</weixin-java-miniapp.version>
+        <archunit.version>1.4.1</archunit.version>
     </properties>
 
     <!-- 依赖声明 -->
@@ -201,6 +202,13 @@
                 <groupId>com.github.binarywang</groupId>
                 <artifactId>weixin-java-miniapp</artifactId>
                 <version>${weixin-java-miniapp.version}</version>
+            </dependency>
+
+            <!-- 架构规则测试（ArchUnit 核心库，配合项目现有的 JUnit 4） -->
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit</artifactId>
+                <version>${archunit.version}</version>
             </dependency>
 
             <!-- knife4j

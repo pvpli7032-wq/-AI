@@ -216,3 +216,40 @@ jobs:
           test "$(mysql_query "SELECT COUNT(*) FROM sys_user WHERE user_id = 1 AND user_name = 'admin' AND pwd_update_date IS NULL")" = 1
           mysql_query 'SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank'
           kill -0 "$app_pid"
+
+  scope-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Prepare scope rules and scripts from the base branch
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/scope-tools"
+          mkdir -p "$tools/scripts" "$tools/.github"
+          # Use the base version so a PR cannot loosen its own rules.
+          # Fall back to the PR's own copy only when base has none (the PR that introduces them).
+          for f in scripts/check-pr-scope.sh scripts/check-pr-scope.test.sh .github/pr-scope.conf; do
+            if git cat-file -e "$BASE_SHA:$f" 2>/dev/null; then
+              git show "$BASE_SHA:$f" > "$tools/$f"
+            else
+              echo "::notice::$f does not exist on base ($BASE_SHA); using the PR's own copy. This is expected only for the PR that introduces the scope check."
+              cp "$f" "$tools/$f"
+            fi
+          done
+      - name: Run scope check self-test
+        run: bash "$RUNNER_TEMP/scope-tools/scripts/check-pr-scope.test.sh"
+      - name: Check PR scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
+        run: |
+          bash "$RUNNER_TEMP/scope-tools/scripts/check-pr-scope.sh" \
+            "$BASE_SHA" "$HEAD_SHA" "$BRANCH_NAME" "$RUNNER_TEMP/scope-tools/.github/pr-scope.conf"

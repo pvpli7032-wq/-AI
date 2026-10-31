@@ -37,7 +37,10 @@ public final class OrderEventDispatcher
         try
         {
             Map<String, Object> row = claim.event();
-            UnionOrderLine line = decode(String.valueOf(row.get("line_snapshot")));
+            Instant occurred = Instant.ofEpochSecond(((Number)row.get("occurred_second")).longValue(),
+                ((Number)row.get("occurred_nano")).longValue());
+            UnionOrderLine line = decode(String.valueOf(row.get("line_snapshot")),
+                (String) row.get("raw_response_json"), occurred);
             Long orderId = ((Number) row.get("order_line_id")).longValue();
             OrderStatus from = status(row.get("from_status"));
             if (!flag(row.get("attribution_done")))
@@ -51,8 +54,6 @@ public final class OrderEventDispatcher
             }
             if (!flag(row.get("settlement_done")))
             {
-                Instant occurred = Instant.ofEpochSecond(((Number)row.get("occurred_second")).longValue(),
-                    ((Number)row.get("occurred_nano")).longValue());
                 Long rawId = row.get("raw_id") == null ? null : ((Number)row.get("raw_id")).longValue();
                 settlement.onOrderEvent(new OrderEvent((String)row.get("event_key"), orderId, line, from,
                     status(row.get("to_status")), status(row.get("previous_status")), null,
@@ -72,7 +73,7 @@ public final class OrderEventDispatcher
         }
     }
 
-    private static UnionOrderLine decode(String snapshot)
+    private static UnionOrderLine decode(String snapshot, String rawJson, Instant allianceStatusTime)
     {
         JSONObject data = JSON.parseObject(snapshot);
         if (data == null) throw new IllegalArgumentException("订单快照无效");
@@ -80,7 +81,7 @@ public final class OrderEventDispatcher
             data.getString("orderNo"), data.getString("subOrderNo"), data.getString("itemId"),
             data.getString("pid"), data.getString("attributionToken"), money(data, "paidAmount"),
             money(data, "estimatedCommission"), money(data, "actualCommission"), data.getString("rawStatus"),
-            instant(data, "paidAt"), instant(data, "receivedAt"), instant(data, "settledAt"));
+            instant(data, "paidAt"), instant(data, "receivedAt"), instant(data, "settledAt"), rawJson, allianceStatusTime);
     }
     private static BigDecimal money(JSONObject value, String key) { return value.getBigDecimal(key); }
     private static Instant instant(JSONObject value, String key)

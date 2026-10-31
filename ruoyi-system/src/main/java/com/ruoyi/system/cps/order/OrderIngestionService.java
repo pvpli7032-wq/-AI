@@ -57,6 +57,10 @@ public class OrderIngestionService
             || input.line() == null || input.line().platform() == null)
             throw new IllegalArgumentException("必须提供联盟原始响应、平台和抓取时间");
         long rawId = retainRaw(input.line().platform(), input.rawJson(), input.fetchedAt());
+        independent.executeWithoutResult(status -> {
+            if (raw.appendInput(Map.of("rawId", rawId, "input", JSON.toJSONString(input))) != 1)
+                throw new IllegalStateException("订单重放输入保存失败");
+        });
         try
         {
             return independent.execute(status -> process(rawId, input));
@@ -67,6 +71,15 @@ public class OrderIngestionService
             recordException(rawId, null, null, "入站处理失败，保留原文待重放");
             return new Result(rawId, null, null, Outcome.REJECTED);
         }
+    }
+
+    /** Reprocess immutable original evidence; never accepts replacement time/status/money from an operator. */
+    public Result replay(long rawId)
+    {
+        if (rawId <= 0) throw new IllegalArgumentException("原始记录ID无效");
+        String snapshot = raw.selectInput(rawId);
+        if (snapshot == null) throw new IllegalArgumentException("该原始记录没有可重放的订单行，需重新采集解析");
+        return ingest(JSON.parseObject(snapshot, IncomingOrder.class));
     }
 
     /** Retain actual provider text before deferring an unsupported case for retry. */

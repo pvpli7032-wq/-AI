@@ -26,8 +26,8 @@ public interface OrderEventMapper
         + "'actualCommission',#{actual},'rawStatus',#{rawStatus},'paidAt',#{paidAtText},'receivedAt',#{receivedAtText},'settledAt',#{settledAtText}),#{seconds},#{nanos},CURRENT_TIMESTAMP(3))")
     int enqueue(Map<String, Object> event);
 
-    @Select("SELECT o.id,o.event_key,o.line_snapshot,o.attempt_count,o.attribution_done,o.settlement_done,o.occurred_second,o.occurred_nano,e.order_line_id,e.from_status,e.to_status,e.previous_status,e.raw_id,e.created_at "
-        + "FROM cps_order_event_outbox o JOIN cps_order_event e ON e.id=o.event_id "
+    @Select("SELECT o.id,o.event_key,o.line_snapshot,o.attempt_count,o.attribution_done,o.settlement_done,o.occurred_second,o.occurred_nano,e.order_line_id,e.from_status,e.to_status,e.previous_status,e.raw_id,e.created_at,r.payload_text AS raw_response_json "
+        + "FROM cps_order_event_outbox o JOIN cps_order_event e ON e.id=o.event_id LEFT JOIN cps_order_raw r ON r.id=e.raw_id "
         + "WHERE (o.status='PENDING' OR (o.status='PROCESSING' AND o.lease_until < CURRENT_TIMESTAMP(3))) "
         + "AND NOT EXISTS (SELECT 1 FROM cps_order_event_outbox prior JOIN cps_order_event pe ON pe.id=prior.event_id "
         + "WHERE pe.order_line_id=e.order_line_id AND prior.id<o.id AND prior.status <> 'DISPATCHED') "

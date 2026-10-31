@@ -24,6 +24,7 @@
         <result property="recipientHash" column="recipient_hash"/>
         <result property="reviewReasons" column="review_reasons"/>
         <result property="policySnapshot" column="policy_snapshot"/>
+        <result property="autoPayEligible" column="auto_pay_eligible"/>
     </resultMap>
     <resultMap id="recipient" type="com.ruoyi.system.cps.withdraw.WithdrawalRecipient">
         <id property="id" column="id"/>
@@ -73,13 +74,13 @@
     </select>
     <insert id="insertWithdrawal" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO cps_withdrawal(withdraw_no,user_id,amount,fee,status,channel,request_key,
-            recipient_id,recipient_name,recipient_account,recipient_hash,review_reasons,policy_snapshot,created_at,updated_at,audit_at)
+            recipient_id,recipient_name,recipient_account,recipient_hash,review_reasons,policy_snapshot,created_at,updated_at,audit_at,auto_pay_eligible)
         VALUES(#{withdrawNo},#{userId},#{amount},#{fee},#{status},#{channel},#{requestKey},
-            #{recipientId},#{recipientName},#{recipientAccount},#{recipientHash},#{reviewReasons},#{policySnapshot},#{createdAt},#{updatedAt},#{auditAt})
+            #{recipientId},#{recipientName},#{recipientAccount},#{recipientHash},#{reviewReasons},#{policySnapshot},#{createdAt},#{updatedAt},#{auditAt},#{autoPayEligible})
     </insert>
     <update id="updateWithdrawal">
         UPDATE cps_withdrawal SET status=#{status},channel_no=#{channelNo},audit_by=#{auditBy},audit_at=#{auditAt},
-            fail_reason=#{failReason},review_reasons=#{reviewReasons},submitted_at=#{submittedAt},completed_at=#{completedAt},updated_at=#{updatedAt}
+            fail_reason=#{failReason},review_reasons=#{reviewReasons},submitted_at=#{submittedAt},completed_at=#{completedAt},updated_at=#{updatedAt},auto_pay_eligible=#{autoPayEligible}
         WHERE id=#{id}
     </update>
     <select id="selectPolicy" resultType="String" useCache="false" flushCache="true">SELECT config FROM cps_withdraw_policy WHERE id=1</select>
@@ -105,6 +106,9 @@
         <if test="from != null">AND created_at &gt;=#{from} AND created_at &lt;#{to}</if>
     </select>
     <select id="countSuccess" resultType="long">SELECT COUNT(*) FROM cps_withdrawal WHERE user_id=#{userId} AND status='SUCCEEDED'</select>
+    <select id="countRequestsBefore" resultType="long" useCache="false" flushCache="true">
+        SELECT COUNT(*) FROM cps_withdrawal WHERE user_id=#{userId} AND id &lt;#{id}
+    </select>
     <select id="countRecipientRequests" resultType="long" useCache="false" flushCache="true">
         SELECT COUNT(*) FROM cps_withdrawal WHERE recipient_hash=#{hash} AND created_at &gt;=#{from} AND created_at &lt;#{to}
     </select>
@@ -145,6 +149,10 @@
     <select id="pending" resultType="String">
         SELECT withdraw_no FROM cps_withdrawal WHERE id &gt;#{afterId} AND status IN('SUBMITTING','PROCESSING','UNKNOWN','AWAITING_CONFIRMATION','TIMED_OUT')
         ORDER BY id LIMIT #{limit}
+    </select>
+    <select id="automaticPending" resultMap="withdrawal" useCache="false" flushCache="true">
+        SELECT * FROM cps_withdrawal WHERE id &gt;#{afterId} AND status='APPROVED'
+            AND auto_pay_eligible=TRUE AND audit_by IS NULL ORDER BY id LIMIT #{limit}
     </select>
     <insert id="audit">
         INSERT INTO cps_withdraw_audit(withdraw_no,user_id,action,from_status,to_status,operator_id,reason,created_at)

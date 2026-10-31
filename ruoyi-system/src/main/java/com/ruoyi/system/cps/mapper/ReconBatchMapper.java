@@ -30,6 +30,15 @@ public interface ReconBatchMapper {
     int completeBatch(@Param("id") Long id, @Param("diffCount") int diffCount);
     List<ReconBatch> selectBatches(@Param("platform") String platform, @Param("period") String period);
     List<String> selectConfigValues(@Param("key") String key);
+    List<ExposureConfigValue> selectExposureConfigValues();
+    int insertExposureConfig(@Param("key") String key, @Param("name") String name,
+        @Param("value") String value, @Param("operatorId") long operatorId);
+    int updateExposureConfig(@Param("key") String key, @Param("value") String value,
+        @Param("operatorId") long operatorId);
+    int appendExposurePolicyAudit(@Param("operatorId") long operatorId,
+        @Param("beforeJson") String beforeJson, @Param("afterJson") String afterJson);
+    ExposureSchedule lockExposureSchedule();
+    int completeExposureCapture(@Param("capturedAt") java.time.LocalDateTime capturedAt);
     int appendExposure(@Param("platform") String platform, @Param("amount") java.math.BigDecimal amount);
     java.math.BigDecimal peakExposure(@Param("platform") String platform);
 }

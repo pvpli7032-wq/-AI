@@ -21,7 +21,7 @@ public record WithdrawalPolicy(boolean enabled, String channel, ZoneId businessT
     BigDecimal realNameSingle, BigDecimal realNameMonthly, IdentityAction identityAction,
     BigDecimal reviewAmount, long reviewFirstCount, FirstCountBasis firstCountBasis,
     BigDecimal channelSingle, BigDecimal channelDaily, BigDecimal channelUserDaily,
-    Map<String, List<ReviewRule>> groups, String snapshot) {
+    Map<String, List<ReviewRule>> groups, boolean autoPayEnabled, BigDecimal autoPayBelowAmount, String snapshot) {
 
     public enum Metric { AMOUNT, WITHDRAWAL_COUNT, DISPUTE_COUNT, SETTLED_COUNT, FIRST_COMMISSION_RATIO }
     public enum Comparison { GTE, LTE, GT, LT }
@@ -46,6 +46,7 @@ public record WithdrawalPolicy(boolean enabled, String channel, ZoneId businessT
             if (json == null || !Boolean.TRUE.equals(json.get("enabled"))) {
                 throw new ServiceException("提现申请暂未开放");
             }
+            normalizeAutomaticSettings(json);
             String channel = requiredText(json, "channel");
             if (!channel.matches("[a-z][a-z0-9_-]{0,31}")) throw new IllegalArgumentException("channel");
             ZoneId zone = ZoneId.of(requiredText(json, "businessTimezone"));
@@ -92,7 +93,8 @@ public record WithdrawalPolicy(boolean enabled, String channel, ZoneId businessT
                 Set.copyOf(days), bool(json, "integerOnly"), bool(json, "requireReceivedOrder"),
                 realNameSingle, realNameMonthly, identityAction, money(json, "reviewAmount"),
                 firstCount, firstBasis, money(json, "channelSingle"), money(json, "channelDaily"),
-                money(json, "channelUserDaily"), Map.copyOf(groups), snapshot.toJSONString());
+                money(json, "channelUserDaily"), Map.copyOf(groups), bool(json, "autoPayEnabled"),
+                money(json, "autoPayBelowAmount"), snapshot.toJSONString());
         } catch (ServiceException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -103,6 +105,27 @@ public record WithdrawalPolicy(boolean enabled, String channel, ZoneId businessT
     public static WithdrawalPolicy fromSnapshot(String snapshot) {
         JSONObject json = JSON.parseObject(snapshot);
         return parse(snapshot, json.getString("minimumAtApplication"));
+    }
+
+    /** Old policies and snapshots remain safe: automatic payment is explicitly opt-in. */
+    public static void normalizeAutomaticSettings(JSONObject json) {
+        try {
+            if (!json.containsKey("autoPayEnabled")) json.put("autoPayEnabled", false);
+            if (!json.containsKey("autoPayBelowAmount")) json.put("autoPayBelowAmount", "0.00");
+            bool(json, "autoPayEnabled");
+            json.put("autoPayBelowAmount", money(json, "autoPayBelowAmount"));
+        } catch (RuntimeException e) {
+            throw new ServiceException("自动打款开关必须为布尔值，额度必须为非负的两位小数金额");
+        }
+    }
+
+    public boolean permitsAutomaticPayment(BigDecimal amount) {
+        return autoPayEnabled && autoPayBelowAmount.signum() > 0 && amount.compareTo(autoPayBelowAmount) < 0;
+    }
+
+    public String automaticReviewReason(BigDecimal amount) {
+        if (!autoPayEnabled || autoPayBelowAmount.signum() == 0) return "AUTO_PAY_DISABLED";
+        return amount.compareTo(autoPayBelowAmount) >= 0 ? "AUTO_PAY_THRESHOLD" : null;
     }
 
     public static BigDecimal requestedAmount(BigDecimal value) {

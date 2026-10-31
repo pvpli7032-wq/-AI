@@ -64,12 +64,12 @@ public class WithdrawalService {
         if (request == null || request.requestId() == null || !request.requestId().matches("[A-Za-z0-9_-]{8,100}"))
             throw new ServiceException("请提供8至100位唯一requestId，重试必须沿用原值");
         BigDecimal amount = WithdrawalPolicy.requestedAmount(request.amount());
-        return transactions.execute(tx -> {
+        WithdrawalRecord applied = transactions.execute(tx -> {
             admissionLock();
             WithdrawalRecord replay = mapper.findByRequest(userId, request.requestId());
             if (replay != null) {
                 if (replay.getAmount().compareTo(amount) != 0) throw new ServiceException("requestId已用于不同金额");
-                return WithdrawalView.of(replay);
+                return replay;
             }
             ledger();
             WithdrawalPolicy policy = policy();
@@ -113,6 +113,8 @@ public class WithdrawalService {
                 review.add("IDENTITY_REVIEW");
             }
             if (channel(policy.channel()) == null) review.add("CHANNEL_UNAVAILABLE");
+            String automaticReview = policy.automaticReviewReason(amount);
+            if (automaticReview != null) review.add(automaticReview);
             WithdrawalRecord row = new WithdrawalRecord();
             row.setWithdrawNo("WD" + UUID.randomUUID().toString().replace("-", ""));
             row.setUserId(userId); row.setAmount(amount); row.setFee(new BigDecimal("0.00"));
@@ -122,12 +124,20 @@ public class WithdrawalService {
             row.setReviewReasons(JSON.toJSONString(review)); row.setPolicySnapshot(policy.snapshot());
             row.setCreatedAt(now()); row.setUpdatedAt(now());
             row.setStatus(review.isEmpty() ? WithdrawalStatus.APPROVED : WithdrawalStatus.MANUAL_REVIEW);
+            row.setAutoPayEligible(review.isEmpty());
             if (review.isEmpty()) row.setAuditAt(now());
             mapper.insertWithdrawal(row);
             post(row, "WITHDRAW_APPLY", AccountType.USER_AVAILABLE, AccountType.USER_WITHDRAWING, "withdraw", null);
             audit(row, "APPLY", null, null, "申请提现；审核原因=" + String.join(",", review));
-            return WithdrawalView.of(row);
+            if (row.getAutoPayEligible()) audit(row, "AUTO_APPROVE", null, null,
+                "金额严格低于自动打款额度且通过全部检查");
+            return row;
         });
+        // The reservation and approval are committed before any external payment call.
+        // A crash here leaves an explicit automatic candidate for the recovery job.
+        if (applied.getStatus() == WithdrawalStatus.APPROVED && applied.getAutoPayEligible())
+            return payAutomatically(applied.getWithdrawNo());
+        return WithdrawalView.of(applied);
     }
 
     public WithdrawalView audit(String withdrawNo, boolean approve, long operatorId, String reason) {
@@ -136,7 +146,8 @@ public class WithdrawalService {
         return transactions.execute(tx -> {
             admissionLock();
             WithdrawalRecord row = lock(withdrawNo);
-            if (approve && row.getStatus() == WithdrawalStatus.APPROVED) return WithdrawalView.of(row);
+            if (approve && row.getStatus() == WithdrawalStatus.APPROVED && row.getAuditBy() != null)
+                return WithdrawalView.of(row);
             if (!approve && row.getStatus() == WithdrawalStatus.REJECTED) return WithdrawalView.of(row);
             if (row.getStatus() != WithdrawalStatus.MANUAL_REVIEW && row.getStatus() != WithdrawalStatus.APPROVED)
                 throw new ServiceException("当前提现状态不允许审核或退回");
@@ -156,6 +167,7 @@ public class WithdrawalService {
                 row.setStatus(WithdrawalStatus.REJECTED); row.setCompletedAt(now());
             }
             row.setAuditBy(operatorId); row.setAuditAt(now()); row.setUpdatedAt(now());
+            row.setAutoPayEligible(false);
             row.setFailReason(approve ? null : auditReason);
             mapper.updateWithdrawal(row);
             audit(row, approve ? "APPROVE" : "REJECT", previous, operatorId, auditReason);
@@ -167,54 +179,93 @@ public class WithdrawalService {
 
     public WithdrawalView pay(String withdrawNo, long operatorId) {
         validUser(operatorId);
+        return executePayment(withdrawNo, operatorId, false);
+    }
+
+    /** System-only entry point. A human approval is never consumed by the automatic worker. */
+    public WithdrawalView payAutomatically(String withdrawNo) {
+        return executePayment(withdrawNo, null, true);
+    }
+
+    private WithdrawalView executePayment(String withdrawNo, Long operatorId, boolean automatic) {
         Submission claim = transactions.execute(tx -> {
             admissionLock();
             WithdrawalRecord row = lock(withdrawNo);
             if (row.getStatus().terminal() || row.getStatus().submitted()) return new Submission(row, false);
+            if (automatic && (row.getStatus() != WithdrawalStatus.APPROVED || !row.getAutoPayEligible()
+                    || row.getAuditBy() != null)) return new Submission(row, false);
             if (row.getStatus() != WithdrawalStatus.APPROVED) throw new ServiceException("提现尚未审核通过");
             ledger();
-            WithdrawalPolicy currentPolicy = policy(); // Disabled policy stops submissions, never result queries.
-            WithdrawalAccount account = activeAccount(row.getUserId());
-            if (account.balance().signum() < 0) throw new ServiceException("负余额未结清，不能提现");
+            boolean automaticApproval = row.getAuditBy() == null;
+            if (automaticApproval && !row.getAutoPayEligible())
+                return holdForReview(row, "APPROVAL_REQUIRED", operatorId, "既有申请需要明确的人工审核");
+            WithdrawalPolicy currentPolicy;
+            try {
+                currentPolicy = policy(); // Disabled policy stops submissions, never result queries.
+                WithdrawalAccount account = activeAccount(row.getUserId());
+                if (account.balance().signum() < 0) throw new ServiceException("负余额未结清，不能提现");
+            } catch (ServiceException e) {
+                if (automaticApproval) return holdForReview(row, "AUTO_PAY_RECHECK_FAILED", operatorId,
+                    "自动打款前策略或账户检查未通过");
+                throw e;
+            }
+            if (automaticApproval && !currentPolicy.permitsAutomaticPayment(row.getAmount()))
+                return holdForReview(row, currentPolicy.automaticReviewReason(row.getAmount()), operatorId,
+                    "自动打款开关或额度已变化，转人工审核");
             var riskDecision = risk.evaluateWithdrawal(row.getUserId());
             var exposureDecision = exposure.evaluateWithdrawal(row.getAmount());
-            if (riskDecision.blocked() || exposureDecision.blocked())
+            if (riskDecision.blocked() || exposureDecision.blocked()) {
+                if (automaticApproval) return holdForReview(row,
+                    riskDecision.blocked() ? "RISK_REVIEW" : "EXPOSURE_LIMIT_REACHED", operatorId,
+                    "提交前出现账户或敞口限制，转人工审核");
                 throw new ServiceException("账户或敞口限制尚未解除");
+            }
             // A newly raised risk cannot inherit an earlier automatic approval. A risk reviewer
             // must resolve its evidence before payment; withdrawal approval cannot erase a hold.
             if (riskDecision.manualReview() || (exposureDecision.manualReview() && row.getAuditBy() == null)) {
-                addReviewReason(row, riskDecision.manualReview() ? "RISK_REVIEW" : "EXPOSURE_LIMIT_REACHED");
-                // Approval predates this hold and must not authorize a later dispatch.
-                row.setAuditBy(null); row.setAuditAt(null);
-                row.setStatus(WithdrawalStatus.MANUAL_REVIEW); row.setUpdatedAt(now()); mapper.updateWithdrawal(row);
-                audit(row, "REVIEW_REQUIRED", WithdrawalStatus.APPROVED, operatorId, "提交前重新检查触发人工审核");
-                return new Submission(row, false);
+                return holdForReview(row, riskDecision.manualReview() ? "RISK_REVIEW" : "EXPOSURE_LIMIT_REACHED",
+                    operatorId, "提交前重新检查触发人工审核");
             }
-            verifyPayeeSnapshot(row);
-            verifyRequiredIdentity(row);
+            if (automaticApproval) {
+                List<String> changedReasons = automaticReviewReasons(row, currentPolicy);
+                if (!changedReasons.isEmpty()) {
+                    changedReasons.forEach(reason -> addReviewReason(row, reason));
+                    return holdForReview(row, "AUTO_PAY_RECHECK_FAILED", operatorId, "自动打款前审核条件已变化");
+                }
+            }
+            try {
+                verifyPayeeSnapshot(row);
+                verifyRequiredIdentity(row);
+            } catch (ServiceException e) {
+                if (automaticApproval) return holdForReview(row, "RECIPIENT_RECHECK_FAILED", operatorId,
+                    "自动打款前收款资料或实名核验未通过");
+                throw e;
+            }
             WithdrawChannel channel = channel(row.getChannel());
             if (channel == null) {
-                row.setStatus(WithdrawalStatus.MANUAL_REVIEW); row.setUpdatedAt(now());
-                addReviewReason(row, "CHANNEL_UNAVAILABLE"); mapper.updateWithdrawal(row);
-                audit(row, "CHANNEL_UNAVAILABLE", WithdrawalStatus.APPROVED, operatorId, "通道不可用，退回人工审核");
-                return new Submission(row, false);
+                return holdForReview(row, "CHANNEL_UNAVAILABLE", operatorId, "通道不可用，退回人工审核");
             }
             WithdrawalPolicy snapshot = WithdrawalPolicy.fromSnapshot(row.getPolicySnapshot());
             LocalDate today = LocalDate.now(clock.withZone(snapshot.businessTimezone()));
-            channelLimits(snapshot, row.getUserId(), row.getAmount(), utc(today, snapshot), utc(today.plusDays(1), snapshot), true);
-            if (currentPolicy.channel().equals(row.getChannel())) {
-                LocalDate currentDay = LocalDate.now(clock.withZone(currentPolicy.businessTimezone()));
-                channelLimits(currentPolicy, row.getUserId(), row.getAmount(), utc(currentDay, currentPolicy),
-                    utc(currentDay.plusDays(1), currentPolicy), true);
+            try {
+                channelLimits(snapshot, row.getUserId(), row.getAmount(), utc(today, snapshot), utc(today.plusDays(1), snapshot), true);
+                if (currentPolicy.channel().equals(row.getChannel())) {
+                    LocalDate currentDay = LocalDate.now(clock.withZone(currentPolicy.businessTimezone()));
+                    channelLimits(currentPolicy, row.getUserId(), row.getAmount(), utc(currentDay, currentPolicy),
+                        utc(currentDay.plusDays(1), currentPolicy), true);
+                }
+            } catch (ServiceException e) {
+                if (automaticApproval) return holdForReview(row, "CHANNEL_LIMIT_REACHED", operatorId,
+                    "自动打款前通道限额检查未通过");
+                throw e;
             }
+            row.setAutoPayEligible(false);
             row.setStatus(WithdrawalStatus.SUBMITTING); row.setSubmittedAt(now()); row.setUpdatedAt(now());
             mapper.updateWithdrawal(row);
             audit(row, "SUBMIT", WithdrawalStatus.APPROVED, operatorId, "已持久化提交标记；后续仅查询同一提现号");
             return new Submission(row, true);
         });
-        if (claim.row().getStatus().terminal() || claim.row().getStatus() == WithdrawalStatus.MANUAL_REVIEW)
-            return WithdrawalView.of(claim.row());
-        if (!claim.submit()) return query(withdrawNo);
+        if (!claim.submit()) return claim.row().getStatus().submitted() ? query(withdrawNo) : WithdrawalView.of(claim.row());
         PaymentResult result;
         try {
             result = channel(claim.row().getChannel()).submit(new PaymentRequest(withdrawNo, claim.row().getAmount(),
@@ -224,6 +275,30 @@ public class WithdrawalService {
             result = new PaymentResult(withdrawNo, null, PaymentStatus.UNKNOWN, "提交结果不明，只能查询");
         }
         return accept(withdrawNo, result);
+    }
+
+    private Submission holdForReview(WithdrawalRecord row, String reason, Long operatorId, String explanation) {
+        addReviewReason(row, reason);
+        row.setAutoPayEligible(false); row.setAuditBy(null); row.setAuditAt(null);
+        row.setStatus(WithdrawalStatus.MANUAL_REVIEW); row.setUpdatedAt(now());
+        mapper.updateWithdrawal(row);
+        audit(row, "REVIEW_REQUIRED", WithdrawalStatus.APPROVED, operatorId, explanation);
+        return new Submission(row, false);
+    }
+
+    private List<String> automaticReviewReasons(WithdrawalRecord row, WithdrawalPolicy currentPolicy) {
+        List<String> reasons = new ArrayList<>(currentPolicy.reviewReasons(row.getAmount(), mapper.countSuccess(row.getUserId()),
+            mapper.countRequestsBefore(row.getUserId(), row.getId()), mapper.disputeOrders(row.getUserId()),
+            mapper.settledOrders(row.getUserId()), mapper.firstCommissionRatio(row.getUserId()), mapper.userGroup(row.getUserId())));
+        if (!currentPolicy.channel().equals(row.getChannel())) reasons.add("CHANNEL_CHANGED");
+        LocalDate today = LocalDate.now(clock.withZone(currentPolicy.businessTimezone()));
+        BigDecimal monthAmount = mapper.userAmount(row.getUserId(), utc(today.withDayOfMonth(1), currentPolicy),
+            utc(today.withDayOfMonth(1).plusMonths(1), currentPolicy));
+        WithdrawalRecipient recipient = mapper.recipient(row.getUserId(), row.getChannel());
+        if ((WithdrawalPolicy.hit(currentPolicy.realNameSingle(), row.getAmount())
+                || WithdrawalPolicy.hit(currentPolicy.realNameMonthly(), monthAmount))
+                && (recipient == null || !Boolean.TRUE.equals(recipient.getIdentityVerified()))) reasons.add("IDENTITY_REVIEW");
+        return reasons;
     }
 
     public WithdrawalView query(String withdrawNo) {
@@ -309,6 +384,7 @@ public class WithdrawalService {
     }
 
     public Map<String, Object> list(long userId, int page, int size) { validUser(userId); return listRows(userId, null, page, size); }
+    public List<WithdrawalStatus.Option> statusOptions() { return WithdrawalStatus.options(); }
     public Map<String, Object> listAdmin(String status, int page, int size) {
         if (status != null && !status.isBlank()) {
             try { WithdrawalStatus.valueOf(status); } catch (IllegalArgumentException e) { throw new ServiceException("无效提现状态"); }
@@ -343,13 +419,36 @@ public class WithdrawalService {
         }
     }
 
-    public String configuration() { return mapper.selectPolicy(); }
+    /** Recover only committed automatic approvals; submitted rows belong to queryPending(). */
+    public int processAutomatic() {
+        long cursor = 0; int attempted = 0;
+        while (true) {
+            List<WithdrawalRecord> batch = mapper.automaticPending(cursor, 100);
+            if (batch.isEmpty()) return attempted;
+            for (WithdrawalRecord row : batch) {
+                cursor = row.getId();
+                try { payAutomatically(row.getWithdrawNo()); }
+                catch (RuntimeException e) {
+                    transactions.executeWithoutResult(tx -> mapper.audit(row.getWithdrawNo(), row.getUserId(),
+                        "AUTO_PAY_RETRY", null, null, null, "自动打款处理未完成，保留原提现号等待重查", now()));
+                }
+                attempted++;
+            }
+        }
+    }
+
+    public String configuration() {
+        JSONObject config = JSON.parseObject(mapper.selectPolicy());
+        WithdrawalPolicy.normalizeAutomaticSettings(config);
+        return config.toJSONString();
+    }
     public void configure(String json, long operatorId) {
         validUser(operatorId);
         JSONObject parsed;
         try { parsed = JSON.parseObject(json); } catch (RuntimeException e) { throw new ServiceException("配置必须为JSON对象"); }
         if (parsed == null || !(parsed.get("enabled") instanceof Boolean)) throw new ServiceException("必须明确设置enabled");
-        if (Boolean.TRUE.equals(parsed.getBoolean("enabled"))) WithdrawalPolicy.parse(json, mapper.configuration("commission.min.withdraw"));
+        WithdrawalPolicy.normalizeAutomaticSettings(parsed);
+        if (Boolean.TRUE.equals(parsed.getBoolean("enabled"))) WithdrawalPolicy.parse(parsed.toJSONString(), mapper.configuration("commission.min.withdraw"));
         transactions.executeWithoutResult(tx -> {
             admissionLock(); mapper.savePolicy(parsed.toJSONString(), operatorId, now());
             mapper.audit(null, operatorId, "POLICY_CHANGE", null, null, operatorId, "更新提现策略；既有申请保留快照", now());

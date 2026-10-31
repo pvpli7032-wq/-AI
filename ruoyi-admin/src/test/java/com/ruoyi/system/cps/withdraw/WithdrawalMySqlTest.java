@@ -136,6 +136,7 @@ public class WithdrawalMySqlTest {
     public void configureSyntheticPolicyAndDependencies() {
         policy = JSON.parseObject("""
             {"enabled":true,"channel":"mock","businessTimezone":"Asia/Shanghai",
+             "autoPayEnabled":false,"autoPayBelowAmount":"0",
              "maximum":"0","dailyCount":0,"recipientDailyCount":0,"monthlyAmount":"0","monthDays":"0",
              "integerOnly":false,"requireReceivedOrder":false,"realNameSingle":"0","realNameMonthly":"0",
              "reviewAmount":"0","reviewFirstCount":0,"firstCountBasis":"SUCCEEDED","identityAction":"MANUAL_REVIEW",
@@ -196,7 +197,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void approvedIsDistinctFromPaidAndDuplicateSuccessNeverPaysTwice() {
         long user = user("20.00");
-        WithdrawalView applied = service.apply(user, request("20.00", "success"));
+        WithdrawalView applied = applyAndApprove(user, request("20.00", "success"));
         assertEquals(WithdrawalStatus.APPROVED, applied.status());
         assertAccount(user, "0.00", "20.00", "0.00");
         assertEquals(0, channel.submitted.get());
@@ -214,7 +215,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void concurrentPayQueriesThePersistedSubmissionAndPaysOnlyOnce() throws Exception {
         long user = user("20.00");
-        String no = service.apply(user, request("20.00", "concurrent-pay")).withdrawNo();
+        String no = applyAndApprove(user, request("20.00", "concurrent-pay")).withdrawNo();
         channel.next = PaymentStatus.SUCCESS;
         CallGate submission = new CallGate();
         channel.submitGate = submission;
@@ -249,7 +250,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void paymentClaimWinningTheAuditRacePreventsARefundWhileTheChannelIsInFlight() throws Exception {
         long user = user("20.00");
-        String no = service.apply(user, request("20.00", "pay-before-reject")).withdrawNo();
+        String no = applyAndApprove(user, request("20.00", "pay-before-reject")).withdrawNo();
         CallGate submission = new CallGate();
         channel.submitGate = submission;
         ExecutorService pool = Executors.newSingleThreadExecutor();
@@ -283,7 +284,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void rejectionWinningThePaymentRaceRefundsOnceAndPreventsSubmission() throws Exception {
         long user = user("20.00");
-        String no = service.apply(user, request("20.00", "reject-before-pay")).withdrawNo();
+        String no = applyAndApprove(user, request("20.00", "reject-before-pay")).withdrawNo();
         CallGate refund = new CallGate();
         ledger.returnGate = refund;
         ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -319,7 +320,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void submissionTimeoutUsesOriginalNumberAndOnlyQueriesAfterward() {
         long user = user("25.00");
-        WithdrawalView applied = service.apply(user, request("25.00", "timeout"));
+        WithdrawalView applied = applyAndApprove(user, request("25.00", "timeout"));
         channel.next = PaymentStatus.SUCCESS;
         channel.throwAfterSubmit = true;
         assertEquals(WithdrawalStatus.UNKNOWN, service.pay(applied.withdrawNo(), 1L).status());
@@ -336,7 +337,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void processingAndFailedQueriesKeepReservationUntilAConclusiveResult() {
         long user = user("30.00");
-        WithdrawalView applied = service.apply(user, request("30.00", "processing"));
+        WithdrawalView applied = applyAndApprove(user, request("30.00", "processing"));
         channel.next = PaymentStatus.PROCESSING;
         assertEquals(WithdrawalStatus.PROCESSING, service.pay(applied.withdrawNo(), 1L).status());
         channel.throwOnQuery = true;
@@ -353,7 +354,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void definitiveFailureRefundsOnceAndConflictingLateSuccessCannotMutateMoney() {
         long user = user("45.00");
-        WithdrawalView applied = service.apply(user, request("25.00", "failed"));
+        WithdrawalView applied = applyAndApprove(user, request("25.00", "failed"));
         String no = applied.withdrawNo();
         channel.next = PaymentStatus.FAILED;
         assertEquals(WithdrawalStatus.FAILED, service.pay(no, 1L).status());
@@ -386,7 +387,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void lateFailureCannotReverseAnAlreadySuccessfulPayout() throws Exception {
         long user = user("10.00");
-        WithdrawalView applied = service.apply(user, request("10.00", "success-conflict"));
+        WithdrawalView applied = applyAndApprove(user, request("10.00", "success-conflict"));
         String no = applied.withdrawNo();
         channel.next = PaymentStatus.SUCCESS;
         assertEquals(WithdrawalStatus.SUCCEEDED, service.pay(no, 1L).status());
@@ -408,7 +409,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void conflictAlertFailureRollsBackItsAuditAndCanBeRetriedWithoutChangingMoney() {
         long user = user("10.00");
-        String no = service.apply(user, request("10.00", "conflict-alert-rollback")).withdrawNo();
+        String no = applyAndApprove(user, request("10.00", "conflict-alert-rollback")).withdrawNo();
         channel.next = PaymentStatus.SUCCESS;
         assertEquals(WithdrawalStatus.SUCCEEDED, service.pay(no, 1L).status());
         long audits = count("SELECT COUNT(*) FROM cps_withdraw_audit WHERE withdraw_no=?", no);
@@ -446,7 +447,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void awaitingConfirmationAndConfirmationTimeoutDoNotReleaseFunds() {
         long user = user("10.00");
-        WithdrawalView applied = service.apply(user, request("10.00", "confirmation"));
+        WithdrawalView applied = applyAndApprove(user, request("10.00", "confirmation"));
         channel.next = PaymentStatus.AWAITING_CONFIRMATION;
         assertEquals(WithdrawalStatus.AWAITING_CONFIRMATION, service.pay(applied.withdrawNo(), 1L).status());
         service.callback(channel.notification(applied.withdrawNo(), PaymentStatus.TIMED_OUT));
@@ -463,7 +464,7 @@ public class WithdrawalMySqlTest {
         for (PaymentStatus pending : List.of(PaymentStatus.PROCESSING, PaymentStatus.UNKNOWN,
                 PaymentStatus.AWAITING_CONFIRMATION, PaymentStatus.TIMED_OUT)) {
             long user = user("10.00");
-            String no = service.apply(user, request("10.00", "reject-submitted-" + pending)).withdrawNo();
+            String no = applyAndApprove(user, request("10.00", "reject-submitted-" + pending)).withdrawNo();
             channel.next = pending;
             assertEquals(WithdrawalStatus.valueOf(pending.name()), service.pay(no, 1L).status());
             LocalDateTime submitted = mapper.findByNo(no).getSubmittedAt();
@@ -480,7 +481,8 @@ public class WithdrawalMySqlTest {
             assertWithdrawalFlows(no, "WITHDRAW_APPLY");
             assertEquals(1, auditCount(no, "SUBMIT"));
             assertEquals(0, auditCount(no, "REJECT"));
-            assertEquals(0, auditCount(no, "APPROVE"));
+            assertEquals("A submitted withdrawal cannot receive any approval beyond its explicit prerequisite", 1,
+                auditCount(no, "APPROVE"));
         }
         assertEquals(4, channel.submitted.get());
     }
@@ -491,12 +493,12 @@ public class WithdrawalMySqlTest {
         List<String> ownNumbers = new ArrayList<>();
         channel.next = PaymentStatus.UNKNOWN;
         for (int i = 0; i < 105; i++) {
-            String no = service.apply(user, request("1.00", "pending-page-" + i)).withdrawNo();
+            String no = applyAndApprove(user, request("1.00", "pending-page-" + i)).withdrawNo();
             assertEquals(WithdrawalStatus.UNKNOWN, service.pay(no, 1L).status());
             ownNumbers.add(no);
         }
         long untouchedUser = user("10.00");
-        String approved = service.apply(untouchedUser, request("1.00", "pending-excludes-approved")).withdrawNo();
+        String approved = applyAndApprove(untouchedUser, request("1.00", "pending-excludes-approved")).withdrawNo();
         policy.put("reviewAmount", "1.00");
         savePolicy();
         String manual = service.apply(untouchedUser, request("1.00", "pending-excludes-manual")).withdrawNo();
@@ -617,7 +619,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void paidOrderInvalidationContractCreatesDebtAndBlocksFurtherWithdrawal() {
         long user = user("25.00");
-        WithdrawalView applied = service.apply(user, request("25.00", "paid-then-invalid"));
+        WithdrawalView applied = applyAndApprove(user, request("25.00", "paid-then-invalid"));
         channel.next = PaymentStatus.SUCCESS;
         service.pay(applied.withdrawNo(), 1L);
         // This is the line-11 recovery boundary, not a claim to have run its order-event implementation.
@@ -645,7 +647,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void successfulExternalPaymentWithLocalLedgerFailureRecoversByQueryWithoutResubmission() {
         long user = user("15.00");
-        WithdrawalView applied = service.apply(user, request("15.00", "finish-rollback"));
+        WithdrawalView applied = applyAndApprove(user, request("15.00", "finish-rollback"));
         channel.next = PaymentStatus.SUCCESS;
         ledger.failAfterSql = true;
         try {
@@ -716,9 +718,9 @@ public class WithdrawalMySqlTest {
     }
 
     @Test
-    public void newlyObservedRiskMovesAnAutomaticallyApprovedWithdrawalBackToReview() {
+    public void newlyObservedRiskMovesAManuallyApprovedWithdrawalBackToReview() {
         long user = user("20.00");
-        WithdrawalView applied = service.apply(user, request("20.00", "new-risk-before-pay"));
+        WithdrawalView applied = applyAndApprove(user, request("20.00", "new-risk-before-pay"));
         assertEquals(WithdrawalStatus.APPROVED, applied.status());
         risk.review(user, false, true, true, "Synthetic newly observed abuse signal", 1L);
         assertEquals(WithdrawalStatus.MANUAL_REVIEW, service.pay(applied.withdrawNo(), 1L).status());
@@ -804,15 +806,18 @@ public class WithdrawalMySqlTest {
     }
 
     @Test
-    public void exposureReachingTheLimitAfterAutomaticApprovalRequiresANewHumanDecision() {
+    public void exposureReachingTheLimitBeforeManualApprovalRequiresAHumanDecision() {
         long user = user("20.00");
         WithdrawalView applied = service.apply(user, request("20.00", "new-exposure-before-pay"));
-        assertEquals(WithdrawalStatus.APPROVED, applied.status());
+        assertEquals(WithdrawalStatus.MANUAL_REVIEW, applied.status());
         when(exposure.evaluateWithdrawal(any())).thenReturn(new ExposureDecision(false, true,
             "Synthetic exposure now at limit", money("100.00"), money("100.00")));
-        assertEquals(WithdrawalStatus.MANUAL_REVIEW, service.pay(applied.withdrawNo(), 1L).status());
+        ServiceException unreviewed = assertThrows(ServiceException.class, () -> service.pay(applied.withdrawNo(), 1L));
+        assertEquals("提现尚未审核通过", unreviewed.getMessage());
+        assertEquals("MANUAL_REVIEW", status(applied.withdrawNo()));
         assertEquals(0, channel.submitted.get());
-        service.audit(applied.withdrawNo(), true, 1L, "Synthetic exposure manually approved");
+        assertEquals(WithdrawalStatus.APPROVED,
+            service.audit(applied.withdrawNo(), true, 1L, "Synthetic exposure manually approved").status());
         assertEquals(WithdrawalStatus.PROCESSING, service.pay(applied.withdrawNo(), 1L).status());
         assertEquals(1, channel.submitted.get());
         assertAccount(user, "0.00", "20.00", "0.00");
@@ -821,7 +826,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void loweringTheCurrentChannelLimitPreventsDispatchOfAnOlderApprovedRequest() {
         long user = user("20.00");
-        WithdrawalView applied = service.apply(user, request("20.00", "lower-channel-limit"));
+        WithdrawalView applied = applyAndApprove(user, request("20.00", "lower-channel-limit"));
         policy.put("channelSingle", "10.00");
         savePolicy();
         assertThrows(ServiceException.class, () -> service.pay(applied.withdrawNo(), 1L));
@@ -833,7 +838,7 @@ public class WithdrawalMySqlTest {
     @Test
     public void revokingRecipientVerificationAfterApplicationPreventsDispatch() {
         long user = user("20.00");
-        WithdrawalView applied = service.apply(user, request("20.00", "revoke-payee-verification"));
+        WithdrawalView applied = applyAndApprove(user, request("20.00", "revoke-payee-verification"));
         jdbc.update("UPDATE cps_withdraw_recipient SET verified=0 WHERE user_id=?", user);
         assertThrows(ServiceException.class, () -> service.pay(applied.withdrawNo(), 1L));
         assertEquals(0, channel.submitted.get());
@@ -864,7 +869,7 @@ public class WithdrawalMySqlTest {
     public void durableMockAuthenticatesCallbacksAndDuplicateSuccessHasOneLedgerEffect() {
         long user = user("18.00");
         service = newService(ledger, new MockWithdrawChannel(mapper));
-        WithdrawalView applied = service.apply(user, request("18.00", "mock-authenticated"));
+        WithdrawalView applied = applyAndApprove(user, request("18.00", "mock-authenticated"));
         assertEquals(WithdrawalStatus.PROCESSING, service.pay(applied.withdrawNo(), 1L).status());
         MockWithdrawalPayment payment = mapper.mockPayment(applied.withdrawNo());
         JSONObject body = new JSONObject();
@@ -902,6 +907,21 @@ public class WithdrawalMySqlTest {
         assertEquals(PaymentStatus.TIMED_OUT, new MockWithdrawChannel(mapper).query(no).status());
         assertEquals(PaymentStatus.FAILED, durable.simulate(no, PaymentStatus.FAILED).status());
         assertEquals(PaymentStatus.FAILED, new MockWithdrawChannel(mapper).query(no).status());
+    }
+
+    /** Payment lifecycle tests explicitly establish human approval while automatic payment stays disabled. */
+    private WithdrawalView applyAndApprove(long user, WithdrawalApplyRequest request) {
+        WithdrawalView applied = service.apply(user, request);
+        assertEquals(WithdrawalStatus.MANUAL_REVIEW, applied.status());
+        assertEquals(0, auditCount(applied.withdrawNo(), "APPROVE"));
+        assertEquals(0, auditCount(applied.withdrawNo(), "SUBMIT"));
+        WithdrawalView approved = service.audit(applied.withdrawNo(), true, 1L,
+            "Synthetic explicit approval for payment lifecycle acceptance");
+        assertEquals(WithdrawalStatus.APPROVED, approved.status());
+        assertEquals(applied.withdrawNo(), approved.withdrawNo());
+        assertEquals(1, auditCount(applied.withdrawNo(), "APPROVE"));
+        assertEquals(0, auditCount(applied.withdrawNo(), "SUBMIT"));
+        return approved;
     }
 
     private WithdrawalService newService(LedgerService posting, WithdrawChannel gateway) {

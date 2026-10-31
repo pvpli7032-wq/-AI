@@ -28,5 +28,5 @@ public class ReconciliationJobConfiguration {
     }
 
     @Bean("cpsExposureJob")
-    public Runnable exposure(ExposureService service) { return service::capture; }
+    public Runnable exposure(ExposureService service) { return service::captureIfDue; }
 }

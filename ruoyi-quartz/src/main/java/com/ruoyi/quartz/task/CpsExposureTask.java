@@ -3,7 +3,7 @@ package com.ruoyi.quartz.task;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
-/** Daily exposure snapshot; current withdrawal checks always query fresh data. */
+/** Minute tick; the business service reads the live interval and locks its durable checkpoint. */
 @Component("cpsExposureTask")
 public class CpsExposureTask {
     private final Runnable snapshot;

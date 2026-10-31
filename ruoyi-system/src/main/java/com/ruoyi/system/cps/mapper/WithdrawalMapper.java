@@ -25,6 +25,7 @@ public interface WithdrawalMapper {
         @Param("operatorId") long operatorId, @Param("now") LocalDateTime now);
     long countRequests(@Param("userId") long userId, @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
     long countSuccess(@Param("userId") long userId);
+    long countRequestsBefore(@Param("userId") long userId, @Param("id") long id);
     long countRecipientRequests(@Param("hash") String hash, @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
     BigDecimal userAmount(@Param("userId") long userId, @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
     BigDecimal channelAmount(@Param("channel") String channel, @Param("userId") Long userId,
@@ -37,6 +38,7 @@ public interface WithdrawalMapper {
         @Param("offset") long offset, @Param("limit") int limit);
     long count(@Param("userId") Long userId, @Param("status") String status);
     List<String> pending(@Param("afterId") long afterId, @Param("limit") int limit);
+    List<WithdrawalRecord> automaticPending(@Param("afterId") long afterId, @Param("limit") int limit);
     int audit(@Param("withdrawNo") String withdrawNo, @Param("userId") long userId,
         @Param("action") String action, @Param("fromStatus") String fromStatus, @Param("toStatus") String toStatus,
         @Param("operatorId") Long operatorId, @Param("reason") String reason, @Param("now") LocalDateTime now);

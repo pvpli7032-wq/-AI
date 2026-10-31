@@ -8,4 +8,7 @@ import org.springframework.context.annotation.Configuration;
 public class WithdrawalJobConfiguration {
     @Bean("cpsWithdrawalQueryJob")
     public Runnable withdrawalQuery(WithdrawalService withdrawals) { return withdrawals::queryPending; }
+
+    @Bean("cpsWithdrawalAutomaticJob")
+    public Runnable withdrawalAutomatic(WithdrawalService withdrawals) { return withdrawals::processAutomatic; }
 }

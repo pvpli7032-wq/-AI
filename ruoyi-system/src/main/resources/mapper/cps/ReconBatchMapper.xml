@@ -144,6 +144,28 @@
     ORDER BY id DESC LIMIT 200
   </select>
   <select id="selectConfigValues" resultType="string">SELECT config_value FROM sys_config WHERE config_key=#{key}</select>
+  <select id="selectExposureConfigValues" resultType="com.ruoyi.system.cps.recon.ExposureConfigValue">
+    SELECT config_key,config_value FROM sys_config
+    WHERE config_key IN ('cps.exposure.limit','cps.exposure.action','cps.exposure.intervalMinutes') ORDER BY config_id
+  </select>
+  <insert id="insertExposureConfig">
+    INSERT INTO sys_config(config_name,config_key,config_value,config_type,create_by,create_time)
+    VALUES(#{name},#{key},#{value},'N',#{operatorId},UTC_TIMESTAMP())
+  </insert>
+  <update id="updateExposureConfig">
+    UPDATE sys_config SET config_value=#{value},update_by=#{operatorId},update_time=UTC_TIMESTAMP()
+    WHERE config_key=#{key}
+  </update>
+  <insert id="appendExposurePolicyAudit">
+    INSERT INTO cps_exposure_policy_audit(operator_id,before_config,after_config,created_at)
+    VALUES(#{operatorId},#{beforeJson},#{afterJson},UTC_TIMESTAMP(3))
+  </insert>
+  <select id="lockExposureSchedule" resultType="com.ruoyi.system.cps.recon.ExposureSchedule">
+    SELECT id,last_capture_at FROM cps_exposure_schedule WHERE id=1 FOR UPDATE
+  </select>
+  <update id="completeExposureCapture">
+    UPDATE cps_exposure_schedule SET last_capture_at=#{capturedAt} WHERE id=1
+  </update>
   <insert id="appendExposure">
     INSERT INTO cps_exposure_snapshot(platform,amount,observed_at) VALUES(#{platform},#{amount},UTC_TIMESTAMP(3))
   </insert>

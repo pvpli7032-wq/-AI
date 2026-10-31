@@ -27,6 +27,7 @@ public class WithdrawalRecord {
     private String recipientHash;
     private String reviewReasons;
     private String policySnapshot;
+    private boolean autoPayEligible;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -72,4 +73,6 @@ public class WithdrawalRecord {
     public void setReviewReasons(String reviewReasons) { this.reviewReasons = reviewReasons; }
     public String getPolicySnapshot() { return policySnapshot; }
     public void setPolicySnapshot(String policySnapshot) { this.policySnapshot = policySnapshot; }
+    public boolean getAutoPayEligible() { return autoPayEligible; }
+    public void setAutoPayEligible(boolean autoPayEligible) { this.autoPayEligible = autoPayEligible; }
 }

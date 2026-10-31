@@ -35,6 +35,8 @@ import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
 import com.ruoyi.framework.security.context.PermissionContextHolder;
 import com.ruoyi.framework.web.service.PermissionService;
+import com.ruoyi.system.cps.recon.ExposureLimitAction;
+import com.ruoyi.system.cps.recon.ExposurePolicy;
 import com.ruoyi.system.cps.recon.ExposureService;
 import com.ruoyi.system.cps.recon.ReconCoverageRequest;
 import com.ruoyi.system.cps.recon.ReconImportRequest;
@@ -92,6 +94,7 @@ public class WithdrawalPermissionsTest {
             context.getBean(ReconciliationService.class), context.getBean(ExposureService.class),
             context.getBean(RiskService.class), context.getBean(HealthMonitorService.class)};
         when(withdrawals.listAdmin(null, 1, 10)).thenReturn(Map.of("rows", List.of(), "total", 0));
+        when(withdrawals.statusOptions()).thenReturn(WithdrawalStatus.options());
         when(withdrawals.configuration()).thenReturn("{\"enabled\":false}");
         clearInvocations(services);
         endpoints = permissionsMatrix();
@@ -165,6 +168,21 @@ public class WithdrawalPermissionsTest {
         verify(withdrawals).configure("{\"enabled\":false}", OPERATOR);
     }
 
+    @Test
+    public void exposurePolicyUsesAuthenticatedOperatorAndReturnsItsConfiguration() {
+        login(Set.of("system:commission:exposure:edit"));
+        ExposurePolicy policy = new ExposurePolicy(new BigDecimal("0.00"), ExposureLimitAction.MANUAL_REVIEW, 60);
+        ExposureService exposure = context.getBean(ExposureService.class);
+        when(exposure.configure(policy, OPERATOR)).thenReturn(policy);
+        CpsExposureController controller = context.getBean(CpsExposureController.class);
+        assertEquals(policy, controller.policy(policy).get(AjaxResult.DATA_TAG));
+        verify(exposure).configure(policy, OPERATOR);
+        when(exposure.configuration()).thenReturn(policy);
+        login(Set.of("system:commission:exposure:query"));
+        assertEquals(policy, controller.policy().get(AjaxResult.DATA_TAG));
+        verify(exposure).configuration();
+    }
+
     private void login(Set<String> permissions) {
         SysUser user = new SysUser();
         user.setUserId(OPERATOR);
@@ -182,6 +200,7 @@ public class WithdrawalPermissionsTest {
     private static List<Endpoint> permissionsMatrix() {
         return List.of(
             endpoint(CpsWithdrawalController.class, "list", "withdrawal:list", "withdrawal:list", false, null, 1, 10),
+            endpoint(CpsWithdrawalController.class, "statusOptions", "withdrawal:list", "withdrawal:list", false),
             endpoint(CpsWithdrawalController.class, "audit", "withdrawal:edit", "withdrawal:audit", true,
                 WITHDRAW_NO, new CpsWithdrawalController.Review(true, "synthetic review")),
             endpoint(CpsWithdrawalController.class, "pay", "withdrawal:edit", "withdrawal:pay", true, WITHDRAW_NO),
@@ -213,6 +232,9 @@ public class WithdrawalPermissionsTest {
             endpoint(CpsExposureController.class, "current", "exposure:list", "exposure:list", false),
             endpoint(CpsExposureController.class, "positions", "exposure:list", "exposure:list", false),
             endpoint(CpsExposureController.class, "snapshot", "exposure:add", "exposure:snapshot", true),
+            endpoint(CpsExposureController.class, "policy", "exposure:query", "exposure:config", false),
+            endpoint(CpsExposureController.class, "policy", "exposure:edit", "exposure:config", true,
+                new ExposurePolicy(new BigDecimal("0.00"), ExposureLimitAction.MANUAL_REVIEW, 60)),
             endpoint(CpsRiskController.class, "user", "risk:query", "risk:query", false, 12001L),
             endpoint(CpsRiskController.class, "signals", "risk:list", "risk:list", false, 12001L),
             endpoint(CpsRiskController.class, "review", "risk:edit", "risk:review", true,

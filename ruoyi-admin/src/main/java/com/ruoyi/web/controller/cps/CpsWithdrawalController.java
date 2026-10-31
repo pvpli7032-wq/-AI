@@ -21,7 +21,14 @@ public class CpsWithdrawalController extends BaseController {
     @GetMapping @PreAuthorize("@ss.hasPermi('system:commission:withdrawal:list')")
     public AjaxResult list(@RequestParam(required=false) String status, @RequestParam(defaultValue="1") int page,
             @RequestParam(defaultValue="10") int pageSize) {
-        AjaxResult result = AjaxResult.success(); result.putAll(withdrawals.listAdmin(status, page, pageSize)); return result;
+        AjaxResult result = AjaxResult.success();
+        result.putAll(withdrawals.listAdmin(status, page, pageSize));
+        result.put("statusOptions", withdrawals.statusOptions());
+        return result;
+    }
+    @GetMapping("/status-options") @PreAuthorize("@ss.hasPermi('system:commission:withdrawal:list')")
+    public AjaxResult statusOptions() {
+        return AjaxResult.success(withdrawals.statusOptions());
     }
     public record Review(boolean approve, String reason) {}
     @PostMapping("/{withdrawNo}/audit") @PreAuthorize("@ss.hasPermi('system:commission:withdrawal:edit')")

@@ -286,7 +286,7 @@ public class ReconciliationMySqlTest {
         } finally { executor.shutdownNow(); }
     }
 
-    @Test public void limitIsMandatoryEqualityIsManualAndExceededIsBlocked() {
+    @Test public void limitMustBeConfiguredAndDefaultsToManualAtOrAboveWhileZeroDisablesIt() {
         order(1, "limit-order", "", "20");
         credit(1, "9");
         assertTrue(exposure.evaluateWithdrawal(decimal("1")).blocked());
@@ -297,9 +297,11 @@ public class ReconciliationMySqlTest {
         assertFalse(exposure.evaluateWithdrawal(decimal("1")).blocked());
         assertTrue(exposure.evaluateWithdrawal(decimal("1")).manualReview());
         jdbc.update("UPDATE sys_config SET config_value='8' WHERE config_key='cps.exposure.limit'");
-        assertTrue(exposure.evaluateWithdrawal(decimal("1")).blocked());
+        assertFalse(exposure.evaluateWithdrawal(decimal("1")).blocked());
+        assertTrue(exposure.evaluateWithdrawal(decimal("1")).manualReview());
         jdbc.update("UPDATE sys_config SET config_value='0' WHERE config_key='cps.exposure.limit'");
-        assertTrue(exposure.evaluateWithdrawal(decimal("1")).blocked());
+        assertFalse(exposure.evaluateWithdrawal(decimal("1")).blocked());
+        assertFalse(exposure.evaluateWithdrawal(decimal("1")).manualReview());
     }
 
     @Test public void exposurePeakSurvivesRecoveryAndUnknownOrderStaysVisible() {

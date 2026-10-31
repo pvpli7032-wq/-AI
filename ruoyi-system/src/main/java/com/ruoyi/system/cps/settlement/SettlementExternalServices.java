@@ -17,6 +17,10 @@ public class SettlementExternalServices {
         var result=invitations.resolve(id,buyer,line);
         return new Invitation(result.inviterUserId(),result.manualReview(),result.evidenceId());
     }
+    public void pddNotice(com.ruoyi.system.cps.contract.OrderEvent event,Long user,
+            org.springframework.jdbc.core.JdbcTemplate jdbc) {
+        if (user!=null) new SettlementPddNoticeService(jdbc,notifications).capture(event,user);
+    }
     public void notify(String key, Long user, Long line, String reason, BigDecimal loss, BigDecimal balance) {
         // The outbox contract is loss notifications, not receipts for successful funding/release.
         String code=switch (reason) {

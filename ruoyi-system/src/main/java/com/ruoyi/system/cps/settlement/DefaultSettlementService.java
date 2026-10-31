@@ -225,6 +225,7 @@ public class DefaultSettlementService implements SettlementService {
             throw new IllegalArgumentException("Reported alliance commission required");
         repository.save(p); repository.order(p);
         repository.receipt(e.eventKey(),p.id,fingerprint);
+        external.pddNotice(e,p.buyer,repository.jdbc);
     }
     private void holdForManualReview(Position p,OrderEvent e,String fingerprint,String reason) {
         for (Item item:repository.items(p.id)) {

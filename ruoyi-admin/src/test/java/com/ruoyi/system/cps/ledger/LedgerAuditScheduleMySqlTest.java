@@ -56,7 +56,8 @@ public class LedgerAuditScheduleMySqlTest {
         tx = new TransactionTemplate(manager);
         var factory = new SqlSessionFactoryBean();
         factory.setDataSource(jdbc.getDataSource());
-        factory.setMapperLocations(new ClassPathResource("mapper/system/SysAgentCommissionAccountMapper.xml"));
+        factory.setMapperLocations(new ClassPathResource("mapper/system/SysAgentCommissionAccountMapper.xml"),
+            new ClassPathResource("mapper/system/SysOrderCommissionMapper.xml"));
         var sessions = new SqlSessionTemplate(factory.getObject());
         var accounts = new CommissionCalculateServiceImpl();
         ReflectionTestUtils.setField(accounts,"accountMapper",sessions.getMapper(SysAgentCommissionAccountMapper.class));

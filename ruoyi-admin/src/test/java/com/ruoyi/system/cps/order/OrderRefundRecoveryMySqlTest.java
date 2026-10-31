@@ -78,9 +78,12 @@ public class OrderRefundRecoveryMySqlTest {
                     assertEquals(OrderIngestionService.Outcome.APPLIED, result.outcome());
                     JSONObject saved = snapshot(result.eventKey());
                     money("5.4321", saved.getBigDecimal("refundBasisAmount"));
-                    if (to == OrderStatus.FULL_REFUND) money("5.4321", saved.getBigDecimal("recoveredAmount"));
+                    BigDecimal eventRecovery = jdbc.queryForObject("SELECT recovered_amount FROM cps_order_event WHERE event_key=?", BigDecimal.class, result.eventKey());
+                    if (to == OrderStatus.FULL_REFUND) {
+                        money("5.4321", saved.getBigDecimal("recoveredAmount")); money("5.4321", eventRecovery);
+                    }
                     else {
-                        assertNull(saved.getBigDecimal("recoveredAmount"));
+                        assertNull(saved.getBigDecimal("recoveredAmount")); assertNull(eventRecovery);
                         assertTrue(jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_ingest_exception WHERE raw_id=? AND reason LIKE '%线11暂停转人工%'", Long.class, result.rawId()) > 0);
                     }
                     assertEquals(raw, jdbc.queryForObject("SELECT payload_text FROM cps_order_raw WHERE id=?", String.class, result.rawId()));
@@ -151,7 +154,7 @@ public class OrderRefundRecoveryMySqlTest {
                 + "\",\"refund_fee\":100,\"tb_trade_finish_price\":100,\"modified_time\":\"2026-01-01 01:00:00\"}]}}";
             var client = new DtkOrderEvidenceClient("test", "secret", Duration.ofSeconds(1), (uri, timeout) -> raw, Clock.fixed(TIME, ZoneOffset.UTC));
             var feed = new DtkAdditionalOrderCollectionFeed(client, ingestion, mock(OrderCollectionSettings.class), evidence,
-                ZoneOffset.UTC, Clock.fixed(TIME, ZoneOffset.UTC), null, 0);
+                ZoneOffset.UTC, Clock.fixed(TIME, ZoneOffset.UTC), null, 2);
             var page = feed.fetch(Platform.TBK, OrderCollectionRetryQueue.TaskType.REFUND,
                 new TimeWindow(Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T01:00:00Z")), null);
             assertFalse(page.completenessConfirmed()); assertTrue(page.entries().isEmpty());

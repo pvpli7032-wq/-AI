@@ -20,8 +20,8 @@ public interface OrderEventMapper
         + "WHERE e.order_line_id=#{orderId} AND e.to_status IN ('PARTIAL_REFUND','FULL_REFUND') ORDER BY o.id LIMIT 1")
     String selectFirstRefundSnapshot(long orderId);
 
-    @Insert("INSERT INTO cps_order_event(event_key,order_line_id,from_status,to_status,previous_status,source,raw_id,created_at) "
-        + "VALUES(#{eventKey},#{orderLineId},#{fromStatus},#{toStatus},#{previous},#{source},#{rawId},#{occurredAt})")
+    @Insert("INSERT INTO cps_order_event(event_key,order_line_id,from_status,to_status,previous_status,recovered_amount,source,raw_id,created_at) "
+        + "VALUES(#{eventKey},#{orderLineId},#{fromStatus},#{toStatus},#{previous},#{recovered},#{source},#{rawId},#{occurredAt})")
     @Options(useGeneratedKeys=true,keyProperty="eventId")
     int append(Map<String, Object> event);
 

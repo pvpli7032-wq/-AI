@@ -5,6 +5,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 <mapper namespace="com.ruoyi.system.mapper.SysWechatUserMapper">
     
     <resultMap type="SysWechatUser" id="SysWechatUserResult">
+        <result property="invitationCode" column="invitation_code" />
+        <result property="inviterUserId" column="inviter_user_id" />
+        <result property="phone" column="phone" />
+        <result property="riskLevel" column="risk_level" />
         <result property="id"          column="id"           />
         <result property="userId"      column="user_id"      />
         <result property="openid"      column="openid"       />
@@ -23,7 +27,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </resultMap>
 
     <sql id="selectSysWechatUserVo">
-        select id, user_id, openid, unionid, nickname, avatar, gender, province, city, country, 
+        select id, invitation_code, inviter_user_id, phone, risk_level, user_id, openid, unionid, nickname, avatar, gender, province, city, country,
                create_by, create_time, update_by, update_time, remark
         from sys_wechat_user
     </sql>
@@ -74,6 +78,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <insert id="insertSysWechatUser" parameterType="SysWechatUser" useGeneratedKeys="true" keyProperty="id">
         insert into sys_wechat_user
         <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="invitationCode != null">invitation_code,</if>
+            <if test="inviterUserId != null">inviter_user_id,</if>
+            <if test="phone != null">phone,</if>
+            <if test="riskLevel != null">risk_level,</if>
             <if test="userId != null">user_id,</if>
             <if test="openid != null and openid != ''">openid,</if>
             <if test="unionid != null">unionid,</if>
@@ -90,6 +98,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="remark != null">remark,</if>
         </trim>
         <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="invitationCode != null">#{invitationCode},</if>
+            <if test="inviterUserId != null">#{inviterUserId},</if>
+            <if test="phone != null">#{phone},</if>
+            <if test="riskLevel != null">#{riskLevel},</if>
             <if test="userId != null">#{userId},</if>
             <if test="openid != null and openid != ''">#{openid},</if>
             <if test="unionid != null">#{unionid},</if>
@@ -110,6 +122,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <update id="updateSysWechatUser" parameterType="SysWechatUser">
         update sys_wechat_user
         <trim prefix="SET" suffixOverrides=",">
+            <if test="invitationCode != null">invitation_code = #{invitationCode},</if>
+            <if test="inviterUserId != null">inviter_user_id = #{inviterUserId},</if>
+            <if test="phone != null">phone = #{phone},</if>
+            <if test="riskLevel != null">risk_level = #{riskLevel},</if>
             <if test="userId != null">user_id = #{userId},</if>
             <if test="unionid != null">unionid = #{unionid},</if>
             <if test="nickname != null">nickname = #{nickname},</if>

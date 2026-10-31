@@ -16,6 +16,35 @@ import com.ruoyi.common.core.domain.BaseEntity;
  */
 public class SysOrderCommission extends BaseEntity
 {
+
+    private String rawStatus;
+    public String getRawStatus() { return rawStatus; }
+    public void setRawStatus(String value) { this.rawStatus = value; }
+
+    private String pid;
+    public String getPid() { return pid; }
+    public void setPid(String value) { this.pid = value; }
+
+    private String attributionToken;
+    public String getAttributionToken() { return attributionToken; }
+    public void setAttributionToken(String value) { this.attributionToken = value; }
+
+    private Date paidTime;
+    public Date getPaidTime() { return paidTime; }
+    public void setPaidTime(Date value) { this.paidTime = value; }
+
+    private com.ruoyi.system.cps.contract.OrderStatus lineStatus;
+    public com.ruoyi.system.cps.contract.OrderStatus getLineStatus() { return lineStatus; }
+    public void setLineStatus(com.ruoyi.system.cps.contract.OrderStatus value) { this.lineStatus = value; }
+
+    private String subOrderNo;
+    public String getSubOrderNo() { return subOrderNo; }
+    public void setSubOrderNo(String value) { this.subOrderNo = value; }
+
+    private java.util.Date receivedTime;
+    public java.util.Date getReceivedTime() { return receivedTime; }
+    public void setReceivedTime(java.util.Date value) { this.receivedTime = value; }
+
     private static final long serialVersionUID = 1L;
 
     /** 记录ID */

@@ -14,6 +14,15 @@ import com.ruoyi.common.core.domain.BaseEntity;
  */
 public class SysAgentCommissionAccount extends BaseEntity
 {
+
+    private java.math.BigDecimal withdrawingAmount;
+    public java.math.BigDecimal getWithdrawingAmount() { return withdrawingAmount; }
+    public void setWithdrawingAmount(java.math.BigDecimal value) { this.withdrawingAmount = value; }
+
+    private Long version;
+    public Long getVersion() { return version; }
+    public void setVersion(Long value) { this.version = value; }
+
     private static final long serialVersionUID = 1L;
 
     /** 账户ID */

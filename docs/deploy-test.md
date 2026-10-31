@@ -115,6 +115,8 @@ SERVER_PORT='<BACKEND_PORT>'
 RUOYI_PROFILE='<PROJECT_DIR>/uploads'
 ```
 
+线 9 合并前，测试服须设置 `SPRING_PROFILES_ACTIVE=druid,test`（保留 Druid 数据源配置），并将 `CPS_UNION_ADAPTER_TBK`、`CPS_UNION_ADAPTER_JD`、`CPS_UNION_ADAPTER_PDD` 均设为 `mock` 才能启动。此 mock 仅为契约占位，不提供真实联盟调用。线 9 合并后，显式将各平台适配器配置为 `dtk` 并按实际可用实现配置凭据；生产环境禁止 mock，缺少所选实现时会启动失败。
+
 无密码的专用测试 Redis 可将 `SPRING_DATA_REDIS_PASSWORD` 显式留空。纯离线测试时，联盟与微信参数填写明显的开发假值；`TBK_ADZONE_ID`、`JD_SITE_ID` 和 `JD_POSITION_ID` 必须填写数字，例如 `0`。关闭微信登录开关也不会省掉这些参数的占位需求。真实凭据只能由管理员在服务器本地安全填写，不能贴入文档、聊天、构建输出或 PR。
 
 Flyway 随应用启动执行，使用本项目相同数据库地址、账号和密码的独立连接，避免 Druid 将可选权限探测失败误判为连接失效；不需要给账号增加其他数据库的读取权限。保留仓库中的 `spring.flyway.out-of-order=true`，以支持并行开发的迁移按不同顺序合并。不要通过关闭 Flyway 或启用自动 baseline 掩盖迁移错误。迁移失败时先检查对应版本和原始错误，避免反复重启触发同一失败。

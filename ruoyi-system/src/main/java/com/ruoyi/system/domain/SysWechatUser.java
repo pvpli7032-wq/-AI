@@ -11,6 +11,23 @@ import org.apache.commons.lang3.builder.ToStringStyle;
  * @date 2026-03-13
  */
 public class SysWechatUser extends BaseEntity {
+
+    private String invitationCode;
+    public String getInvitationCode() { return invitationCode; }
+    public void setInvitationCode(String value) { this.invitationCode = value; }
+
+    private Long inviterUserId;
+    public Long getInviterUserId() { return inviterUserId; }
+    public void setInviterUserId(Long value) { this.inviterUserId = value; }
+
+    private String phone;
+    public String getPhone() { return phone; }
+    public void setPhone(String value) { this.phone = value; }
+
+    private String riskLevel;
+    public String getRiskLevel() { return riskLevel; }
+    public void setRiskLevel(String value) { this.riskLevel = value; }
+
     private static final long serialVersionUID = 1L;
 
     /** 关联ID */

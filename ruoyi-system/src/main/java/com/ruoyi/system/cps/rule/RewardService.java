@@ -26,7 +26,13 @@ import static com.ruoyi.system.cps.rule.RewardApi.*;
 @Transactional(propagation = Propagation.MANDATORY, rollbackFor = Exception.class)
 public class RewardService {
     private final RewardProgressMapper mapper;
-    public RewardService(RewardProgressMapper mapper) { this.mapper = Objects.requireNonNull(mapper); }
+    private final RewardRepricingStore repricing;
+    /** Legacy construction cannot perform basis-changing repricing; production uses the JDBC store. */
+    public RewardService(RewardProgressMapper mapper) { this(mapper, null); }
+    @org.springframework.beans.factory.annotation.Autowired
+    public RewardService(RewardProgressMapper mapper, RewardRepricingStore repricing) {
+        this.mapper = Objects.requireNonNull(mapper); this.repricing = repricing;
+    }
 
     /** Must run at payment snapshot creation, even if configs is empty. Insert-only and fail on drift. */
     public void capture(Snapshot snapshot) {
@@ -86,13 +92,10 @@ public class RewardService {
         return new Result(false, replay(orderId));
     }
 
-    /**
-     * FAIL-CLOSED integration guard, NOT an append-only repricing implementation yet.
-     * The settlement caller must propagate this exception in the SAME transaction as ordinary
-     * REPRICE_UP/DOWN; otherwise ordinary and reward balances can diverge. Existing award.amount
-     * is the immutable grant/recovery basis, not a mutable current entitlement. Rewriting it loses
-     * audit evidence and can double-recover when commission repricing and refund are both reported.
-     * Unchanged qualified entitlements replay safely; any required adjustment requires reconciliation.
+    /** Append-only repricing before any refund. Caller must pass ordered authoritative evidence and
+     * post ALL returned instructions in the same transaction as ordinary repricing. Financial evidence
+     * (not wall clock or randomness), chained to the preceding revision, identifies every adjustment.
+     * Original grants, payment policies, attribution and lifetime slots are never rewritten.
      */
     public Result reprice(long orderId, Qualification actualEvidence) {
         Snapshot s = snapshot(orderId); lock(s);
@@ -100,18 +103,16 @@ public class RewardService {
         if (s.historicalUnknown()) return new Result(true, replay(orderId));
         if (!state.qualified()) return qualify(orderId, actualEvidence);
         if (!actualEvidence.freezeReleased() || actualEvidence.pausedOrRiskHeld() ||
-                actualEvidence.now().isBefore(s.paidAt()) || actualEvidence.now().isBefore(actualEvidence.freezeUntil()) ||
-                !RewardCalculator.valid(s, actualEvidence.paid(), actualEvidence.commission()))
+                actualEvidence.now().isBefore(s.paidAt()) || actualEvidence.now().isBefore(actualEvidence.freezeUntil()))
             throw repricingRequired();
+        // Historical pre-release refund baselines lack an exact commission fraction. Never infer one.
+        if (state.refundRatio().signum() != 0 || state.baselineRatio().signum() != 0) throw repricingRequired();
+        boolean valid = RewardCalculator.valid(s, actualEvidence.paid(), actualEvidence.commission());
+        if (state.closed() && valid) throw repricingRequired(); // terminal exclusions never recycle slots
         List<Snapshot> history = history(s.buyerId());
         long count = history.stream().filter(o -> mapper.state(o.orderId()).valid()).count();
+        count += (valid ? 1 : 0) - (state.valid() ? 1 : 0);
         List<Award> existing = mapper.awards(s.buyerId());
-        if (existing.stream().anyMatch(a -> a.type() == Type.OWN_QUANTITY && count < a.threshold() &&
-                a.recovered().compareTo(a.amount()) < 0)) throw repricingRequired();
-        boolean variable = s.configs().stream().anyMatch(c -> c.mode() == Mode.RATIO || c.type() == Type.FORCED_FIRST);
-        if (!variable) return new Result(false, replay(orderId));
-        // A ratio/guarantee already exposed to refund requires an explicit persisted basis revision.
-        if (state.refundRatio().signum() != 0 || state.closed()) throw repricingRequired();
         long ordinal = 1, platformOrdinal = 1;
         for (Snapshot other : history) {
             if (RewardCalculator.PAYMENT_ORDER.compare(other, s) < 0 && mapper.state(other.orderId()).qualified()) {
@@ -119,15 +120,59 @@ public class RewardService {
                 if (other.order().platform().equals(s.order().platform())) platformOrdinal++;
             }
         }
-        List<Award> desired = RewardCalculator.awards(s, actualEvidence, ordinal, platformOrdinal, count, state.baselineRatio());
-        var current = new java.util.HashMap<String, BigDecimal>();
-        for (Award a : existing) if (a.orderId() == orderId) current.put(a.id(), a.amount().subtract(a.recovered()));
-        for (Award a : desired) {
-            if (a.amount().compareTo(current.getOrDefault(a.id(), BigDecimal.ZERO)) != 0) throw repricingRequired();
-            current.remove(a.id());
+        List<Award> desired = valid ? RewardCalculator.awards(s, actualEvidence, ordinal, platformOrdinal,
+            count, state.baselineRatio()) : List.of();
+        var targets = new java.util.LinkedHashMap<String, Award>();
+        for (Award a : desired) targets.put(a.id(), a);
+        String evidence = JSON.toJSONString(new java.util.TreeMap<>(java.util.Map.of("orderId", orderId,
+            "paid", actualEvidence.paid().stripTrailingZeros().toPlainString(),
+            "commission", actualEvidence.commission().stripTrailingZeros().toPlainString(),
+            "ordinaryRebate", actualEvidence.userRebate().toPlainString(), "valid", valid, "validCount", count)));
+        // Each revision and outbox delta shares the mandatory transaction; failures roll back all changes.
+        for (Award a : existing) {
+            Award target = targets.remove(a.id());
+            boolean quantityLost = a.type() == Type.OWN_QUANTITY && count < a.threshold();
+            if (a.orderId() != orderId && !quantityLost) continue;
+            BigDecimal amount = quantityLost || target == null ? money(BigDecimal.ZERO) : target.amount();
+            adjust(a, amount, orderId, evidence);
         }
-        if (current.values().stream().anyMatch(v -> v.signum() != 0)) throw repricingRequired();
+        for (Award a : targets.values()) {
+            // Repricing is not a new quantity qualification event for an older payment.
+            if (a.type() == Type.OWN_QUANTITY) continue;
+            // A previously zero ratio/guarantee needs an immutable zero-grant anchor, NOT a new grant.
+            if (repricing == null) throw repricingRequired();
+            Award anchor = new Award(a.id(), a.userId(), a.orderId(), a.buyerId(), a.type(), a.threshold(),
+                money(BigDecimal.ZERO), money(BigDecimal.ZERO));
+            mapper.insertAward(anchor);
+            adjust(anchor, a.amount(), orderId, evidence);
+        }
+        if (state.valid() != valid) mapper.refund(orderId, state.refundRatio(), valid);
         return new Result(false, replay(orderId));
+    }
+
+    private void adjust(Award award, BigDecimal target, long cause, String evidence) {
+        RewardRepricingStore.Basis basis = repricing == null ? null : repricing.basis(award.id());
+        BigDecimal current = basis == null ? award.amount().subtract(award.recovered()) :
+            basis.entitlement().subtract(basis.refundRecovered());
+        // Quantity is a one-shot lifetime award; a lost threshold never creates a fresh grant.
+        if (award.type() == Type.OWN_QUANTITY && basis != null && basis.entitlement().signum() == 0 &&
+                target.signum() > 0) return;
+        if (current.compareTo(target) == 0) return;
+        if (repricing == null || award.recovered().signum() != 0 ||
+                basis != null && basis.refundRecovered().signum() != 0) throw repricingRequired();
+        String previous = basis == null ? "grant:" + award.id() : basis.revisionKey();
+        String key = revisionKey(previous + "|" + evidence + "|" + target.toPlainString());
+        var next = new RewardRepricingStore.Basis(award.id(), target, money(BigDecimal.ZERO), key);
+        repricing.revise(basis, next, award.amount(), evidence);
+        append(new Instruction("RP:" + key, cause, award.id(), award.userId(), award.orderId(), award.type(),
+            current.compareTo(target) > 0, target.subtract(current).abs(), BigDecimal.ZERO));
+    }
+
+    private static String revisionKey(String evidence) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(evidence.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
     }
 
     private static IllegalStateException repricingRequired() {
@@ -158,6 +203,21 @@ public class RewardService {
         mapper.refund(orderId, refund.cumulativeRatio(), valid);
         long count = history(s.buyerId()).stream().filter(o -> mapper.state(o.orderId()).valid()).count();
         for (Award a : mapper.awards(s.buyerId())) {
+            RewardRepricingStore.Basis basis = repricing == null ? null : repricing.basis(a.id());
+            if (basis != null) {
+                boolean quantityLost = a.type() == Type.OWN_QUANTITY && count < a.threshold();
+                if (a.orderId() != orderId && !quantityLost) continue;
+                if (state.baselineRatio().signum() != 0 && a.orderId() == orderId) throw repricingRequired();
+                BigDecimal target = !valid || quantityLost ? basis.entitlement() :
+                    basis.entitlement().multiply(refund.cumulativeNumerator())
+                        .divide(refund.cumulativeDenominator(), 2, RoundingMode.HALF_UP).min(basis.entitlement());
+                if (target.compareTo(basis.refundRecovered()) <= 0) continue;
+                repricing.recover(a.id(), target);
+                append(new Instruction("RF:" + basis.revisionKey() + ":" + target.toPlainString(), orderId,
+                    a.id(), a.userId(), a.orderId(), a.type(), true,
+                    target.subtract(basis.refundRecovered()), refund.cumulativeRatio()));
+                continue;
+            }
             BigDecimal ratio = BigDecimal.ZERO;
             if (a.orderId() == orderId) {
                 // Award amount already excluded pre-release refunds; recover only the additional loss.

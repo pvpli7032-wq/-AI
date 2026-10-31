@@ -2,6 +2,14 @@ package com.ruoyi.system.service.impl;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
+import java.util.Date;
+import java.util.Optional;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import com.ruoyi.system.cps.settlement.PaymentInvitationSnapshotPort;
+import com.ruoyi.system.cps.settlement.PaymentInvitationSnapshotService;
+import com.ruoyi.union.adapter.Platform;
+import com.ruoyi.union.adapter.UnionOrderLine;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
@@ -169,8 +177,12 @@ public class CommissionAccountingMySqlTest
         insertAgent(buyerId, invitation(referrerId));
         configureLifecycleRates();
 
+        String orderNo = "line4-lifecycle-" + nextId();
+        // Legacy calculation has no trusted paidAt. This fixture represents an already
+        // persisted upstream payment; the historical provider is synthetic, not line 9 integration.
+        persistVerifiedPaymentOrder(orderNo, buyerId, referrerId);
         SysOrderCommission calculated = commissions.calculateCommission(
-            "line4-lifecycle-" + nextId(), "tbk", "synthetic-item", "line4 synthetic order",
+            orderNo, "tbk", "synthetic-item", "line4 synthetic order",
             money("99.99"), money("1.2399"), money("12.34"), buyerId, "2026-10-01 10:11:12");
         assertNotNull(calculated.getId());
         SysOrderCommission stored = orders.selectSysOrderCommissionById(calculated.getId());
@@ -743,6 +755,48 @@ public class CommissionAccountingMySqlTest
             id, "line4-synthetic-" + id, buyerId, buyerId, money(selfRate),
             referrerId == null ? "0" : "1", referrerId, promotionOfSelf);
         return id;
+    }
+
+
+    private static void persistVerifiedPaymentOrder(String orderNo, long buyer, long inviter)
+    {
+        transactions.executeWithoutResult(status -> {
+            Instant paid = Instant.parse("2026-10-01T10:11:22Z");
+            SysOrderCommission order = new SysOrderCommission();
+            order.setOrderId(orderNo); order.setSubOrderNo(""); order.setPlatformType("tbk");
+            order.setItemId("synthetic-item"); order.setItemTitle("line4 synthetic order");
+            order.setOrderAmount(money("99.99")); order.setEstimatedCommission(money("1.2399"));
+            order.setCommissionRate(money("12.34")); order.setBuyerUserId(buyer); order.setAgentUserId(buyer);
+            order.setOrderTime(java.sql.Timestamp.valueOf("2026-10-01 10:11:12"));
+            order.setPaidTime(Date.from(paid)); order.setOrderStatus("pending"); order.setSettleStatus("unsettled");
+            order.setSelfCommissionRate(target.getSelfCommissionRate());
+            order.setSelfCommissionAmount(order.getEstimatedCommission().multiply(order.getSelfCommissionRate())
+                .divide(money("100"), 2, RoundingMode.HALF_UP));
+            order.setHasReferrer("0"); order.setPromotionCommissionRate(BigDecimal.ZERO);
+            order.setPromotionCommissionAmount(BigDecimal.ZERO);
+            assertEquals(1, orders.insertSysOrderCommission(order));
+            assertNotNull(order.getId());
+            UnionOrderLine line = new UnionOrderLine(Platform.TBK, orderNo, "", order.getItemId(), null, null,
+                order.getOrderAmount(), order.getEstimatedCommission(), null, "SYNTHETIC_PAID_EVIDENCE", paid, null, null);
+            PaymentInvitationSnapshotPort evidence = (platform, number, suborder, owner, paidAt) -> {
+                assertEquals(Platform.TBK, platform); assertEquals(orderNo, number); assertEquals("", suborder);
+                assertEquals(Long.valueOf(buyer), owner); assertEquals(paid, paidAt);
+                return Optional.of(new PaymentInvitationSnapshotPort.Snapshot(buyer, inviter, paid, "accounting-fixture-paid"));
+            };
+            StaticListableBeanFactory beans = new StaticListableBeanFactory();
+            beans.addBean("explicitHistoricalEvidenceStub", evidence);
+            var decision = new PaymentInvitationSnapshotService(jdbc, beans.getBeanProvider(PaymentInvitationSnapshotPort.class))
+                .resolve(order.getId(), buyer, line);
+            assertTrue("Only verified payment evidence may prepare the legacy referral order", !decision.manualReview());
+            assertEquals("accounting-fixture-paid", decision.evidenceId());
+            order.setReferrerUserId(decision.inviterUserId()); order.setHasReferrer("1");
+            order.setPromotionCommissionRate(target.getPromotionCommissionRate());
+            order.setPromotionCommissionAmount(order.getSelfCommissionAmount().multiply(order.getPromotionCommissionRate())
+                .divide(money("100"), 2, RoundingMode.HALF_UP));
+            assertEquals(1, orders.updateSysOrderCommission(order));
+            assertEquals("VERIFIED", jdbc.queryForObject(
+                "SELECT review_status FROM cps_payment_invitation_snapshot WHERE order_line_id=?", String.class, order.getId()));
+        });
     }
 
     /** Exercise the internal entry point with the real surrounding transaction. */

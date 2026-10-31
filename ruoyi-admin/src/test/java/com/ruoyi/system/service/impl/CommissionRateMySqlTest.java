@@ -33,7 +33,6 @@ import com.ruoyi.system.mapper.SysCommissionConfigMapper;
 import com.ruoyi.system.mapper.SysOrderCommissionMapper;
 import com.ruoyi.system.service.ISysCommissionConfigService;
 import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
 
 /** Real MySQL and actual Flyway migrations; uses a dedicated temporary database. */
 public class CommissionRateMySqlTest
@@ -43,6 +42,7 @@ public class CommissionRateMySqlTest
     private static JdbcTemplate jdbc;
     private static ISysCommissionConfigService service;
     private static SysCommissionConfigMapper mapper;
+    private static SysOrderCommissionMapper orders;
     private static long initialSeedCount;
     private static long initialDisabledCount;
     private static BigDecimal initialSeedSum;
@@ -75,10 +75,13 @@ public class CommissionRateMySqlTest
         initialSeedSum = jdbc.queryForObject("SELECT SUM(config_value) FROM sys_commission_config WHERE config_key IN ('self_rate','promotion_rate')", BigDecimal.class);
         SqlSessionFactoryBean factoryBean = new SqlSessionFactoryBean();
         factoryBean.setDataSource(dataSource);
-        factoryBean.setMapperLocations(new ClassPathResource("mapper/system/SysCommissionConfigMapper.xml"));
+        factoryBean.setMapperLocations(new ClassPathResource("mapper/system/SysCommissionConfigMapper.xml"),
+            new ClassPathResource("mapper/system/SysOrderCommissionMapper.xml"));
         SqlSessionFactory factory = factoryBean.getObject();
         assertNotNull(factory);
-        mapper = new SqlSessionTemplate(factory).getMapper(SysCommissionConfigMapper.class);
+        SqlSessionTemplate sessions = new SqlSessionTemplate(factory);
+        mapper = sessions.getMapper(SysCommissionConfigMapper.class);
+        orders = sessions.getMapper(SysOrderCommissionMapper.class);
         SysCommissionConfigServiceImpl target = new SysCommissionConfigServiceImpl();
         ReflectionTestUtils.setField(target, "sysCommissionConfigMapper", mapper);
         TransactionInterceptor interceptor = new TransactionInterceptor();
@@ -156,14 +159,21 @@ public class CommissionRateMySqlTest
     public void placeholdersPreventCalculationUntilBothZeroRatesAreSaved()
     {
         jdbc.update("UPDATE sys_commission_config SET status = '1', config_value = 0 WHERE config_key IN ('self_rate','promotion_rate')");
-        CommissionCalculateServiceImpl calculate = new CommissionCalculateServiceImpl();
-        ReflectionTestUtils.setField(calculate, "commissionConfigMapper", mapper);
-        SysOrderCommissionMapper orders = mock(SysOrderCommissionMapper.class);
+        CommissionCalculateServiceImpl calculationTarget = new CommissionCalculateServiceImpl();
+        ReflectionTestUtils.setField(calculationTarget, "commissionConfigMapper", mapper);
         // User 1 already exists in the migrated sys_user seed; prepare only its WeChat relationship.
         jdbc.update("INSERT INTO sys_wechat_user (user_id, openid, invitation_code, inviter_user_id) "
             + "VALUES (1, 'line7-synthetic-openid', 'line7-synthetic-invitation', NULL)");
-        ReflectionTestUtils.setField(calculate, "orderCommissionMapper", orders);
-        ReflectionTestUtils.setField(calculate, "ledgerJdbc", jdbc);
+        ReflectionTestUtils.setField(calculationTarget, "orderCommissionMapper", orders);
+        ReflectionTestUtils.setField(calculationTarget, "ledgerJdbc", jdbc);
+        TransactionInterceptor calculationTx = new TransactionInterceptor();
+        calculationTx.setTransactionManager(new DataSourceTransactionManager(dataSource));
+        calculationTx.setTransactionAttributeSource(new AnnotationTransactionAttributeSource());
+        ProxyFactory calculationProxy = new ProxyFactory(calculationTarget);
+        calculationProxy.setProxyTargetClass(true);
+        calculationProxy.addAdvice(calculationTx);
+        // Real generated keys and surrounding transaction are part of this MySQL fixture.
+        CommissionCalculateServiceImpl calculate = (CommissionCalculateServiceImpl) calculationProxy.getProxy();
         assertThrows(ServiceException.class, () -> calculate.calculateCommission("placeholder", "tbk", "item", "item",
             BigDecimal.TEN, BigDecimal.TEN, BigDecimal.ONE, 1L, "2026-01-01 00:00:00"));
         SysCommissionConfig config = new SysCommissionConfig();
@@ -176,6 +186,11 @@ public class CommissionRateMySqlTest
         assertEquals(2L, jdbc.queryForObject("SELECT COUNT(*) FROM sys_commission_config WHERE config_key IN ('self_rate','promotion_rate') AND status = '0'", Long.class).longValue());
         assertEquals(0, BigDecimal.ZERO.compareTo(calculate.calculateCommission("enabled", "tbk", "item", "item",
             BigDecimal.TEN, BigDecimal.TEN, BigDecimal.ONE, 1L, "2026-01-01 00:00:00").getSelfCommissionAmount()));
+        assertEquals(1L, jdbc.queryForObject(
+            "SELECT COUNT(*) FROM sys_order_commission WHERE order_id='enabled' AND platform_type='tbk'", Long.class).longValue());
+        assertEquals(1L, jdbc.queryForObject(
+            "SELECT COUNT(*) FROM cps_payment_invitation_snapshot s JOIN sys_order_commission o ON o.id=s.order_line_id "
+                + "WHERE o.order_id='enabled' AND s.review_status='MANUAL_REVIEW' AND s.paid_at IS NULL", Long.class).longValue());
     }
 
     @Test

@@ -2,6 +2,16 @@ package com.ruoyi.system.cps.ledger;
 
 import static org.junit.Assert.*;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
+import java.util.Date;
+import java.util.Optional;
+import com.ruoyi.system.cps.settlement.PaymentInvitationSnapshotPort;
+import com.ruoyi.system.cps.settlement.PaymentInvitationSnapshotService;
+import com.ruoyi.system.domain.SysOrderCommission;
+import com.ruoyi.system.mapper.SysOrderCommissionMapper;
+import com.ruoyi.union.adapter.Platform;
+import com.ruoyi.union.adapter.UnionOrderLine;
 import org.junit.*;
 import org.mybatis.spring.SqlSessionFactoryBean;
 import org.mybatis.spring.SqlSessionTemplate;
@@ -136,6 +146,10 @@ public class WithdrawalLedgerMySqlTest {
     @Test public void changedInviterDoesNotChangeOrderSnapshotOrRefundRecipient() {
         long buyer = 99110004L, original = 99110005L, replacement = 99110006L;
         ordinaryUser(original, null); ordinaryUser(replacement, null); ordinaryUser(buyer, original); rates();
+        // The legacy API has no paidAt. Supply an upstream persisted order whose inviter
+        // was verified against explicit payment evidence; never infer it from today's relation.
+        persistVerifiedPaymentOrder(buyer, original);
+
         var order = tx.execute(s -> accounts.calculateCommission("snapshot-no-agent", "tbk", "synthetic-item", "Synthetic", new BigDecimal("100"),
             new BigDecimal("20"), BigDecimal.ZERO, buyer, "2026-01-01 12:00:00"));
         assertEquals(Long.valueOf(original), order.getReferrerUserId());
@@ -221,6 +235,45 @@ public class WithdrawalLedgerMySqlTest {
             AccountType.USER_AVAILABLE, AccountType.PAYOUT, "1")));
         assertEquals(Long.valueOf(0), jdbc.queryForObject("SELECT COUNT(*) FROM sys_commission_flow WHERE user_id=?", Long.class, user));
     }
+
+    private void persistVerifiedPaymentOrder(long buyer, long inviter) {
+        tx.executeWithoutResult(status -> {
+            var orders = (SysOrderCommissionMapper) ReflectionTestUtils.getField(accounts, "orderCommissionMapper");
+            Instant paid = Instant.parse("2026-01-01T12:00:10Z");
+            var order = new SysOrderCommission();
+            order.setOrderId("snapshot-no-agent"); order.setSubOrderNo(""); order.setPlatformType("tbk");
+            order.setItemId("synthetic-item"); order.setItemTitle("Synthetic");
+            order.setOrderAmount(new BigDecimal("100")); order.setEstimatedCommission(new BigDecimal("20"));
+            order.setCommissionRate(BigDecimal.ZERO); order.setBuyerUserId(buyer); order.setAgentUserId(buyer);
+            order.setOrderTime(java.sql.Timestamp.valueOf("2026-01-01 12:00:00"));
+            order.setPaidTime(Date.from(paid)); order.setOrderStatus("pending"); order.setSettleStatus("unsettled");
+            order.setSelfCommissionRate(accounts.getSelfCommissionRate());
+            order.setSelfCommissionAmount(order.getEstimatedCommission().multiply(order.getSelfCommissionRate())
+                .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+            order.setHasReferrer("0"); order.setPromotionCommissionRate(BigDecimal.ZERO);
+            order.setPromotionCommissionAmount(BigDecimal.ZERO);
+            assertEquals(1, orders.insertSysOrderCommission(order));
+            assertNotNull(order.getId());
+            var line = new UnionOrderLine(Platform.TBK, order.getOrderId(), "", order.getItemId(), null, null,
+                order.getOrderAmount(), order.getEstimatedCommission(), null, "SYNTHETIC_PAID_EVIDENCE", paid, null, null);
+            PaymentInvitationSnapshotPort evidence = (platform, orderNo, suborder, owner, paidAt) -> {
+                assertEquals(Platform.TBK, platform); assertEquals(order.getOrderId(), orderNo);
+                assertEquals("", suborder); assertEquals(Long.valueOf(buyer), owner); assertEquals(paid, paidAt);
+                return Optional.of(new PaymentInvitationSnapshotPort.Snapshot(buyer, inviter, paid, "withdrawal-fixture-paid"));
+            };
+            var decision = new PaymentInvitationSnapshotService(jdbc, provider(PaymentInvitationSnapshotPort.class, evidence))
+                .resolve(order.getId(), buyer, line);
+            assertFalse(decision.manualReview()); assertEquals("withdrawal-fixture-paid", decision.evidenceId());
+            order.setReferrerUserId(decision.inviterUserId()); order.setHasReferrer("1");
+            order.setPromotionCommissionRate(accounts.getPromotionCommissionRate());
+            order.setPromotionCommissionAmount(order.getSelfCommissionAmount().multiply(order.getPromotionCommissionRate())
+                .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+            assertEquals(1, orders.updateSysOrderCommission(order));
+            assertEquals("VERIFIED", jdbc.queryForObject(
+                "SELECT review_status FROM cps_payment_invitation_snapshot WHERE order_line_id=?", String.class, order.getId()));
+        });
+    }
+
     private BigDecimal balance(long user) {
         return jdbc.queryForObject("SELECT balance FROM sys_agent_commission_account WHERE user_id=?", BigDecimal.class, user);
     }

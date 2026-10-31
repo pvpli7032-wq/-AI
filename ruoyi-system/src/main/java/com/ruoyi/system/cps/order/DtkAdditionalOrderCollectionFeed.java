@@ -120,12 +120,12 @@ public final class DtkAdditionalOrderCollectionFeed implements OrderCollectionFe
                     complete = false; continue;
                 }
                 BigDecimal returned = number(row, "skuReturnNum"), frozen = number(row, "skuFrozenNum");
-                if (positive(returned)) {
+                if (target != OrderStatus.INVALID && positive(returned)) {
                     BigDecimal quantity = number(row, "skuNum");
                     if (quantity == null || quantity.signum() <= 0 || returned.compareTo(quantity) > 0)
                         throw new IllegalStateException("京东退货数量无效");
                     target = returned.compareTo(quantity) == 0 ? OrderStatus.FULL_REFUND : OrderStatus.PARTIAL_REFUND;
-                } else if (positive(frozen)) target = OrderStatus.DISPUTED;
+                } else if (target != OrderStatus.INVALID && positive(frozen)) target = OrderStatus.DISPUTED;
                 BigDecimal price = number(row, "price"), quantity = number(row, "skuNum");
                 UnionOrderLine line = new UnionOrderLine(Platform.JD, text(row, "orderId"), text(row, "id"), text(row, "skuId"),
                     text(row, "pid") == null ? text(row, "positionId") : text(row, "pid"), text(row, "subUnionId"),

@@ -158,7 +158,11 @@ public class OrderIngestionService
             if (nanos == null || !input.allianceStatusTime().isAfter(Instant.ofEpochSecond(lastSecond.longValue(), nanos.intValue())))
                 return rejected(rawId, orderId, eventKey, "联盟事件时间早于或等于已处理事件");
         }
-        OrderTransitionValidator.Result decision = transitions.evaluate(current, target, previous);
+        // First observation is a snapshot, not a transition from a fabricated PAID state.
+        // Only existing orders go through the shared transition table; no history/times are inferred.
+        OrderTransitionValidator.Result decision = current == null
+            ? new OrderTransitionValidator.Result(OrderTransitionValidator.Outcome.INITIAL, "")
+            : transitions.evaluate(current, target, previous);
         if (decision.outcome() == OrderTransitionValidator.Outcome.ILLEGAL)
             return rejected(rawId, orderId, eventKey, decision.reason());
         boolean commissionChanged = line.platform() == Platform.JD && current == target

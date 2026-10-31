@@ -91,6 +91,15 @@ public class OrderIngestionMySqlTest
     }
 
     @Test
+    public void deferredCaseRetainsExactProviderTextWithoutCreatingAnEvent()
+    {
+        String raw = "{ \"case\": \"原始维权\", \"value\": 12 }";
+        long id = service.retainRaw(Platform.TBK, raw, TIME);
+        assertEquals(raw, jdbc.queryForObject("SELECT payload_text FROM cps_order_raw WHERE id=?", String.class, id));
+        assertEquals(0L, jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_event WHERE raw_id=?", Long.class, id).longValue());
+    }
+
+    @Test
     public void duplicateAndSubordersPreserveRawAndOnlyOneEventPerKey()
     {
         String order = "line10-" + UUID.randomUUID();

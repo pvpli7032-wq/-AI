@@ -27,6 +27,7 @@ import com.ruoyi.system.cps.mapper.OrderEventMapper;
 import com.ruoyi.system.cps.mapper.OrderIngestMapper;
 import com.ruoyi.system.cps.mapper.OrderRawMapper;
 import com.ruoyi.union.adapter.UnionOrderLine;
+import com.ruoyi.union.adapter.Platform;
 
 /** Explicit ingress boundary. Callers provide actual raw JSON and real alliance status time. */
 public class OrderIngestionService
@@ -55,13 +56,7 @@ public class OrderIngestionService
         if (input == null || input.rawJson() == null || input.fetchedAt() == null
             || input.line() == null || input.line().platform() == null)
             throw new IllegalArgumentException("必须提供联盟原始响应、平台和抓取时间");
-        Map<String,Object> data = new HashMap<>();
-        data.put("raw", input.rawJson());
-        data.put("platform", input.line() == null || input.line().platform() == null ? null : input.line().platform().name());
-        data.put("fetchedAt", timestamp(input.fetchedAt()));
-        data.put("hash", sha256(input.rawJson()));
-        independent.executeWithoutResult(status -> raw.append(data));
-        long rawId = ((Number) data.get("id")).longValue();
+        long rawId = retainRaw(input.line().platform(), input.rawJson(), input.fetchedAt());
         try
         {
             return independent.execute(status -> process(rawId, input));
@@ -72,6 +67,23 @@ public class OrderIngestionService
             recordException(rawId, null, null, "入站处理失败，保留原文待重放");
             return new Result(rawId, null, null, Outcome.REJECTED);
         }
+    }
+
+    /** Retain actual provider text before deferring an unsupported case for retry. */
+    public long retainRaw(Platform platform, String text, Instant fetchedAt)
+    {
+        if (platform == null || text == null || fetchedAt == null)
+            throw new IllegalArgumentException("必须提供联盟原始响应、平台和抓取时间");
+        Map<String,Object> data = new HashMap<>();
+        data.put("raw", text);
+        data.put("platform", platform.name());
+        data.put("fetchedAt", timestamp(fetchedAt));
+        data.put("hash", sha256(text));
+        independent.executeWithoutResult(status -> {
+            if (raw.append(data) != 1 || data.get("id") == null)
+                throw new IllegalStateException("联盟原始响应保存失败");
+        });
+        return ((Number) data.get("id")).longValue();
     }
 
     private Result process(long rawId, IncomingOrder input)

@@ -22,6 +22,7 @@ import static org.junit.Assert.*;
 public class OrderViewsMySqlTest {
     private static String url, user, password, database;
     private static JdbcTemplate jdbc;
+    private static DriverManagerDataSource dataSource;
     private static OrderReadMapper orders;
     @BeforeClass public static void setup() throws Exception {
         url = System.getenv("LINE4_MYSQL_URL");
@@ -38,6 +39,7 @@ public class OrderViewsMySqlTest {
         String query = q < 0 ? "" : url.substring(q); int slash = base.indexOf('/', "jdbc:mysql://".length());
         DriverManagerDataSource ds = new DriverManagerDataSource((slash < 0 ? base : base.substring(0, slash)) + "/" + database + query, user, password);
         Flyway.configure().dataSource(ds).locations("classpath:db/migration").outOfOrder(true).load().migrate();
+        dataSource = ds;
         jdbc = new JdbcTemplate(ds);
         SqlSessionFactoryBean bean = new SqlSessionFactoryBean(); bean.setDataSource(ds);
         bean.setMapperLocations(new ClassPathResource("mapper/cps/OrderReadMapper.xml"));
@@ -71,4 +73,30 @@ public class OrderViewsMySqlTest {
         assertEquals(1, orders.listAdmin("jd", "RECEIVED", "CLAIM").size());
         assertEquals(0, orders.listAdmin("jd", "PAID", null).size());
     }
+    @Test public void penaltyRowsAndHeaderRollbackTogetherOnDatabaseFailure() throws Exception {
+        SqlSessionFactoryBean factory = new SqlSessionFactoryBean(); factory.setDataSource(dataSource);
+        org.apache.ibatis.session.SqlSessionFactory sessions = factory.getObject();
+        sessions.getConfiguration().addMapper(com.ruoyi.system.cps.mapper.PunishmentEntryMapper.class);
+        com.ruoyi.system.cps.mapper.PunishmentEntryMapper mapper = new SqlSessionTemplate(sessions)
+            .getMapper(com.ruoyi.system.cps.mapper.PunishmentEntryMapper.class);
+        PunishmentImportService target = new PunishmentImportService(mapper);
+        org.springframework.transaction.interceptor.TransactionInterceptor tx = new org.springframework.transaction.interceptor.TransactionInterceptor();
+        tx.setTransactionManager(new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
+        tx.setTransactionAttributeSource(new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource());
+        org.springframework.aop.framework.ProxyFactory proxy = new org.springframework.aop.framework.ProxyFactory(target);
+        proxy.setProxyTargetClass(true); proxy.addAdvice(tx);
+        PunishmentImportService service = (PunishmentImportService) proxy.getProxy();
+        PunishmentLine a = new PunishmentLine(); a.setOrderNo("a"); a.setPenaltyAmount(new java.math.BigDecimal("1.00"));
+        PunishmentLine b = new PunishmentLine(); b.setOrderNo("b"); b.setPenaltyAmount(new java.math.BigDecimal("2.00"));
+        jdbc.execute("CREATE TRIGGER line10_reject_second BEFORE INSERT ON cps_punish_import_item FOR EACH ROW BEGIN IF NEW.line_no = 2 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'synthetic failure'; END IF; END");
+        try {
+            assertThrows(RuntimeException.class, () -> service.importLines("tbk", "rollback.csv", 7L, List.of(a, b)));
+            assertEquals(Long.valueOf(0), jdbc.queryForObject("SELECT COUNT(*) FROM cps_punish_import WHERE file='rollback.csv'", Long.class));
+            assertEquals(Long.valueOf(0), jdbc.queryForObject("SELECT COUNT(*) FROM cps_punish_import_item", Long.class));
+        } finally { jdbc.execute("DROP TRIGGER line10_reject_second"); }
+        long id = service.importLines("tbk", "success.csv", 7L, List.of(a, b));
+        assertEquals(Long.valueOf(2), jdbc.queryForObject("SELECT COUNT(*) FROM cps_punish_import_item WHERE import_id=?", Long.class, id));
+        assertEquals(Long.valueOf(7), jdbc.queryForObject("SELECT operator FROM cps_punish_import WHERE id=?", Long.class, id));
+    }
+
 }

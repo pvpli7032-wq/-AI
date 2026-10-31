@@ -29,6 +29,18 @@ import java.util.Map;
 @RequestMapping("/miniapp/jd")
 public class MiniappJdController extends BaseController {
 
+    // Public browsing remains available without a login; request parameters are not identity.
+    private Long currentUserId() {
+        org.springframework.security.core.Authentication authentication =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.isAuthenticated()
+                && authentication.getPrincipal() instanceof com.ruoyi.common.core.domain.model.LoginUser loginUser) {
+            return loginUser.getUserId();
+        }
+        return null;
+    }
+
+
     @Autowired
     private IJdSdkService jdSdkService;
 
@@ -77,20 +89,11 @@ public class MiniappJdController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
 
-        // 1、根据邀请码或用户ID查询代理信息
-        SysTbkAgentApply agentApply = null;
-        if (invitationCode != null && !invitationCode.trim().isEmpty()) {
-            agentApply = tbkAgentApplyService.selectByInvitationCode(invitationCode);
-            // 验证代理状态：只有审核通过（status=1）的代理才有效
-            if (agentApply != null && !"1".equals(agentApply.getStatus())) {
-                agentApply = null;
-            }
-        } else if (userId != null) {
-            SysTbkAgentApply userApply = tbkAgentApplyService.selectByUserId(userId);
-            // 验证代理状态：只有审核通过（status=1）的代理才有效
-            if (userApply != null && "1".equals(userApply.getStatus())) {
-                agentApply = userApply;
-            }
+        // 根据登录态查询已审核的代理信息。
+        Long currentUserId = currentUserId();
+        SysTbkAgentApply agentApply = currentUserId == null ? null : tbkAgentApplyService.selectByUserId(currentUserId);
+        if (agentApply != null && !"1".equals(agentApply.getStatus())) {
+            agentApply = null;
         }
         
         // 调用京东联盟SDK查询商品详情

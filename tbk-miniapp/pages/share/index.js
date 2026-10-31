@@ -181,7 +181,7 @@ Page({
     const code = this.data.agentInfo.invitationCode || ''
     return {
       title: '好物推荐，高佣返利！',
-      path: '/pages/index/index?inviteCode=' + code,
+      path: '/pages/index/index?invitationCode=' + code,
       imageUrl: ''
     }
   }

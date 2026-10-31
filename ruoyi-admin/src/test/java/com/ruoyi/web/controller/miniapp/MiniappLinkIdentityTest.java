@@ -3,6 +3,7 @@ package com.ruoyi.web.controller.miniapp;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.core.domain.model.LoginUser;
 import com.ruoyi.system.service.IDtkApiService;
+import com.ruoyi.system.service.IJdSdkService;
 import com.ruoyi.system.service.IPddApiService;
 import com.ruoyi.system.service.ISysTbkAgentApplyService;
 import com.ruoyi.union.dtk.config.DtkConfig;
@@ -51,6 +52,20 @@ public class MiniappLinkIdentityTest {
         mvc.perform(get("/miniapp/dtk/goods/tpwd").param("goodsId", "456").param("userId", "99"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200));
         verify(api).getPrivilegeLink("456", null, "server-pid", null, null, null);
+    }
+
+    @Test
+    public void jdIgnoresClientPromotionConfiguration() throws Exception {
+        MiniappJdController controller = new MiniappJdController();
+        IJdSdkService api = mock(IJdSdkService.class);
+        ReflectionTestUtils.setField(controller, "jdSdkService", api);
+        when(api.getPromotionLink(anyMap())).thenReturn(new JSONObject());
+        MockMvcBuilders.standaloneSetup(controller).build().perform(
+                get("/miniapp/jd/getPromotionUrl").param("itemId", "123")
+                        .param("positionId", "forged-position")
+                        .param("siteId", "forged-site").param("sceneId", "forged-scene"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200));
+        verify(api).getPromotionLink(java.util.Collections.singletonMap("materialId", "123"));
     }
 
     @Test

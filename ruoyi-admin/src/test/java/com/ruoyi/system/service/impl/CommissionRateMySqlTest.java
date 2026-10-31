@@ -159,8 +159,7 @@ public class CommissionRateMySqlTest
         CommissionCalculateServiceImpl calculate = new CommissionCalculateServiceImpl();
         ReflectionTestUtils.setField(calculate, "commissionConfigMapper", mapper);
         SysOrderCommissionMapper orders = mock(SysOrderCommissionMapper.class);
-        jdbc.update("INSERT INTO sys_user (user_id, user_name, nick_name, status, del_flag) "
-            + "VALUES (1, 'line7-synthetic-buyer', 'line7 synthetic buyer', '0', '0')");
+        // User 1 already exists in the migrated sys_user seed; prepare only its WeChat relationship.
         jdbc.update("INSERT INTO sys_wechat_user (user_id, openid, invitation_code, inviter_user_id) "
             + "VALUES (1, 'line7-synthetic-openid', 'line7-synthetic-invitation', NULL)");
         ReflectionTestUtils.setField(calculate, "orderCommissionMapper", orders);

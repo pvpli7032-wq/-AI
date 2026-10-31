@@ -99,6 +99,12 @@ public class OrderIngestionService
         return ((Number) data.get("id")).longValue();
     }
 
+    /** Source anomalies are durable, not just log messages. */
+    public void recordSourceException(long rawId, String reason) {
+        if (rawId <= 0 || reason == null || reason.length() > 500) throw new IllegalArgumentException("来源异常无效");
+        recordException(rawId, null, null, reason);
+    }
+
     private Result process(long rawId, IncomingOrder input)
     {
         if (!raw.isValidJson(input.rawJson())) return rejected(rawId, null, null, "联盟响应不是有效JSON");
@@ -137,11 +143,14 @@ public class OrderIngestionService
                 return rejected(rawId, orderId, eventKey, "相同事件键对应不同订单数据，需人工核对");
             return new Result(rawId, orderId, eventKey, Outcome.DUPLICATE);
         }
-        OrderStatus target;
-        try { target = statuses.map(line.platform(), line.rawStatus()); }
-        catch (IllegalArgumentException unknown) { return rejected(rawId, orderId, eventKey, "未知或未确认的联盟状态"); }
         OrderStatus current = status(row.get("line_status"));
         OrderStatus previous = status(row.get("cps_dispute_previous"));
+        OrderStatus target;
+        try { target = input.restorePrevious() ? previous : input.resolvedStatus() != null
+            ? input.resolvedStatus() : statuses.map(line.platform(), line.rawStatus()); }
+        catch (IllegalArgumentException unknown) { return rejected(rawId, orderId, eventKey, "未知或未确认的联盟状态"); }
+        if (target == null || (input.restorePrevious() && current != OrderStatus.DISPUTED))
+            return rejected(rawId, orderId, eventKey, "没有可恢复的维权前状态");
         Number lastSecond = (Number) row.get("cps_status_second");
         if (lastSecond != null)
         {
@@ -152,9 +161,15 @@ public class OrderIngestionService
         OrderTransitionValidator.Result decision = transitions.evaluate(current, target, previous);
         if (decision.outcome() == OrderTransitionValidator.Outcome.ILLEGAL)
             return rejected(rawId, orderId, eventKey, decision.reason());
-        if (decision.outcome() == OrderTransitionValidator.Outcome.DUPLICATE)
+        boolean commissionChanged = line.platform() == Platform.JD && current == target
+            && line.actualCommission() != null && (row.get("actual_commission") == null
+            || line.actualCommission().compareTo(new BigDecimal(row.get("actual_commission").toString())) != 0);
+        if (decision.outcome() == OrderTransitionValidator.Outcome.DUPLICATE && !commissionChanged)
             return rejected(rawId, orderId, eventKey, "同状态新事件可能包含金额变化，需人工核对后重放");
-        OrderStatus eventPrevious = target == OrderStatus.DISPUTED ? current : current == OrderStatus.DISPUTED ? previous : null;
+        // A commission-only event does not change state, and never fabricates an intermediate transition.
+        values.put("source", commissionChanged ? "ALLIANCE_COMMISSION" : input.source() == null ? "ALLIANCE" : input.source());
+        OrderStatus eventPrevious = target == OrderStatus.DISPUTED && current != OrderStatus.DISPUTED
+            ? current : current == OrderStatus.DISPUTED ? previous : null;
         values.put("id", orderId); values.put("orderLineId", orderId); values.put("rawId", rawId);
         values.put("status", target.name()); values.put("toStatus", target.name());
         values.put("fromStatus", current == null ? null : current.name());

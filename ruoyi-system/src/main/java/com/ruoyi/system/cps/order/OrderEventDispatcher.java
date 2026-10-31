@@ -57,7 +57,7 @@ public final class OrderEventDispatcher
                 Long rawId = row.get("raw_id") == null ? null : ((Number)row.get("raw_id")).longValue();
                 settlement.onOrderEvent(new OrderEvent((String)row.get("event_key"), orderId, line, from,
                     status(row.get("to_status")), status(row.get("previous_status")), null,
-                    "ALLIANCE", rawId, occurred));
+                    row.get("source") == null ? "ALLIANCE" : row.get("source").toString(), rawId, occurred));
                 if (!inbox.markSettlementDone(claim.id(), claim.token()))
                     throw new IllegalStateException("结算投递状态保存失败或租约已过期");
             }

@@ -6,7 +6,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.core.controller.BaseController;
-import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.system.cps.mapper.OrderReadMapper;
 
@@ -22,8 +21,19 @@ public class MiniappOrdersQueryController extends BaseController {
         if (userId == null) throw new IllegalStateException("登录用户缺少身份");
         startPage();
         List<Map<String, Object>> rows = orders.listForUser(userId);
-        if (rows.stream().anyMatch(row -> row.get("displayStatus") == null))
-            throw new ServiceException("订单状态待确认，请稍后重试");
-        return getDataTable(rows);
+        TableDataInfo result = getDataTable(rows); // Capture PageHelper total before copying display rows.
+        List<Map<String, Object>> display = new java.util.ArrayList<>(rows);
+        // Unknown/legacy states are conservatively held, never displayed as credited or exposed as null.
+        for (int i = 0; i < display.size(); i++) {
+            Map<String, Object> row = display.get(i);
+            if (!java.util.Set.of("待收货", "冻结中", "已结算", "已退款").contains(
+                    java.util.Objects.toString(row.get("displayStatus"), ""))) {
+                Map<String, Object> copy = new java.util.HashMap<>(row);
+                copy.put("displayStatus", "冻结中");
+                display.set(i, copy);
+            }
+        }
+        result.setRows(display);
+        return result;
     }
 }

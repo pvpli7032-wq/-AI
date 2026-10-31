@@ -16,12 +16,26 @@ public class OrderCollectorRuntimeConfiguration {
     }
     @Bean
     @ConditionalOnProperty(name = "cps.order.dtk.enabled", havingValue = "true")
-    public DtkOrderCollectionFeed dtkOrderCollectionFeed(Environment environment, OrderIngestionService ingestion) {
-        DtkOrderEvidenceClient client = new DtkOrderEvidenceClient(environment.getRequiredProperty("CPS_ORDER_DTK_APP_KEY"),
+    public DtkOrderEvidenceClient dtkOrderEvidenceClient(Environment environment) {
+        return new DtkOrderEvidenceClient(environment.getRequiredProperty("CPS_ORDER_DTK_APP_KEY"),
             environment.getRequiredProperty("CPS_ORDER_DTK_APP_SECRET"), java.time.Duration.ofSeconds(
                 Integer.parseInt(environment.getRequiredProperty("CPS_ORDER_DTK_TIMEOUT_SECONDS"))));
+    }
+    @Bean
+    @ConditionalOnProperty(name = "cps.order.dtk.enabled", havingValue = "true")
+    public DtkOrderCollectionFeed dtkOrderCollectionFeed(Environment environment, OrderIngestionService ingestion, DtkOrderEvidenceClient client) {
         return new DtkOrderCollectionFeed(client, ingestion, java.time.ZoneId.of(
             environment.getRequiredProperty("CPS_ORDER_DTK_ZONE")),
             Integer.parseInt(environment.getRequiredProperty("CPS_ORDER_TBK_QUERY_TYPE")));
+    }
+    @Bean
+    @ConditionalOnProperty(name = "cps.order.dtk.enabled", havingValue = "true")
+    public DtkAdditionalOrderCollectionFeed dtkAdditionalOrderCollectionFeed(Environment environment,
+            DtkOrderEvidenceClient client, OrderIngestionService ingestion, OrderCollectionSettings settings,
+            com.ruoyi.system.cps.mapper.OrderAuxiliaryEvidenceMapper evidence) {
+        return new DtkAdditionalOrderCollectionFeed(client, ingestion, settings, evidence,
+            java.time.ZoneId.of(environment.getRequiredProperty("CPS_ORDER_DTK_ZONE")), java.time.Clock.systemUTC(),
+            environment.getProperty("CPS_ORDER_JD_AUTHORIZATION_KEY"),
+            Integer.parseInt(environment.getProperty("CPS_ORDER_TBK_REFUND_BIZ_TYPE", "0")));
     }
 }

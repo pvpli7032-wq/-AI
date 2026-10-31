@@ -12,7 +12,7 @@ public interface OrderIngestMapper
         + "ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)")
     int ensureLine(Map<String, Object> line);
 
-    @Select("SELECT id,line_status,cps_status_second,cps_status_nano,cps_dispute_previous, "
+    @Select("SELECT id,line_status,actual_commission,cps_status_second,cps_status_nano,cps_dispute_previous, "
         + "cps_paid_second,cps_paid_nano,cps_settled_second,cps_settled_nano FROM sys_order_commission "
         + "WHERE platform_type=#{platform} AND order_id=#{orderNo} AND sub_order_no=#{subOrderNo} FOR UPDATE")
     Map<String, Object> lockLine(Map<String, Object> line);

@@ -85,6 +85,7 @@ public class OrderCollectionOrchestrator {
             while (true) {
                 OrderCollectionFeed.ResultPage page = selected.fetch(work.platform(), work.type(), work.window(), cursor);
                 if (page == null || page.entries() == null) throw new IllegalStateException("订单分页结果不完整");
+                boolean rejected = false;
                 for (OrderCollectionFeed.Entry entry : page.entries()) {
                     if (entry == null || entry.incoming() == null)
                         throw new IllegalStateException("订单原始内容或状态时间缺失");
@@ -93,8 +94,9 @@ public class OrderCollectionOrchestrator {
                         throw new IllegalStateException("订单原始内容或抓取时间缺失");
                     if (incoming.line() == null || incoming.line().platform() != work.platform()
                         || incoming.allianceStatusTime() == null) {
-                        ingestion.retainRaw(work.platform(), incoming.rawJson(), incoming.fetchedAt());
-                        throw new IllegalStateException("订单行、平台或状态时间无效");
+                        long rawId = ingestion.retainRaw(work.platform(), incoming.rawJson(), incoming.fetchedAt());
+                        ingestion.recordSourceException(rawId, "订单行、平台或状态时间无效");
+                        rejected = true; continue;
                     }
                     if (!settings.belongsToSystem(work, entry)) { settings.auditRejected(work, entry); continue; }
                     if (entry.recoveryRequired() || entry.recoveredAmount() != null) {
@@ -102,9 +104,10 @@ public class OrderCollectionOrchestrator {
                         throw new IllegalStateException("追回金额尚不能由订单入站契约持久化");
                     }
                     OrderIngestionService.Result result = ingestion.ingest(entry.incoming());
-                    if (result == null || result.outcome() == OrderIngestionService.Outcome.REJECTED)
-                        throw new IllegalStateException("订单入站失败，原始数据已留待核查");
+                    if (result == null || result.outcome() == OrderIngestionService.Outcome.REJECTED) rejected = true;
                 }
+                if (rejected || !page.completenessConfirmed())
+                    throw new IllegalStateException("分页完整性未确认，窗口保留失败待补偿");
                 String next = page.nextCursor();
                 if (next == null) return;
                 if (next.isBlank() || !visited.add(next)) throw new IllegalStateException("订单分页游标无效或重复");

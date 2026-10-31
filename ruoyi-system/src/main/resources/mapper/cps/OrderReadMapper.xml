@@ -35,11 +35,11 @@
         select o.id, o.platform_type as platform, o.order_id as orderNo, o.sub_order_no as subOrderNo,
                o.item_title as itemTitle, o.order_amount as orderAmount, o.paid_time as paidTime,
                case
-                 when o.line_status in ('INVALID', 'FULL_REFUND') then '已退款'
+                 when o.line_status in ('INVALID', 'PARTIAL_REFUND', 'FULL_REFUND') then '已退款'
                  when o.line_status in ('RECEIVED', 'SETTLED') and exists (select 1 from cps_settle_item s where s.order_line_id = o.id
                        and s.user_id = #{userId} and s.status = 'CREDITED') then '已结算'
                  when o.line_status = 'PAID' then '待收货'
-                 when o.line_status in ('RECEIVED', 'SETTLED') then '冻结中'
+                 when o.line_status in ('RECEIVED', 'SETTLED', 'DISPUTED', 'PENALIZED') then '冻结中'
                  else null
                end as displayStatus
         from sys_order_commission o

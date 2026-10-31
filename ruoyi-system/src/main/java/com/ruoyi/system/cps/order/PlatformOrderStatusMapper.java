@@ -11,6 +11,14 @@ import com.ruoyi.union.adapter.Platform;
 @Component
 public class PlatformOrderStatusMapper implements OrderStatusMapper
 {
+    public static final String TBK_RECEIVED_AS_SETTLED = "cps.order.tbk.received-as-settled";
+    private final java.util.function.BooleanSupplier receivedAsSettled;
+    public PlatformOrderStatusMapper() { this(() -> false); }
+    public PlatformOrderStatusMapper(java.util.function.BooleanSupplier enabled) { this.receivedAsSettled = enabled; }
+    @org.springframework.beans.factory.annotation.Autowired
+    public PlatformOrderStatusMapper(com.ruoyi.system.service.ISysConfigService configs) {
+        this(() -> "true".equalsIgnoreCase(configs.selectConfigByKey(TBK_RECEIVED_AS_SETTLED)));
+    }
     @Override
     public OrderStatus map(Platform platform, String rawStatus)
     {
@@ -27,7 +35,7 @@ public class PlatformOrderStatusMapper implements OrderStatusMapper
                 {
                     case "12": return OrderStatus.PAID;
                     case "13": return OrderStatus.INVALID;
-                    case "14": return OrderStatus.RECEIVED;
+                    case "14": return receivedAsSettled.getAsBoolean() ? OrderStatus.SETTLED : OrderStatus.RECEIVED;
                     case "3": return OrderStatus.SETTLED;
                     default: break;
                 }
@@ -41,10 +49,11 @@ public class PlatformOrderStatusMapper implements OrderStatusMapper
                     case "5": return OrderStatus.SETTLED;
                     default: break;
                 }
-                // -1未支付、1成团、3审核成功、4审核失败、8无佣金未确认可归一的状态。
+                // Additional codes require a verified, versioned query context: DtkOrderSemantics.pdd().
                 break;
             case JD:
-                // 普通订单查询 validCode 的语义在仓库中未确认；一元购文档不能代替。
+                // An unversioned raw code cannot establish payMonth/query provenance.
+                // The concrete V2 collector uses DtkOrderSemantics.jd() and persists its interpretation for replay.
                 break;
             default:
                 break;

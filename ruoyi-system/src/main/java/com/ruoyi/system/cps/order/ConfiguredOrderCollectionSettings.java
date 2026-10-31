@@ -48,16 +48,21 @@ public final class ConfiguredOrderCollectionSettings implements OrderCollectionS
             if (!type.name().equals(feed.getString("taskType"))) continue;
             Platform platform = Platform.valueOf(feed.getString("platform"));
             if (!seen.add(platform)) throw new IllegalStateException("同平台任务策略重复");
-            int size = positive(feed, "windowSeconds", 10800);
+            int sourceLimit = type == OrderCollectionRetryQueue.TaskType.PENALTY ? 2592000
+                : platform == Platform.JD ? 3600 : platform == Platform.PDD ? 86400 : 10800;
+            int size = positive(feed, "windowSeconds", sourceLimit);
             int overlap = positive(feed, "overlapSeconds", size - 1);
             int max = positive(feed, "maxWindows", 10000);
             int lag = nonNegative(feed, "lagSeconds");
             Instant end = clock.instant().minusSeconds(lag).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
-            String cycle = type == OrderCollectionRetryQueue.TaskType.BACKFILL
-                ? end.atOffset(ZoneOffset.UTC).toLocalDate().toString() : "incremental";
-            if (type == OrderCollectionRetryQueue.TaskType.BACKFILL)
-                end = end.atOffset(ZoneOffset.UTC).toLocalDate().atStartOfDay().toInstant(ZoneOffset.UTC);
-            Instant initial = type == OrderCollectionRetryQueue.TaskType.BACKFILL
+            boolean daily = type == OrderCollectionRetryQueue.TaskType.BACKFILL;
+            boolean hourly = type == OrderCollectionRetryQueue.TaskType.PENALTY;
+            if (daily) end = end.atOffset(ZoneOffset.UTC).toLocalDate().atStartOfDay().toInstant(ZoneOffset.UTC);
+            if (hourly) end = end.truncatedTo(java.time.temporal.ChronoUnit.HOURS);
+            String cycle = daily ? end.atOffset(ZoneOffset.UTC).toLocalDate().toString()
+                : hourly ? end.toString() : "incremental";
+            // Punishment is queried by order creation, not punishment modification. Rescan each hourly cycle.
+            Instant initial = daily || hourly
                 ? end.minusSeconds(positive(feed, "lookbackSeconds", Integer.MAX_VALUE)) : Instant.parse(feed.getString("initialFrom"));
             if (initial.getNano() != 0 || !initial.isBefore(end)) throw new IllegalStateException("采集起止时间无效");
             Map<String,Object> key = new HashMap<>();

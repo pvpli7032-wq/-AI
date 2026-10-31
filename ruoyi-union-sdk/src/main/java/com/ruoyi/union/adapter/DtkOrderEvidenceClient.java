@@ -45,6 +45,17 @@ public final class DtkOrderEvidenceClient {
     }
 
     public <T> Response<T> execute(DtkApiRequest<T> request, EvidenceSink evidence) {
+        Response<String> response = executeRaw(request, evidence);
+        try {
+            return new Response<>(JsonUtil.jsonToPojoByTypeReference(response.rawJson(), request.responseType()),
+                response.rawJson(), response.fetchedAt());
+        } catch (Exception invalid) {
+            throw new IllegalStateException("DTK order response invalid; original response retained");
+        }
+    }
+
+    /** Preserve provider field types, notably JD hasMore (integer/boolean/string), before normalization. */
+    public Response<String> executeRaw(DtkApiRequest<?> request, EvidenceSink evidence) {
         Objects.requireNonNull(request); Objects.requireNonNull(evidence);
         String path = request.requestUrl();
         // Do not allow a request implementation to redirect signed credentials to another host.
@@ -72,11 +83,7 @@ public final class DtkOrderEvidenceClient {
         Instant fetchedAt = clock.instant();
         if (text == null) throw new IllegalStateException("DTK order response missing");
         evidence.retain(text, fetchedAt); // Persist even errors, malformed JSON and empty pages before decoding.
-        try {
-            return new Response<>(JsonUtil.jsonToPojoByTypeReference(text, request.responseType()), text, fetchedAt);
-        } catch (Exception invalid) {
-            throw new IllegalStateException("DTK order response invalid; original response retained");
-        }
+        return new Response<>(text, text, fetchedAt);
     }
 
     private static String encode(String text) { return URLEncoder.encode(text, StandardCharsets.UTF_8); }

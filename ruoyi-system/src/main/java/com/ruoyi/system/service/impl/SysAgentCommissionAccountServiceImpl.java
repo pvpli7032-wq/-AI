@@ -94,6 +94,10 @@ public class SysAgentCommissionAccountServiceImpl implements ISysAgentCommission
     @Override
     public int updateSysAgentCommissionAccount(SysAgentCommissionAccount sysAgentCommissionAccount)
     {
+        if (sysAgentCommissionAccount.getUserId() != null)
+        {
+            throw new ServiceException("不允许修改佣金账户所属用户");
+        }
         for (BigDecimal amount : monetaryFields(sysAgentCommissionAccount))
         {
             if (amount != null)
@@ -140,7 +144,7 @@ public class SysAgentCommissionAccountServiceImpl implements ISysAgentCommission
     @Override
     public int deleteSysAgentCommissionAccountByIds(Long[] ids)
     {
-        return sysAgentCommissionAccountMapper.deleteSysAgentCommissionAccountByIds(ids);
+        throw new ServiceException("佣金账户不允许删除");
     }
 
     /**
@@ -152,6 +156,6 @@ public class SysAgentCommissionAccountServiceImpl implements ISysAgentCommission
     @Override
     public int deleteSysAgentCommissionAccountById(Long id)
     {
-        return sysAgentCommissionAccountMapper.deleteSysAgentCommissionAccountById(id);
+        throw new ServiceException("佣金账户不允许删除");
     }
 }

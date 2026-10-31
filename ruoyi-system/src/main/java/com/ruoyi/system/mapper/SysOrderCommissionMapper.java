@@ -11,6 +11,8 @@ import com.ruoyi.system.domain.SysOrderCommission;
  */
 public interface SysOrderCommissionMapper 
 {
+    /** 当前读：历史流水可能只填写 related_order_id。 */
+    Long selectExistingFlowForUpdate(Long orderCommissionId);
     /**
      * 查询订单佣金记录
      * 

@@ -18,6 +18,9 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.system.domain.SysCommissionFlow;
 import com.ruoyi.system.service.ISysCommissionFlowService;
+import com.ruoyi.system.service.ICommissionCalculateService;
+import com.ruoyi.common.utils.SecurityUtils;
+import org.springframework.validation.annotation.Validated;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
 
@@ -34,10 +37,23 @@ public class SysCommissionFlowController extends BaseController
     @Autowired
     private ISysCommissionFlowService sysCommissionFlowService;
 
+    @Autowired
+    private ICommissionCalculateService commissionCalculateService;
+
+    /** 根据原流水追加冲正，操作人来自登录态。 */
+    @PreAuthorize("@ss.hasPermi('system:commission:flow:reversal')")
+    @Log(title = "佣金流水冲正", businessType = BusinessType.INSERT)
+    @PostMapping("/reversal")
+    public AjaxResult reverse(@Validated @RequestBody CommissionFlowReversalRequest request)
+    {
+        return success(commissionCalculateService.reverseCommissionFlow(request.getOriginalFlowId(),
+            request.getReason(), request.getIdempotencyKey(), SecurityUtils.getUserId()));
+    }
+
     /**
      * 查询佣金流水列表
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionFlow:list')")
+    @PreAuthorize("@ss.hasPermi('system:commission:flow:list')")
     @GetMapping("/list")
     public TableDataInfo list(SysCommissionFlow sysCommissionFlow)
     {
@@ -49,7 +65,7 @@ public class SysCommissionFlowController extends BaseController
     /**
      * 导出佣金流水列表
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionFlow:export')")
+    @PreAuthorize("@ss.hasPermi('system:commission:flow:export')")
     @Log(title = "佣金流水", businessType = BusinessType.EXPORT)
     @PostMapping("/export")
     public void export(HttpServletResponse response, SysCommissionFlow sysCommissionFlow)
@@ -62,7 +78,7 @@ public class SysCommissionFlowController extends BaseController
     /**
      * 获取佣金流水详细信息
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionFlow:query')")
+    @PreAuthorize("@ss.hasPermi('system:commission:flow:query')")
     @GetMapping(value = "/{id}")
     public AjaxResult getInfo(@PathVariable("id") Long id)
     {
@@ -72,7 +88,7 @@ public class SysCommissionFlowController extends BaseController
     /**
      * 新增佣金流水
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionFlow:add')")
+    @PreAuthorize("@ss.hasPermi('system:commission:flow:add')")
     @Log(title = "佣金流水", businessType = BusinessType.INSERT)
     @PostMapping
     public AjaxResult add(@RequestBody SysCommissionFlow sysCommissionFlow)
@@ -83,7 +99,7 @@ public class SysCommissionFlowController extends BaseController
     /**
      * 修改佣金流水
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionFlow:edit')")
+    @PreAuthorize("@ss.hasPermi('system:commission:flow:edit')")
     @Log(title = "佣金流水", businessType = BusinessType.UPDATE)
     @PutMapping
     public AjaxResult edit(@RequestBody SysCommissionFlow sysCommissionFlow)
@@ -94,7 +110,7 @@ public class SysCommissionFlowController extends BaseController
     /**
      * 删除佣金流水
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionFlow:remove')")
+    @PreAuthorize("@ss.hasPermi('system:commission:flow:remove')")
     @Log(title = "佣金流水", businessType = BusinessType.DELETE)
 	@DeleteMapping("/{ids}")
     public AjaxResult remove(@PathVariable Long[] ids)

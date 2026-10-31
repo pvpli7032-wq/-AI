@@ -13,13 +13,17 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="balanceAfter"    column="balance_after"    />
         <result property="orderCommissionId"    column="order_commission_id"    />
         <result property="relatedOrderId"    column="related_order_id"    />
+        <result property="originalFlowId" column="original_flow_id" />
+        <result property="idempotencyKey" column="idempotency_key" />
+        <result property="operatorId" column="operator_id" />
+        <result property="reversalReason" column="reversal_reason" />
         <result property="description"    column="description"    />
         <result property="createTime"    column="create_time"    />
     </resultMap>
 
     <sql id="selectSysCommissionFlowVo">
         select id, user_id, flow_type, amount, balance_before, balance_after, 
-               order_commission_id, related_order_id, description, create_time
+               order_commission_id, related_order_id, description, original_flow_id, idempotency_key, operator_id, reversal_reason, create_time
         from sys_commission_flow
     </sql>
 
@@ -44,6 +48,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where id = #{id}
     </select>
 
+    <select id="selectReversalByOriginal" resultMap="SysCommissionFlowResult" useCache="false" flushCache="true">
+        <include refid="selectSysCommissionFlowVo"/> where original_flow_id = #{originalFlowId} for update
+    </select>
+
     <select id="selectByBusinessKey" resultMap="SysCommissionFlowResult" useCache="false" flushCache="true">
         <include refid="selectSysCommissionFlowVo"/>
         where user_id = #{userId} and flow_type = #{flowType}
@@ -62,6 +70,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="orderCommissionId != null">order_commission_id,</if>
             <if test="relatedOrderId != null">related_order_id,</if>
             <if test="description != null">description,</if>
+            <if test="originalFlowId != null">original_flow_id,</if>
+            <if test="idempotencyKey != null">idempotency_key,</if>
+            <if test="operatorId != null">operator_id,</if>
+            <if test="reversalReason != null">reversal_reason,</if>
             <if test="createTime != null">create_time,</if>
          </trim>
         <trim prefix="values (" suffix=")" suffixOverrides=",">
@@ -73,6 +85,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="orderCommissionId != null">#{orderCommissionId},</if>
             <if test="relatedOrderId != null">#{relatedOrderId},</if>
             <if test="description != null">#{description},</if>
+            <if test="originalFlowId != null">#{originalFlowId},</if>
+            <if test="idempotencyKey != null">#{idempotencyKey},</if>
+            <if test="operatorId != null">#{operatorId},</if>
+            <if test="reversalReason != null">#{reversalReason},</if>
             <if test="createTime != null">#{createTime},</if>
          </trim>
     </insert>

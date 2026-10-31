@@ -37,7 +37,7 @@ public class SysAgentCommissionAccountController extends BaseController
     /**
      * 查询代理佣金账户列表
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionAccount:list')")
+    @PreAuthorize("@ss.hasPermi('system:commission:account:list')")
     @GetMapping("/list")
     public TableDataInfo list(SysAgentCommissionAccount sysAgentCommissionAccount)
     {
@@ -49,7 +49,7 @@ public class SysAgentCommissionAccountController extends BaseController
     /**
      * 导出代理佣金账户列表
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionAccount:export')")
+    @PreAuthorize("@ss.hasPermi('system:commission:account:export')")
     @Log(title = "代理佣金账户", businessType = BusinessType.EXPORT)
     @PostMapping("/export")
     public void export(HttpServletResponse response, SysAgentCommissionAccount sysAgentCommissionAccount)
@@ -62,7 +62,7 @@ public class SysAgentCommissionAccountController extends BaseController
     /**
      * 获取代理佣金账户详细信息
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionAccount:query')")
+    @PreAuthorize("@ss.hasPermi('system:commission:account:query')")
     @GetMapping(value = "/{id}")
     public AjaxResult getInfo(@PathVariable("id") Long id)
     {
@@ -72,7 +72,7 @@ public class SysAgentCommissionAccountController extends BaseController
     /**
      * 根据用户ID查询佣金账户
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionAccount:query')")
+    @PreAuthorize("@ss.hasPermi('system:commission:account:query')")
     @GetMapping(value = "/user/{userId}")
     public AjaxResult getInfoByUserId(@PathVariable("userId") Long userId)
     {
@@ -82,7 +82,7 @@ public class SysAgentCommissionAccountController extends BaseController
     /**
      * 新增代理佣金账户
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionAccount:add')")
+    @PreAuthorize("@ss.hasPermi('system:commission:account:add')")
     @Log(title = "代理佣金账户", businessType = BusinessType.INSERT)
     @PostMapping
     public AjaxResult add(@RequestBody SysAgentCommissionAccount sysAgentCommissionAccount)
@@ -93,7 +93,7 @@ public class SysAgentCommissionAccountController extends BaseController
     /**
      * 修改代理佣金账户
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionAccount:edit')")
+    @PreAuthorize("@ss.hasPermi('system:commission:account:edit')")
     @Log(title = "代理佣金账户", businessType = BusinessType.UPDATE)
     @PutMapping
     public AjaxResult edit(@RequestBody SysAgentCommissionAccount sysAgentCommissionAccount)
@@ -104,7 +104,7 @@ public class SysAgentCommissionAccountController extends BaseController
     /**
      * 冻结代理佣金账户，不修改账户余额
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionAccount:edit')")
+    @PreAuthorize("@ss.hasPermi('system:commission:account:edit')")
     @Log(title = "冻结代理佣金账户", businessType = BusinessType.UPDATE)
     @PutMapping("/freeze/{accountId}")
     public AjaxResult freeze(@PathVariable("accountId") Long accountId)
@@ -115,7 +115,7 @@ public class SysAgentCommissionAccountController extends BaseController
     /**
      * 解冻代理佣金账户，不修改账户余额
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionAccount:edit')")
+    @PreAuthorize("@ss.hasPermi('system:commission:account:edit')")
     @Log(title = "解冻代理佣金账户", businessType = BusinessType.UPDATE)
     @PutMapping("/unfreeze/{accountId}")
     public AjaxResult unfreeze(@PathVariable("accountId") Long accountId)
@@ -126,7 +126,7 @@ public class SysAgentCommissionAccountController extends BaseController
     /**
      * 删除代理佣金账户
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionAccount:remove')")
+    @PreAuthorize("@ss.hasPermi('system:commission:account:remove')")
     @Log(title = "代理佣金账户", businessType = BusinessType.DELETE)
 	@DeleteMapping("/{ids}")
     public AjaxResult remove(@PathVariable Long[] ids)

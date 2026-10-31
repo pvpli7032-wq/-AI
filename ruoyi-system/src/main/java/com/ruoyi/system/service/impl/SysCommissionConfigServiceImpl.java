@@ -1,6 +1,9 @@
 package com.ruoyi.system.service.impl;
 
 import java.util.List;
+import java.math.BigDecimal;
+import org.springframework.transaction.annotation.Transactional;
+import com.ruoyi.common.exception.ServiceException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.ruoyi.system.mapper.SysCommissionConfigMapper;
@@ -49,8 +52,10 @@ public class SysCommissionConfigServiceImpl implements ISysCommissionConfigServi
      * @return 结果
      */
     @Override
+    @Transactional
     public int insertSysCommissionConfig(SysCommissionConfig sysCommissionConfig)
     {
+        validateRateChange(sysCommissionConfig);
         return sysCommissionConfigMapper.insertSysCommissionConfig(sysCommissionConfig);
     }
 
@@ -61,9 +66,34 @@ public class SysCommissionConfigServiceImpl implements ISysCommissionConfigServi
      * @return 结果
      */
     @Override
+    @Transactional
     public int updateSysCommissionConfig(SysCommissionConfig sysCommissionConfig)
     {
+        validateRateChange(sysCommissionConfig);
         return sysCommissionConfigMapper.updateSysCommissionConfig(sysCommissionConfig);
+    }
+
+    private void validateRateChange(SysCommissionConfig config)
+    {
+        String key = config.getConfigKey();
+        if (!"self_rate".equals(key) && !"promotion_rate".equals(key))
+        {
+            return;
+        }
+        BigDecimal value = config.getConfigValue();
+        if (value == null || value.signum() < 0 || value.compareTo(new BigDecimal("100")) > 0)
+        {
+            throw new ServiceException("佣金比例必须在0到100之间");
+        }
+        String otherKey = "self_rate".equals(key) ? "promotion_rate" : "self_rate";
+        for (SysCommissionConfig existing : sysCommissionConfigMapper.selectRatesForUpdate())
+        {
+            if (otherKey.equals(existing.getConfigKey()) && existing.getConfigValue() != null
+                && value.add(existing.getConfigValue()).compareTo(new BigDecimal("100")) > 0)
+            {
+                throw new ServiceException("自购佣金比例和推广佣金比例之和不能超过100%");
+            }
+        }
     }
 
     /**

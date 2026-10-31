@@ -62,8 +62,9 @@ public class RuleSettlementBridgeMySqlTest {
     }
     @Before public void wireActualServices() throws Exception {
         WithdrawalMySqlTest.migrateFreshRealMySqlDatabase();
-        jdbc = (JdbcTemplate) ReflectionTestUtils.getField(WithdrawalMySqlTest.class, "jdbc");
-        manager = (DataSourceTransactionManager) ReflectionTestUtils.getField(WithdrawalMySqlTest.class, "manager");
+        JdbcTemplate migrated = (JdbcTemplate) ReflectionTestUtils.getField(WithdrawalMySqlTest.class, "jdbc");
+        jdbc = LedgerSqlTestClock.jdbc((org.springframework.jdbc.datasource.DriverManagerDataSource) migrated.getDataSource());
+        manager = new DataSourceTransactionManager(jdbc.getDataSource());
         buyer = IDS.incrementAndGet(); inviter = IDS.incrementAndGet();
         user(buyer); user(inviter);
         var factory = new SqlSessionFactoryBean();
@@ -193,7 +194,7 @@ public class RuleSettlementBridgeMySqlTest {
         settlements.unfreezeDue(paid.plusSeconds(3600), 1000);
         money("4.50", balance(buyer, "balance")); money("2.25", balance(inviter, "balance"));
         assertEquals(0, count("SELECT COUNT(*) FROM cps_reward_award WHERE order_id=?", id));
-        assertEquals(0, count("SELECT COUNT(*) FROM sys_commission_flow WHERE order_commission_id=? AND flow_type='reward_credit'", id));
+        assertEquals(0, count("SELECT COUNT(*) FROM sys_commission_flow WHERE related_order_id=? AND flow_type='reward_credit'", id));
         long before = flows(id);
         settlements.unfreezeDue(paid.plusSeconds(7200), 1000);
         assertEquals(before, flows(id)); money("2.25", balance(inviter, "balance"));
@@ -420,7 +421,7 @@ public class RuleSettlementBridgeMySqlTest {
         configuration.publish(new SettlementConfigurationService.Settings(freeze, bd("0"), bd("0"), bd("20")), buyer);
     }
     private Instant databaseNow() {
-        return jdbc.queryForObject("SELECT CURRENT_TIMESTAMP(3)", Timestamp.class).toInstant();
+        return jdbc.queryForObject("SELECT CURRENT_TIMESTAMP(6)", Timestamp.class).toInstant();
     }
     private void nextDatabaseMillisecond() {
         // Publication timestamps are database-assigned milliseconds. No UPDATE/backdating immutable rows.
@@ -460,7 +461,7 @@ public class RuleSettlementBridgeMySqlTest {
         var values = jdbc.queryForList("SELECT " + field + " FROM sys_agent_commission_account WHERE user_id=?", BigDecimal.class, user);
         return values.isEmpty() ? bd("0") : values.getFirst();
     }
-    private long flows(long id) { return count("SELECT COUNT(*) FROM sys_commission_flow WHERE order_commission_id=?", id); }
+    private long flows(long id) { return count("SELECT COUNT(*) FROM sys_commission_flow WHERE related_order_id=?", id); }
     private long count(String sql, Object... args) { return jdbc.queryForObject(sql, Long.class, args); }
     private static BigDecimal bd(String value) { return new BigDecimal(value).setScale(2); }
     private static void money(String expected, BigDecimal actual) { assertNotNull(actual); assertEquals(0, bd(expected).compareTo(actual)); }

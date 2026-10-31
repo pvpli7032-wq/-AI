@@ -316,7 +316,9 @@ public class ProductionSettlementMySqlTest {
         return new JdbcTemplate(new DriverManagerDataSource(fixtureUrl, migrated.getUsername(), migrated.getPassword()));
     }
     private Instant databaseNow() {
-        Instant paid = jdbc.queryForObject("SELECT CURRENT_TIMESTAMP(3)", Timestamp.class).toInstant();
+        // Millisecond SQL rounding can put this instant just ahead of the JVM clock.
+        // Keep microseconds instead of weakening the nonfuture/payment-publication checks.
+        Instant paid = jdbc.queryForObject("SELECT CURRENT_TIMESTAMP(6)", Timestamp.class).toInstant();
         assertFalse("fixture database paidAt must not be future: " + paid, paid.isAfter(Instant.now()));
         assertNotNull("fixture payment must follow real rule publication", versions.asOf("TBK", paid));
         assertNotNull("fixture payment must follow real finance publication", configuration.atPayment(paid));

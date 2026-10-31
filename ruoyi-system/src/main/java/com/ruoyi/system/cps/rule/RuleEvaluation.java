@@ -88,9 +88,13 @@ public final class RuleEvaluation {
                         throw new IllegalArgumentException("first-N subsidy requires fixed OR rebate ratio");
                 }
             }
-            if ((i.kind() == IncentiveKind.INVITATION_FIRST_N || i.kind() == IncentiveKind.ORDER_COUNT
-                    || i.kind() == IncentiveKind.FIRST_N_SUBSIDY) && i.n() < 1)
-                throw new IllegalArgumentException("positive reward N required");
+            if (i.kind() == IncentiveKind.INVITATION_FIRST_N || i.kind() == IncentiveKind.ORDER_COUNT
+                    || i.kind() == IncentiveKind.FIRST_N_SUBSIDY) {
+                if (i.n() < 1 || i.n() > Integer.MAX_VALUE)
+                    throw new IllegalArgumentException("reward N must be in [1,2147483647]");
+            }
+            // INVITATION_FIRST/FORCED_FIRST have an intrinsic threshold of one. Their
+            // nonnegative policy n is unused; the settlement bridge canonicalizes it to 1.
             if (i.kind() == IncentiveKind.FORCED_FIRST && i.withinDays() < 1)
                 throw new IllegalArgumentException("forced-first requires explicit signup-day window");
             if (i.n() < 0 || i.withinDays() < 0 || (i.startsAt() != null && i.endsAt() != null && !i.endsAt().isAfter(i.startsAt())))

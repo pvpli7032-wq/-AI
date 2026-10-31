@@ -251,6 +251,150 @@ public class RuleSettlementBridgeMySqlTest {
         assertEquals(0, flows(id)); money("0", balance(buyer, "frozen_amount"));
     }
 
+    // PR regressions only: all amounts/rates are synthetic, never rollout defaults.
+    @Test public void expiredReferralWindowStaysIneligibleWhenHistoricalEvidenceLaterChanges() {
+        var p = policy("0.50", true);
+        var expired = new RulePolicy.Incentive("referral", RulePolicy.IncentiveKind.INVITATION_COMMISSION,
+            bd("0"), bd("0.50"), 0, 1, null, null);
+        publish(withIncentives(p, List.of(expired))); configureFreeze(3600);
+        Instant paid = databaseNow(); long id = order();
+        settlements.onOrderEvent(event(id, "paid", null, OrderStatus.PAID, paid, null, paid));
+        String original = termsJson(id);
+        assertTrue(frozen(id).rule().decision().incentiveKeys().isEmpty());
+        historicalUnknown = true;
+        settlements.onOrderEvent(event(id, "received", OrderStatus.PAID, OrderStatus.RECEIVED,
+            paid, "20", paid.plusSeconds(1)));
+        assertEquals(original, termsJson(id));
+        money("9", item(id, "REBATE", "final_amount"));
+        money("0", item(id, "REFERRAL", "final_amount"));
+        money("0", balance(inviter, "frozen_amount"));
+    }
+
+    @Test public void selfPurchaseReferralRemainsRejectedAfterJsonRoundTripAndEvidenceReplacement() {
+        publish(policy("0.50", true)); configureFreeze(3600);
+        var qualified = bridgeWithEvidence((id, user, line, at) -> new RuleDecision.Evidence(at,
+            "PR:SELF-PURCHASE", null, null, null, inviter, true,
+            at.minusSeconds(60), null, null, null, null, null));
+        Instant paid = databaseNow(); long id = order();
+        var terms = qualified.snapshot(id, buyer, event(id, "paid", null, OrderStatus.PAID, paid, null, paid).line(), inviter);
+        terms = JSON.parseObject(JSON.toJSONString(terms), SettlementTermsPort.Terms.class);
+        assertTrue(JSON.parseObject(versions.snapshot(id), RuleDecision.Snapshot.class).decision().incentiveKeys().isEmpty());
+        money("4.50", benefit(terms, "REBATE")); money("0", benefit(terms, "REFERRAL"));
+        // The normal fixture would qualify referral now. Repricing must consume the stored rejection.
+        var actual = bridge.recalculate(terms,
+            event(id, "received", OrderStatus.PAID, OrderStatus.RECEIVED, paid, "20", paid.plusSeconds(1)).line());
+        money("9", benefit(actual, "REBATE")); money("0", benefit(actual, "REFERRAL"));
+        assertEquals(terms.ruleSnapshotJson(), actual.ruleSnapshotJson());
+    }
+
+    @Test public void unknownHistoricalEligibilityDoesNotSuppressOrdinaryBuyerOrInventReferral() {
+        historicalUnknown = true;
+        publish(policy("0.50", true)); configureFreeze(3600);
+        Instant paid = databaseNow(); long id = order();
+        settlements.onOrderEvent(event(id, "received", null, OrderStatus.RECEIVED, paid, "10", paid));
+        assertTrue(frozen(id).rule().decision().incentiveKeys().isEmpty());
+        money("4.50", item(id, "REBATE", "final_amount")); money("0", item(id, "REFERRAL", "final_amount"));
+        money("4.50", balance(buyer, "frozen_amount")); money("0", balance(inviter, "frozen_amount"));
+    }
+
+    @Test public void knownReferralDoesNotRequireHistoricalOrderCounters() {
+        publish(policy("0.50", true)); configureFreeze(3600);
+        var qualified = bridgeWithEvidence((id, user, line, at) -> new RuleDecision.Evidence(at,
+            "PR:KNOWN-INVITATION", null, null, null, inviter, false,
+            at.minusSeconds(60), null, null, null, null, null));
+        Instant paid = databaseNow(); long id = order();
+        var terms = qualified.snapshot(id, buyer, event(id, "paid", null, OrderStatus.PAID, paid, null, paid).line(), inviter);
+        assertEquals(List.of("referral"), JSON.parseObject(versions.snapshot(id), RuleDecision.Snapshot.class).decision().incentiveKeys());
+        money("4.50", benefit(terms, "REBATE")); money("2.25", benefit(terms, "REFERRAL"));
+    }
+
+    @Test public void importedCountOverflowIsRejectedBeforePublicationForEveryCountAward() {
+        var draft = rules.create(policy("0.50", false), buyer);
+        for (var kind : List.of(RulePolicy.IncentiveKind.INVITATION_FIRST_N,
+                RulePolicy.IncentiveKind.ORDER_COUNT, RulePolicy.IncentiveKind.FIRST_N_SUBSIDY)) {
+            var invalid = withIncentives(policy("0.50", false), List.of(new RulePolicy.Incentive("overflow",
+                kind, bd("0"), bd("0"), (long) Integer.MAX_VALUE + 1, 0, null, null)));
+            assertThrows(IllegalArgumentException.class, () -> rules.create(invalid, buyer));
+            // Import bypasses SAVE; PUBLISH must still validate before appending an immutable version.
+            var current = drafts.byPlatform("TBK");
+            assertEquals(1, drafts.replace(current.id(), current.revision(), JSON.toJSONString(invalid), false, buyer));
+            assertEquals("reward N must be in [1,2147483647]", assertThrows(IllegalArgumentException.class,
+                () -> rules.publish(current.id(), current.revision() + 1, buyer)).getMessage());
+            assertTrue(rules.history(draft.id()).isEmpty());
+        }
+    }
+
+    @Test public void forcedFirstUnusedPolicyNIsCanonicalizedBeforeRewardCaptureAndDbJsonReadback() {
+        configureFreeze(3600);
+        for (long unusedN : new long[] {0, 2, Long.MAX_VALUE}) {
+            var p = withIncentives(policy("0.50", false), List.of(new RulePolicy.Incentive("forced",
+                RulePolicy.IncentiveKind.FORCED_FIRST, bd("0"), bd("0"), unusedN, 5, null, null)));
+            var current = drafts.byPlatform("TBK");
+            var draft = current == null ? rules.create(p, buyer) : rules.update(current.id(), current.revision(), p, buyer);
+            rules.publish(draft.id(), draft.revision(), buyer);
+            Instant paid = databaseNow(); long id = order();
+            var captured = bridge.snapshot(id, buyer, event(id, "paid", null, OrderStatus.PAID, paid, null, paid).line(), inviter, false);
+            assertEquals(1, captured.configs().size());
+            assertEquals(1, captured.configs().getFirst().n());
+            assertEquals("forced", captured.configs().getFirst().key());
+            rewards.capture(captured);
+            assertEquals(captured, JSON.parseObject(jdbc.queryForObject(
+                "SELECT payload FROM cps_reward_order_snapshot WHERE order_id=?", String.class, id), RewardApi.Snapshot.class));
+        }
+    }
+
+    @Test public void persistedPlatformSubtotalIncludesFrozenOrdinaryPayoutCostOnActualRepricing() {
+        var p = policy("0.50", true);
+        publish(withPayoutCost(p, "0.10")); configureFreeze(3600);
+        Instant paid = databaseNow(); long id = order();
+        settlements.onOrderEvent(event(id, "paid", null, OrderStatus.PAID, paid, null, paid));
+        // net 9 - ordinary 6.75 - rounded payout cost .68 = 1.57.
+        money("1.57", JSON.parseObject(termsJson(id), SettlementTermsPort.Terms.class).platformAmount());
+        nextDatabaseMillisecond();
+        var draft = drafts.byPlatform("TBK");
+        draft = rules.update(draft.id(), draft.revision(), withPayoutCost(p, "0"), buyer);
+        rules.publish(draft.id(), draft.revision(), buyer);
+        settlements.onOrderEvent(event(id, "received", OrderStatus.PAID, OrderStatus.RECEIVED,
+            paid, "20", paid.plusSeconds(1)));
+        // Old cost rate, actual commission: 18 - 13.50 - 1.35 = 3.15.
+        money("3.15", jdbc.queryForObject("SELECT platform_amount FROM sys_order_commission WHERE id=?", BigDecimal.class, id));
+        money("9", item(id, "REBATE", "final_amount")); money("4.50", item(id, "REFERRAL", "final_amount"));
+    }
+
+    @Test public void deferredAdvisoryAwardIsNotDeductedAsIfAlreadyPostedByOrdinaryBridge() {
+        var p = policy("0.50", true);
+        var subsidy = new RulePolicy.Incentive("deferred", RulePolicy.IncentiveKind.FIRST_N_SUBSIDY,
+            bd("0"), bd("0.10"), 5, 0, null, null);
+        publish(withPayoutCost(withIncentives(p, List.of(p.incentives().getFirst(), subsidy)), "0.10"));
+        configureFreeze(3600); Instant paid = databaseNow(); long id = order();
+        var terms = bridge.snapshot(id, buyer, event(id, "paid", null, OrderStatus.PAID, paid, null, paid).line(), inviter);
+        var frozen = JSON.parseObject(terms.ruleSnapshotJson(), RuleSettlementTermsBridge.Frozen.class);
+        var advisory = rules.calculate(frozen.rule(), bd("10"));
+        money("1.08", advisory.margin()); // Includes .45 deferred subsidy and .72 full-stack cost.
+        money("1.57", terms.platformAmount()); // Ordinary subtotal: excludes deferred principal + incremental cost.
+        assertEquals(Set.of("REBATE", "REFERRAL"), terms.benefits().stream()
+            .map(SettlementTermsPort.Benefit::type).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(0, count("SELECT COUNT(*) FROM cps_reward_award WHERE order_id=?", id));
+    }
+
+    private RuleSettlementTermsBridge bridgeWithEvidence(RulePorts.Qualification evidence) {
+        var qualified = transactional(new RuleEngine(drafts, versions, provider(RulePorts.Qualification.class, evidence),
+            provider(RulePorts.PublicationSafety.class, new RuleSafetyConfiguration(drafts))), RuleEngine.class);
+        return new RuleSettlementTermsBridge(qualified, configuration);
+    }
+    private RulePolicy withIncentives(RulePolicy p, List<RulePolicy.Incentive> incentives) {
+        return new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), p.maximumCommission(), p.minimumMargin(),
+            p.payoutCostRate(), p.minimumRebate(), p.targetedWithTier(), p.proportions(), incentives);
+    }
+    private RulePolicy withPayoutCost(RulePolicy p, String cost) {
+        return new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), p.maximumCommission(), p.minimumMargin(),
+            bd(cost), p.minimumRebate(), p.targetedWithTier(), p.proportions(), p.incentives());
+    }
+    private BigDecimal benefit(SettlementTermsPort.Terms terms, String type) {
+        return terms.benefits().stream().filter(b -> b.type().equals(type)).map(SettlementTermsPort.Benefit::amount)
+            .reduce(bd("0"), BigDecimal::add);
+    }
+
     private RulePolicy policy(String ordinary, boolean referral) {
         var target = new RulePolicy.Target(Set.of(), Set.of(), Set.of(), Set.of());
         var base = new RulePolicy.Proportion("ordinary", RulePolicy.Kind.BASE, RulePolicy.Mode.FIXED,

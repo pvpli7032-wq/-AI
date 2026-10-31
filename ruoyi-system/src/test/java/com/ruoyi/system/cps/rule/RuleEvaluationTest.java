@@ -121,6 +121,53 @@ public class RuleEvaluationTest {
             List.of(new Incentive("first", IncentiveKind.INVITATION_FIRST, d("1"), d("0"), 1, 5, null, null)));
         assertThrows(IllegalArgumentException.class, () -> RuleEvaluation.worstMargin(rewards));
     }
+    // PR regressions: fixture amounts below are not production defaults.
+    private static RulePolicy incentives(Incentive... incentives) {
+        RulePolicy p = policy(List.of(base("0.5")));
+        return new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), p.maximumCommission(),
+            p.minimumMargin(), p.payoutCostRate(), p.minimumRebate(), false, p.proportions(), List.of(incentives));
+    }
+    @Test public void countRewardThresholdsRejectOverflowButAcceptMaximumInt() {
+        for (IncentiveKind kind : List.of(IncentiveKind.INVITATION_FIRST_N,
+                IncentiveKind.ORDER_COUNT, IncentiveKind.FIRST_N_SUBSIDY)) {
+            RulePolicy overflow = incentives(new Incentive("count", kind, d("0"), d("0"),
+                (long) Integer.MAX_VALUE + 1, 0, null, null));
+            assertEquals("reward N must be in [1,2147483647]", assertThrows(IllegalArgumentException.class,
+                () -> RuleEvaluation.validate(overflow)).getMessage());
+            RuleEvaluation.validate(incentives(new Incentive("count", kind, d("0"), d("0"),
+                Integer.MAX_VALUE, 0, null, null)));
+        }
+    }
+    @Test public void forcedFirstRejectsNegativeUnusedNButNonnegativeNDoesNotChangeEligibility() {
+        assertThrows(IllegalArgumentException.class, () -> RuleEvaluation.validate(incentives(
+            new Incentive("forced", IncentiveKind.FORCED_FIRST, d("0.1"), d("0"), -1, 5, null, null))));
+        Evidence first = new Evidence(AT, "PR:test-only", 0L, d("0"), 0L, 9L, false,
+            AT.minusSeconds(86400), null, null, null, null, null);
+        for (long unusedN : new long[] {0, 1, 2, (long) Integer.MAX_VALUE + 1}) {
+            RulePolicy p = incentives(new Incentive("forced", IncentiveKind.FORCED_FIRST,
+                d("0.1"), d("0"), unusedN, 5, null, null));
+            assertEquals(List.of("forced"), RuleEvaluation.choose(p, facts(first)).incentiveKeys());
+        }
+    }
+    @Test public void referralEligibilityRejectsExpiredSignupAndSelfPurchaseWithoutSuppressingBase() {
+        RulePolicy p = incentives(new Incentive("referral", IncentiveKind.INVITATION_COMMISSION,
+            d("0"), d("0.5"), 0, 1, null, null));
+        for (Evidence e : List.of(
+                new Evidence(AT, "PR:test-only", null, null, null, 9L, false,
+                    AT.minusSeconds(86400), null, null, null, null, null),
+                new Evidence(AT, "PR:test-only", null, null, null, 9L, true,
+                    AT.minusSeconds(60), null, null, null, null, null), Evidence.unknown(AT))) {
+            Snapshot frozen = snapshot(p, e);
+            assertTrue(frozen.decision().incentiveKeys().isEmpty());
+            assertEquals(d("4.50"), RuleEvaluation.calculate(frozen, d("10")).rebate());
+        }
+    }
+    @Test public void ordinaryPayoutCostUsesRoundedActualBenefits() {
+        Calculation c = RuleEvaluation.calculate(snapshot(incentives(), evidence()), d("10"));
+        assertEquals(d("4.50"), c.rebate());
+        assertEquals(d("0.36"), c.payoutCost());
+        assertEquals(d("4.14"), c.margin());
+    }
     @Test public void jdFeeRequiresAuthoritativeOperationEvidence() {
         RulePolicy p = new RulePolicy(Platform.JD, d("0.1"), d("0.2"), d("10"), d("-1"), d("0"), d("0"), false, List.of(base("0.5")), List.of());
         Snapshot unknown = new Snapshot(1, 7, Platform.JD, "o", "s", "sku", AT, 1, p, Evidence.unknown(AT),

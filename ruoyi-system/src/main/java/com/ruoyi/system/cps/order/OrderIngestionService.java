@@ -190,10 +190,19 @@ public class OrderIngestionService
         BigDecimal recovered = null, refundBasis = null;
         if (target == OrderStatus.FULL_REFUND || target == OrderStatus.PARTIAL_REFUND) {
             String firstRefund = events.selectFirstRefundSnapshot(orderId);
-            // Never substitute a post-refund actualFee, gross refund, or estimate for the original commission.
-            refundBasis = firstRefund == null
-                ? (current == null || row.get("actual_commission") == null ? null : new BigDecimal(row.get("actual_commission").toString()))
-                : JSON.parseObject(firstRefund).getBigDecimal("refundBasisAmount");
+            // The live row may already contain a changed dispute/refund actualFee. A refund-feed
+            // restoration also copies that row and is not new evidence of the original commission.
+            // Freeze even a missing basis at the first refund; never reinterpret an earlier recovery.
+            if (firstRefund != null) {
+                refundBasis = JSON.parseObject(firstRefund).getBigDecimal("refundBasisAmount");
+            } else if (current != null) {
+                String original = events.selectLatestOrderCommissionSnapshot(orderId);
+                if (original != null) refundBasis = JSON.parseObject(original).getBigDecimal("actualCommission");
+            }
+            if (!moneyFits(refundBasis, 14, 4)) {
+                refundBasis = null;
+                rejected(rawId, orderId, eventKey, "原订单实际联盟佣金证据无效，退款基数留空，线11暂停转人工");
+            }
             if (target == OrderStatus.FULL_REFUND) {
                 recovered = refundBasis;
                 if (recovered == null)

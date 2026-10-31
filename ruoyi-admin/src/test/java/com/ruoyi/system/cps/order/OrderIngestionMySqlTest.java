@@ -19,6 +19,7 @@ import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import com.ruoyi.system.cps.contract.OrderStatus;
 import com.ruoyi.system.cps.mapper.OrderEventMapper;
 import com.ruoyi.system.cps.mapper.OrderIngestMapper;
 import com.ruoyi.system.cps.mapper.OrderRawMapper;
@@ -162,10 +163,14 @@ public class OrderIngestionMySqlTest
         String order = "line10-" + UUID.randomUUID();
         var initial = service.ingest(incoming("{\"kind\":\"paid\"}", order, "1", "12", TIME));
         assertEquals(OrderIngestionService.Outcome.APPLIED, initial.outcome());
-        var illegal = service.ingest(incoming("{\"kind\":\"skip\"}", order, "1", "3", TIME.plusSeconds(10)));
+        // PAID -> SETTLED is now legal. Keep this negative case on the forbidden PAID -> DISPUTED edge.
+        var illegal = service.ingest(incoming("{\"kind\":\"disputed\",\"refund_status\":4}", order, "1", "4", TIME.plusSeconds(10))
+            .resolved(OrderStatus.DISPUTED, false, "TBK_REFUND"));
         assertEquals(OrderIngestionService.Outcome.REJECTED, illegal.outcome());
-        assertEquals("{\"kind\":\"skip\"}", jdbc.queryForObject("SELECT payload_text FROM cps_order_raw WHERE id=?", String.class, illegal.rawId()));
+        assertEquals("{\"kind\":\"disputed\",\"refund_status\":4}", jdbc.queryForObject("SELECT payload_text FROM cps_order_raw WHERE id=?", String.class, illegal.rawId()));
         assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_ingest_exception WHERE raw_id=?", Long.class, illegal.rawId()).longValue());
+        assertEquals("PAID", jdbc.queryForObject("SELECT line_status FROM sys_order_commission WHERE id=?", String.class, initial.orderLineId()));
+        assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_event WHERE order_line_id=?", Long.class, initial.orderLineId()).longValue());
         var received = service.ingest(incoming("{\"kind\":\"received\"}", order, "1", "14", TIME.plusSeconds(20)));
         assertEquals(OrderIngestionService.Outcome.APPLIED, received.outcome());
         var outOfOrder = service.ingest(incoming("{\"kind\":\"late-old\"}", order, "1", "12", TIME.plusSeconds(5)));

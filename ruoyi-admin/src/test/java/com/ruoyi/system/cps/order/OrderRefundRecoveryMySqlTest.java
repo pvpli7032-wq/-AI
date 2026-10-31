@@ -164,4 +164,119 @@ public class OrderRefundRecoveryMySqlTest {
             assertTrue(jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_ingest_exception e JOIN cps_order_raw r ON r.id=e.raw_id WHERE r.payload_text=? AND e.reason LIKE '%卖家侧补扣%'", Long.class, raw) > 0);
         }
     }
+
+    @Test public void fullRefundAfterDisputeUsesNormalHistoryInsteadOfChangedLiveCommission() {
+        for (Platform platform : List.of(Platform.TBK, Platform.JD, Platform.PDD)) {
+            for (OrderStatus originalStatus : List.of(OrderStatus.RECEIVED, OrderStatus.SETTLED)) {
+                String order = id();
+                var original = ingestion.ingest(input(platform, order, "normal", TIME, "5.4321", "{\"stage\":\"normal\"}")
+                    .resolved(originalStatus, false, "TEST"));
+                assertEquals(OrderIngestionService.Outcome.APPLIED, original.outcome());
+                var dispute = ingestion.ingest(input(platform, order, "dispute", TIME.plusSeconds(1), "0", "{\"stage\":\"dispute\"}")
+                    .resolved(OrderStatus.DISPUTED, false, "TEST"));
+                assertEquals(OrderIngestionService.Outcome.APPLIED, dispute.outcome());
+                money("0", jdbc.queryForObject("SELECT actual_commission FROM sys_order_commission WHERE id=?", BigDecimal.class, original.orderLineId()));
+                String raw = "{ \"refund_fee\":100, \"actualFee\":99, \"tk_commission_fee_refund_pub\":77 }";
+                var refund = ingestion.ingest(input(platform, order, "refund", TIME.plusSeconds(2), "99", raw)
+                    .resolved(OrderStatus.FULL_REFUND, false, "TEST"));
+                assertEquals(OrderIngestionService.Outcome.APPLIED, refund.outcome());
+                money("5.4321", snapshot(refund.eventKey()).getBigDecimal("refundBasisAmount"));
+                money("5.4321", snapshot(refund.eventKey()).getBigDecimal("recoveredAmount"));
+                money("5.4321", jdbc.queryForObject("SELECT recovered_amount FROM cps_order_event WHERE event_key=?", BigDecimal.class, refund.eventKey()));
+                assertEquals(raw, jdbc.queryForObject("SELECT payload_text FROM cps_order_raw WHERE id=?", String.class, refund.rawId()));
+                assertEquals(OrderIngestionService.Outcome.DUPLICATE, ingestion.replay(refund.rawId()).outcome());
+                assertEquals(Long.valueOf(3), jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_event WHERE order_line_id=?", Long.class, original.orderLineId()));
+            }
+        }
+    }
+
+    @Test public void refundFeedRestorationDoesNotRebaseOriginalCommission() {
+        String order = id();
+        assertEquals(OrderIngestionService.Outcome.APPLIED, ingestion.ingest(input(Platform.TBK, order, "normal", TIME, "5.4321", "{}")
+            .resolved(OrderStatus.RECEIVED, false, "ALLIANCE")).outcome());
+        assertEquals(OrderIngestionService.Outcome.APPLIED, ingestion.ingest(input(Platform.TBK, order, "4", TIME.plusSeconds(1), "0", "{}")
+            .resolved(OrderStatus.DISPUTED, false, "TBK_REFUND")).outcome());
+        var restored = ingestion.ingest(input(Platform.TBK, order, "3", TIME.plusSeconds(2), "99", "{}").resolved(null, true, "TBK_REFUND"));
+        assertEquals(OrderIngestionService.Outcome.APPLIED, restored.outcome());
+        assertEquals("RECEIVED", jdbc.queryForObject("SELECT line_status FROM sys_order_commission WHERE id=?", String.class, restored.orderLineId()));
+        money("99", jdbc.queryForObject("SELECT actual_commission FROM sys_order_commission WHERE id=?", BigDecimal.class, restored.orderLineId()));
+        var full = ingestion.ingest(input(Platform.TBK, order, "2", TIME.plusSeconds(3), "0", "{\"refund_fee\":100}")
+            .resolved(OrderStatus.FULL_REFUND, false, "TBK_REFUND"));
+        assertEquals(OrderIngestionService.Outcome.APPLIED, full.outcome());
+        money("5.4321", snapshot(full.eventKey()).getBigDecimal("refundBasisAmount"));
+        money("5.4321", snapshot(full.eventKey()).getBigDecimal("recoveredAmount"));
+        assertEquals(OrderIngestionService.Outcome.DUPLICATE, ingestion.replay(full.rawId()).outcome());
+    }
+
+    @Test public void normalCommissionRevisionSurvivesLaterNullSnapshotsAndDisputeChanges() {
+        String order = id();
+        assertEquals(OrderIngestionService.Outcome.APPLIED, ingestion.ingest(input(Platform.JD, order, "16", TIME, "1.1111", "{}")
+            .resolved(OrderStatus.PAID, false, "JD_V2")).outcome());
+        var revised = ingestion.ingest(input(Platform.JD, order, "16", TIME.plusSeconds(1), "5.4321", "{}")
+            .resolved(OrderStatus.PAID, false, "JD_V2"));
+        assertEquals(OrderIngestionService.Outcome.APPLIED, revised.outcome());
+        assertEquals("ALLIANCE_COMMISSION", jdbc.queryForObject("SELECT source FROM cps_order_event WHERE event_key=?", String.class, revised.eventKey()));
+        assertEquals(OrderIngestionService.Outcome.APPLIED, ingestion.ingest(input(Platform.JD, order, "17", TIME.plusSeconds(2), null, "{}")
+            .resolved(OrderStatus.RECEIVED, false, "JD_V2")).outcome());
+        assertEquals(OrderIngestionService.Outcome.APPLIED, ingestion.ingest(input(Platform.JD, order, "17", TIME.plusSeconds(3), "0", "{}")
+            .resolved(OrderStatus.DISPUTED, false, "JD_V2")).outcome());
+        var refund = ingestion.ingest(input(Platform.JD, order, "17", TIME.plusSeconds(4), "99", "{}")
+            .resolved(OrderStatus.FULL_REFUND, false, "JD_V2"));
+        assertEquals(OrderIngestionService.Outcome.APPLIED, refund.outcome());
+        money("5.4321", snapshot(refund.eventKey()).getBigDecimal("refundBasisAmount"));
+        money("5.4321", snapshot(refund.eventKey()).getBigDecimal("recoveredAmount"));
+    }
+
+    @Test public void missingHistoricalCommissionStaysNullButObservedZeroIsValidAfterRestoration() {
+        for (String originalAmount : new String[] {null, "0"}) {
+            String order = id();
+            assertEquals(OrderIngestionService.Outcome.APPLIED, ingestion.ingest(input(Platform.TBK, order, "normal", TIME, originalAmount, "{}")
+                .resolved(OrderStatus.RECEIVED, false, "ALLIANCE")).outcome());
+            assertEquals(OrderIngestionService.Outcome.APPLIED, ingestion.ingest(input(Platform.TBK, order, "4", TIME.plusSeconds(1), "99", "{}")
+                .resolved(OrderStatus.DISPUTED, false, "TBK_REFUND")).outcome());
+            assertEquals(OrderIngestionService.Outcome.APPLIED, ingestion.ingest(input(Platform.TBK, order, "3", TIME.plusSeconds(2), "99", "{}")
+                .resolved(null, true, "TBK_REFUND")).outcome());
+            String raw = "{ \"refund_fee\":100, \"tk_commission_fee_refund_pub\":99 }";
+            var refund = ingestion.ingest(input(Platform.TBK, order, "2", TIME.plusSeconds(3), "99", raw)
+                .resolved(OrderStatus.FULL_REFUND, false, "TBK_REFUND"));
+            assertEquals(OrderIngestionService.Outcome.APPLIED, refund.outcome());
+            if (originalAmount == null) {
+                assertNull(snapshot(refund.eventKey()).getBigDecimal("refundBasisAmount"));
+                assertNull(snapshot(refund.eventKey()).getBigDecimal("recoveredAmount"));
+                assertNull(jdbc.queryForObject("SELECT recovered_amount FROM cps_order_event WHERE event_key=?", BigDecimal.class, refund.eventKey()));
+                assertTrue(jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_ingest_exception WHERE raw_id=? AND reason LIKE '%缺原订单实际联盟佣金%'", Long.class, refund.rawId()) > 0);
+            } else {
+                money("0", snapshot(refund.eventKey()).getBigDecimal("refundBasisAmount"));
+                money("0", snapshot(refund.eventKey()).getBigDecimal("recoveredAmount"));
+            }
+            assertEquals(raw, jdbc.queryForObject("SELECT payload_text FROM cps_order_raw WHERE id=?", String.class, refund.rawId()));
+            assertEquals(OrderIngestionService.Outcome.DUPLICATE, ingestion.replay(refund.rawId()).outcome());
+        }
+    }
+
+    @Test public void firstRefundBasisIncludingMissingValueIsImmutableAndIllegalRefundEdgeIsRejected() {
+        for (String originalAmount : new String[] {null, "5.4321"}) {
+            String order = id();
+            assertEquals(OrderIngestionService.Outcome.APPLIED, ingestion.ingest(input(Platform.JD, order, "17", TIME, originalAmount, "{}")
+                .resolved(OrderStatus.RECEIVED, false, "JD_V2")).outcome());
+            var first = ingestion.ingest(input(Platform.JD, order, "17", TIME.plusSeconds(1), "0", "{\"skuReturnNum\":1}")
+                .resolved(OrderStatus.PARTIAL_REFUND, false, "JD_V2"));
+            assertEquals(OrderIngestionService.Outcome.APPLIED, first.outcome());
+            var later = ingestion.ingest(input(Platform.JD, order, "17", TIME.plusSeconds(2), "99", "{\"skuReturnNum\":1,\"actualFee\":99}")
+                .resolved(OrderStatus.PARTIAL_REFUND, false, "JD_V2"));
+            assertEquals(OrderIngestionService.Outcome.APPLIED, later.outcome());
+            for (String key : List.of(first.eventKey(), later.eventKey())) {
+                assertNull(snapshot(key).getBigDecimal("recoveredAmount"));
+                if (originalAmount == null) assertNull(snapshot(key).getBigDecimal("refundBasisAmount"));
+                else money(originalAmount, snapshot(key).getBigDecimal("refundBasisAmount"));
+            }
+            assertEquals(OrderIngestionService.Outcome.DUPLICATE, ingestion.replay(first.rawId()).outcome());
+            assertEquals(OrderIngestionService.Outcome.DUPLICATE, ingestion.replay(later.rawId()).outcome());
+            var illegal = ingestion.ingest(input(Platform.JD, order, "17", TIME.plusSeconds(3), "0", "{\"skuReturnNum\":2}")
+                .resolved(OrderStatus.FULL_REFUND, false, "JD_V2"));
+            assertEquals(OrderIngestionService.Outcome.REJECTED, illegal.outcome());
+            assertEquals("PARTIAL_REFUND", jdbc.queryForObject("SELECT line_status FROM sys_order_commission WHERE id=?", String.class, first.orderLineId()));
+            assertEquals(Long.valueOf(3), jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_event WHERE order_line_id=?", Long.class, first.orderLineId()));
+        }
+    }
 }

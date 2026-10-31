@@ -20,6 +20,20 @@ public interface OrderEventMapper
         + "WHERE e.order_line_id=#{orderId} AND e.to_status IN ('PARTIAL_REFUND','FULL_REFUND') ORDER BY o.id LIMIT 1")
     String selectFirstRefundSnapshot(long orderId);
 
+    /**
+     * Last actual commission observed on a normal-order event. Dispute restoration and the
+     * refund feed only copy the current row, so neither proves a new pre-refund commission.
+     * Null snapshots do not erase an earlier observed amount; an observed zero is valid.
+     */
+    @Select("SELECT o.line_snapshot FROM cps_order_event_outbox o JOIN cps_order_event e ON e.id=o.event_id "
+        + "WHERE e.order_line_id=#{orderId} AND e.to_status IN ('PAID','RECEIVED','SETTLED') "
+        + "AND (e.from_status IS NULL OR e.from_status <> 'DISPUTED') "
+        + "AND (e.source IS NULL OR e.source <> 'TBK_REFUND') "
+        + "AND JSON_EXTRACT(o.line_snapshot,'$.actualCommission') IS NOT NULL "
+        + "AND JSON_TYPE(JSON_EXTRACT(o.line_snapshot,'$.actualCommission')) <> 'NULL' "
+        + "ORDER BY o.id DESC LIMIT 1")
+    String selectLatestOrderCommissionSnapshot(long orderId);
+
     @Insert("INSERT INTO cps_order_event(event_key,order_line_id,from_status,to_status,previous_status,recovered_amount,source,raw_id,created_at) "
         + "VALUES(#{eventKey},#{orderLineId},#{fromStatus},#{toStatus},#{previous},#{recovered},#{source},#{rawId},#{occurredAt})")
     @Options(useGeneratedKeys=true,keyProperty="eventId")

@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.cps.mapper.WithdrawalMapper">
+    <resultMap id="withdrawal" type="com.ruoyi.system.cps.withdraw.WithdrawalRecord">
+        <id property="id" column="id"/>
+        <result property="withdrawNo" column="withdraw_no"/>
+        <result property="userId" column="user_id"/>
+        <result property="amount" column="amount"/>
+        <result property="fee" column="fee"/>
+        <result property="status" column="status"/>
+        <result property="channel" column="channel"/>
+        <result property="channelNo" column="channel_no"/>
+        <result property="auditBy" column="audit_by"/>
+        <result property="failReason" column="fail_reason"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+        <result property="auditAt" column="audit_at"/>
+        <result property="submittedAt" column="submitted_at"/>
+        <result property="completedAt" column="completed_at"/>
+        <result property="requestKey" column="request_key"/>
+        <result property="recipientId" column="recipient_id"/>
+        <result property="recipientName" column="recipient_name"/>
+        <result property="recipientAccount" column="recipient_account"/>
+        <result property="recipientHash" column="recipient_hash"/>
+        <result property="reviewReasons" column="review_reasons"/>
+        <result property="policySnapshot" column="policy_snapshot"/>
+        <result property="autoPayEligible" column="auto_pay_eligible"/>
+    </resultMap>
+    <resultMap id="recipient" type="com.ruoyi.system.cps.withdraw.WithdrawalRecipient">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="channel" column="channel"/>
+        <result property="recipientName" column="recipient_name"/>
+        <result property="recipientAccount" column="recipient_account"/>
+        <result property="recipientHash" column="recipient_hash"/>
+        <result property="verified" column="verified"/>
+        <result property="identityVerified" column="identity_verified"/>
+        <result property="verificationRef" column="verification_ref"/>
+        <result property="updatedBy" column="updated_by"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+    <resultMap id="account" type="com.ruoyi.system.cps.withdraw.WithdrawalAccount">
+        <constructor>
+            <arg column="user_id" javaType="java.lang.Long"/>
+            <arg column="balance" javaType="java.math.BigDecimal"/>
+            <arg column="withdrawing_amount" javaType="java.math.BigDecimal"/>
+            <arg column="status" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="mockPayment" type="com.ruoyi.system.cps.withdraw.MockWithdrawalPayment">
+        <id property="withdrawNo" column="withdraw_no"/>
+        <result property="amount" column="amount"/>
+        <result property="recipientHash" column="recipient_hash"/>
+        <result property="channelNo" column="channel_no"/>
+        <result property="status" column="status"/>
+        <result property="callbackToken" column="callback_token"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+    <select id="lockAdmission" resultType="int" useCache="false" flushCache="true">
+        SELECT id FROM cps_withdraw_guard WHERE id=1 FOR UPDATE
+    </select>
+    <select id="lockAccount" resultMap="account" useCache="false" flushCache="true">
+        SELECT user_id,balance,withdrawing_amount,status FROM sys_agent_commission_account WHERE user_id=#{userId} FOR UPDATE
+    </select>
+    <select id="findByRequest" resultMap="withdrawal" useCache="false" flushCache="true">
+        SELECT * FROM cps_withdrawal WHERE user_id=#{userId} AND request_key=#{requestKey}
+    </select>
+    <select id="findByNo" resultMap="withdrawal" useCache="false" flushCache="true">
+        SELECT * FROM cps_withdrawal WHERE withdraw_no=#{withdrawNo}
+    </select>
+    <select id="lockWithdrawal" resultMap="withdrawal" useCache="false" flushCache="true">
+        SELECT * FROM cps_withdrawal WHERE withdraw_no=#{withdrawNo} FOR UPDATE
+    </select>
+    <insert id="insertWithdrawal" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO cps_withdrawal(withdraw_no,user_id,amount,fee,status,channel,request_key,
+            recipient_id,recipient_name,recipient_account,recipient_hash,review_reasons,policy_snapshot,created_at,updated_at,audit_at,auto_pay_eligible)
+        VALUES(#{withdrawNo},#{userId},#{amount},#{fee},#{status},#{channel},#{requestKey},
+            #{recipientId},#{recipientName},#{recipientAccount},#{recipientHash},#{reviewReasons},#{policySnapshot},#{createdAt},#{updatedAt},#{auditAt},#{autoPayEligible})
+    </insert>
+    <update id="updateWithdrawal">
+        UPDATE cps_withdrawal SET status=#{status},channel_no=#{channelNo},audit_by=#{auditBy},audit_at=#{auditAt},
+            fail_reason=#{failReason},review_reasons=#{reviewReasons},submitted_at=#{submittedAt},completed_at=#{completedAt},updated_at=#{updatedAt},auto_pay_eligible=#{autoPayEligible}
+        WHERE id=#{id}
+    </update>
+    <select id="selectPolicy" resultType="String" useCache="false" flushCache="true">SELECT config FROM cps_withdraw_policy WHERE id=1</select>
+    <select id="configuration" resultType="String" useCache="false" flushCache="true">SELECT config_value FROM sys_config WHERE config_key=#{key}</select>
+    <update id="savePolicy">UPDATE cps_withdraw_policy SET config=#{config},updated_by=#{operatorId},updated_at=#{now} WHERE id=1</update>
+    <select id="recipient" resultMap="recipient" useCache="false" flushCache="true">
+        SELECT * FROM cps_withdraw_recipient WHERE user_id=#{userId} AND channel=#{channel}
+    </select>
+    <insert id="saveRecipient">
+        INSERT INTO cps_withdraw_recipient(user_id,channel,recipient_name,recipient_account,recipient_hash,verified,identity_verified,verification_ref,updated_by,updated_at)
+        VALUES(#{userId},#{channel},#{recipientName},#{recipientAccount},#{recipientHash},#{verified},#{identityVerified},#{verificationRef},#{updatedBy},#{updatedAt})
+        ON DUPLICATE KEY UPDATE recipient_name=VALUES(recipient_name),recipient_account=VALUES(recipient_account),
+            recipient_hash=VALUES(recipient_hash),verified=VALUES(verified),identity_verified=VALUES(identity_verified),verification_ref=VALUES(verification_ref),
+            updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)
+    </insert>
+    <select id="userGroup" resultType="String">SELECT group_code FROM cps_withdraw_user_group WHERE user_id=#{userId}</select>
+    <insert id="saveGroup">
+        INSERT INTO cps_withdraw_user_group(user_id,group_code,updated_by,updated_at) VALUES(#{userId},#{group},#{operatorId},#{now})
+        ON DUPLICATE KEY UPDATE group_code=VALUES(group_code),updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)
+    </insert>
+    <select id="countRequests" resultType="long" useCache="false" flushCache="true">
+        SELECT COUNT(*) FROM cps_withdrawal WHERE user_id=#{userId}
+        <if test="from != null">AND created_at &gt;=#{from} AND created_at &lt;#{to}</if>
+    </select>
+    <select id="countSuccess" resultType="long">SELECT COUNT(*) FROM cps_withdrawal WHERE user_id=#{userId} AND status='SUCCEEDED'</select>
+    <select id="countRequestsBefore" resultType="long" useCache="false" flushCache="true">
+        SELECT COUNT(*) FROM cps_withdrawal WHERE user_id=#{userId} AND id &lt;#{id}
+    </select>
+    <select id="countRecipientRequests" resultType="long" useCache="false" flushCache="true">
+        SELECT COUNT(*) FROM cps_withdrawal WHERE recipient_hash=#{hash} AND created_at &gt;=#{from} AND created_at &lt;#{to}
+    </select>
+    <select id="userAmount" resultType="java.math.BigDecimal" useCache="false" flushCache="true">
+        SELECT COALESCE(SUM(amount),0) FROM cps_withdrawal WHERE user_id=#{userId} AND created_at &gt;=#{from} AND created_at &lt;#{to}
+        AND status NOT IN('FAILED','REJECTED')
+    </select>
+    <select id="channelAmount" resultType="java.math.BigDecimal" useCache="false" flushCache="true">
+        SELECT COALESCE(SUM(amount),0) FROM cps_withdrawal WHERE channel=#{channel} AND status NOT IN('FAILED','REJECTED')
+        <if test="userId != null">AND user_id=#{userId}</if>
+        <choose>
+            <when test="submitted">AND submitted_at &gt;=#{from} AND submitted_at &lt;#{to}</when>
+            <otherwise>AND created_at &gt;=#{from} AND created_at &lt;#{to}</otherwise>
+        </choose>
+    </select>
+    <select id="receivedOrders" resultType="long">
+        SELECT COUNT(*) FROM sys_order_commission WHERE buyer_user_id=#{userId}
+        AND (line_status IN('RECEIVED','SETTLED') OR (line_status IS NULL AND settle_status='settled' AND order_status='settled'))
+    </select>
+    <select id="disputeOrders" resultType="long">
+        SELECT COUNT(*) FROM sys_order_commission WHERE buyer_user_id=#{userId} AND line_status='DISPUTED'
+    </select>
+    <select id="settledOrders" resultType="long">
+        SELECT COUNT(*) FROM sys_order_commission WHERE buyer_user_id=#{userId}
+        AND (line_status='SETTLED' OR (line_status IS NULL AND settle_status='settled' AND order_status='settled'))
+    </select>
+    <select id="firstCommissionRatio" resultType="java.math.BigDecimal">
+        SELECT CASE WHEN COUNT(*)=COUNT(commission_rate) THEN AVG(commission_rate) ELSE NULL END FROM
+        (SELECT commission_rate FROM sys_order_commission WHERE buyer_user_id=#{userId}
+         AND (line_status='SETTLED' OR (line_status IS NULL AND settle_status='settled' AND order_status='settled'))
+         ORDER BY settle_time ASC,id ASC LIMIT 10) recent
+    </select>
+    <sql id="listWhere">
+        <where><if test="userId != null">user_id=#{userId}</if><if test="status != null">AND status=#{status}</if></where>
+    </sql>
+    <select id="list" resultMap="withdrawal">SELECT * FROM cps_withdrawal <include refid="listWhere"/> ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}</select>
+    <select id="count" resultType="long">SELECT COUNT(*) FROM cps_withdrawal <include refid="listWhere"/></select>
+    <select id="pending" resultType="String">
+        SELECT withdraw_no FROM cps_withdrawal WHERE id &gt;#{afterId} AND status IN('SUBMITTING','PROCESSING','UNKNOWN','AWAITING_CONFIRMATION','TIMED_OUT')
+        ORDER BY id LIMIT #{limit}
+    </select>
+    <select id="automaticPending" resultMap="withdrawal" useCache="false" flushCache="true">
+        SELECT * FROM cps_withdrawal WHERE id &gt;#{afterId} AND status='APPROVED'
+            AND auto_pay_eligible=TRUE AND audit_by IS NULL ORDER BY id LIMIT #{limit}
+    </select>
+    <insert id="audit">
+        INSERT INTO cps_withdraw_audit(withdraw_no,user_id,action,from_status,to_status,operator_id,reason,created_at)
+        VALUES(#{withdrawNo},#{userId},#{action},#{fromStatus},#{toStatus},#{operatorId},#{reason},#{now})
+    </insert>
+    <select id="mockPayment" resultMap="mockPayment" useCache="false" flushCache="true">SELECT * FROM cps_withdraw_mock_payment WHERE withdraw_no=#{withdrawNo}</select>
+    <insert id="insertMockPayment">
+        INSERT INTO cps_withdraw_mock_payment(withdraw_no,amount,recipient_hash,channel_no,status,callback_token,created_at,updated_at)
+        VALUES(#{withdrawNo},#{amount},#{recipientHash},#{channelNo},#{status},#{callbackToken},#{createdAt},#{updatedAt})
+        ON DUPLICATE KEY UPDATE withdraw_no=VALUES(withdraw_no)
+    </insert>
+    <update id="updateMockPayment">
+        UPDATE cps_withdraw_mock_payment SET status=#{status},updated_at=#{now} WHERE withdraw_no=#{withdrawNo} AND status NOT IN('SUCCESS','FAILED')
+    </update>
+</mapper>

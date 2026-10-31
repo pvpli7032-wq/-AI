@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.cps.mapper.ReconBatchMapper">
+  <select id="lockImportGuard" resultType="int">SELECT id FROM cps_recon_guard WHERE id = 1 FOR UPDATE</select>
+  <sql id="sourceColumns">id,platform,source_type,external_id,order_no,sub_order_no,withdraw_no,amount,expected_receipt_amount,occurred_on,operator_id</sql>
+  <select id="findSource" resultType="com.ruoyi.system.cps.recon.ReconSource">
+    SELECT <include refid="sourceColumns"/> FROM cps_recon_source
+    WHERE platform=#{platform} AND source_type=#{sourceType} AND external_id=#{externalId}
+  </select>
+  <select id="findSourceById" resultType="com.ruoyi.system.cps.recon.ReconSource">
+    SELECT <include refid="sourceColumns"/> FROM cps_recon_source WHERE id=#{id}
+  </select>
+  <select id="findCashSource" resultType="com.ruoyi.system.cps.recon.ReconSource">
+    SELECT <include refid="sourceColumns"/> FROM cps_recon_source
+    WHERE source_type=#{sourceType} AND external_id=#{externalId} AND source_type IN ('UNION_RECEIPT','PAYOUT')
+  </select>
+  <insert id="insertSource">
+    INSERT INTO cps_recon_source(platform,source_type,external_id,order_no,sub_order_no,withdraw_no,
+      amount,expected_receipt_amount,occurred_on,operator_id,created_at)
+    VALUES (#{request.platform},#{request.sourceType},#{request.externalId},#{request.orderNo},
+      #{request.subOrderNo},#{request.withdrawNo},#{request.amount},#{request.expectedReceiptAmount},
+      #{request.occurredOn},#{operatorId},UTC_TIMESTAMP(3))
+  </insert>
+  <!-- Period selects affected order cohorts, while amounts are cumulative per order.
+       This permits late cash and append-only corrections in a later month. -->
+  <select id="selectSources" resultType="com.ruoyi.system.cps.recon.ReconSource">
+    SELECT <include refid="sourceColumns"/> FROM cps_recon_source
+    WHERE platform=#{platform} AND (
+      (source_type IN ('UNION_REPORT','UNION_RECEIPT') AND (
+        EXISTS(SELECT 1 FROM cps_recon_source touched WHERE touched.platform=cps_recon_source.platform
+          AND touched.order_no=cps_recon_source.order_no AND touched.sub_order_no=cps_recon_source.sub_order_no
+          AND touched.source_type IN ('UNION_REPORT','UNION_RECEIPT')
+          AND touched.occurred_on &gt;= #{from} AND touched.occurred_on &lt; #{until})
+        OR EXISTS(SELECT 1 FROM sys_order_commission o WHERE o.platform_type=cps_recon_source.platform
+          AND o.order_id=cps_recon_source.order_no AND o.sub_order_no=cps_recon_source.sub_order_no
+          AND o.settle_time &gt;= #{from} AND o.settle_time &lt; #{until})))
+      OR (source_type='PAYOUT' AND (EXISTS(SELECT 1 FROM cps_recon_source touched
+          WHERE touched.platform='PAYOUT' AND touched.source_type='PAYOUT' AND touched.withdraw_no=cps_recon_source.withdraw_no
+          AND touched.occurred_on &gt;= #{from} AND touched.occurred_on &lt; #{until})
+        OR EXISTS(SELECT 1 FROM cps_withdrawal w WHERE w.withdraw_no=cps_recon_source.withdraw_no
+          AND w.status='SUCCEEDED' AND w.completed_at &gt;= #{from} AND w.completed_at &lt; #{until})
+        OR EXISTS(SELECT 1 FROM sys_commission_flow f WHERE f.business_id=cps_recon_source.withdraw_no
+          AND (f.credit_account='PAYOUT' OR f.debit_account='PAYOUT') AND f.create_time &gt;= #{from} AND f.create_time &lt; #{until})))
+    ) ORDER BY id
+  </select>
+  <select id="findCoverage" resultType="com.ruoyi.system.cps.recon.ReconCoverage">
+    SELECT id,allocation_no,receipt_id,amount,reason,operator_id FROM cps_recon_coverage WHERE allocation_no=#{allocationNo}
+  </select>
+  <insert id="insertCoverage">
+    INSERT INTO cps_recon_coverage(allocation_no,receipt_id,amount,reason,operator_id,created_at)
+    VALUES(#{request.allocationNo},#{request.receiptId},#{request.amount},#{request.reason},#{operatorId},UTC_TIMESTAMP(3))
+  </insert>
+  <select id="coveredForReceipt" resultType="java.math.BigDecimal">
+    SELECT COALESCE(SUM(amount),0) FROM cps_recon_coverage WHERE receipt_id=#{receiptId}
+  </select>
+  <!-- Income is counted when it reaches available, and stays counted after a withdrawal.
+       Frozen amounts and transfers between available/withdrawing/payout never add exposure.
+       Unknown order references remain visible under UNKNOWN, never silently disappear. -->
+  <select id="selectExposurePositions" resultType="com.ruoyi.system.cps.recon.ExposurePosition">
+    SELECT p.platform,p.order_line_id,p.order_no,p.sub_order_no,p.credited,
+      LEAST(p.credited,GREATEST(COALESCE(c.covered,0),0),GREATEST(COALESCE(r.cash,0),0)) AS covered,
+      GREATEST(COALESCE(r.cash,0)-COALESCE(c.covered,0),0) AS unallocated_cash,
+      GREATEST(p.credited-LEAST(p.credited,GREATEST(COALESCE(c.covered,0),0),GREATEST(COALESCE(r.cash,0),0)),0) AS exposure
+    FROM (
+      SELECT COALESCE(o.platform_type,'UNKNOWN') AS platform, COALESCE(o.id,-f.id) AS order_line_id,
+        COALESCE(o.order_id,CONCAT('flow:',f.id)) AS order_no, COALESCE(o.sub_order_no,'') AS sub_order_no,
+        GREATEST(SUM(CASE
+          WHEN f.credit_account='USER_AVAILABLE' AND f.debit_account IN ('USER_FROZEN','REBATE_COST','REWARD_COST') THEN ABS(f.amount)
+          WHEN f.debit_account='USER_AVAILABLE' AND f.credit_account IN ('REBATE_COST','REWARD_COST','USER_FROZEN') THEN -ABS(f.amount)
+          WHEN f.debit_account IS NULL AND f.credit_account IS NULL AND
+            (f.flow_type IN ('income_self','income_promotion','refund_self','refund_promotion')
+             OR (f.flow_type='reversal' AND original.flow_type IN ('income_self','income_promotion'))) THEN f.amount
+          ELSE 0 END),0) AS credited
+      FROM sys_commission_flow f
+      LEFT JOIN sys_commission_flow original ON original.id=f.original_flow_id
+      LEFT JOIN sys_order_commission o ON o.id=COALESCE(f.order_commission_id,
+        CASE WHEN f.related_order_id REGEXP '^[0-9]+$' THEN CAST(f.related_order_id AS UNSIGNED) ELSE NULL END,
+        original.order_commission_id,
+        CASE WHEN original.related_order_id REGEXP '^[0-9]+$' THEN CAST(original.related_order_id AS UNSIGNED) ELSE NULL END)
+      WHERE (f.credit_account='USER_AVAILABLE' OR f.debit_account='USER_AVAILABLE'
+        OR (f.debit_account IS NULL AND f.credit_account IS NULL
+          AND (f.flow_type IN ('income_self','income_promotion','refund_self','refund_promotion')
+            OR (f.flow_type='reversal' AND original.flow_type IN ('income_self','income_promotion')))))
+      GROUP BY COALESCE(o.platform_type,'UNKNOWN'),COALESCE(o.id,-f.id),COALESCE(o.order_id,CONCAT('flow:',f.id)),COALESCE(o.sub_order_no,'')
+    ) p
+    LEFT JOIN (
+      SELECT s.platform,s.order_no,s.sub_order_no,SUM(c.amount) AS covered
+      FROM cps_recon_coverage c JOIN cps_recon_source s ON s.id=c.receipt_id
+      GROUP BY s.platform,s.order_no,s.sub_order_no
+    ) c ON c.platform=p.platform AND c.order_no=p.order_no AND c.sub_order_no=p.sub_order_no
+    LEFT JOIN (
+      SELECT platform,order_no,sub_order_no,SUM(amount) AS cash FROM cps_recon_source
+      WHERE source_type='UNION_RECEIPT' GROUP BY platform,order_no,sub_order_no
+    ) r ON r.platform=p.platform AND r.order_no=p.order_no AND r.sub_order_no=p.sub_order_no
+    WHERE p.credited &gt; 0 <if test="platform != null">AND p.platform=#{platform}</if>
+    ORDER BY p.platform,p.order_line_id
+  </select>
+  <select id="selectUnallocatedUserDebt" resultType="java.math.BigDecimal">
+    SELECT COALESCE(SUM(-balance),0) FROM sys_agent_commission_account WHERE balance &lt; 0
+  </select>
+  <select id="selectOrders" resultType="com.ruoyi.system.cps.recon.ReconOrder">
+    SELECT id,platform_type,order_id,sub_order_no,actual_commission FROM sys_order_commission
+    WHERE platform_type=#{platform} AND actual_commission IS NOT NULL
+      AND ((settle_time &gt;= #{from} AND settle_time &lt; #{until})
+        OR EXISTS(SELECT 1 FROM cps_recon_source s WHERE s.platform=sys_order_commission.platform_type
+          AND s.order_no=sys_order_commission.order_id AND s.sub_order_no=sys_order_commission.sub_order_no
+          AND s.source_type IN ('UNION_REPORT','UNION_RECEIPT') AND s.occurred_on &gt;= #{from} AND s.occurred_on &lt; #{until})) ORDER BY id
+  </select>
+  <select id="selectPayoutPostings" resultType="com.ruoyi.system.cps.recon.ReconPayout">
+    SELECT business_id AS withdraw_no,SUM(CASE WHEN credit_account='PAYOUT' THEN ABS(amount) ELSE -ABS(amount) END) AS amount
+    FROM sys_commission_flow WHERE business_id IS NOT NULL
+      AND (credit_account='PAYOUT' OR debit_account='PAYOUT')
+      AND ((create_time &gt;= #{from} AND create_time &lt; #{until})
+        OR EXISTS(SELECT 1 FROM cps_withdrawal w WHERE w.withdraw_no=sys_commission_flow.business_id
+          AND w.status='SUCCEEDED' AND w.completed_at &gt;= #{from} AND w.completed_at &lt; #{until})
+        OR EXISTS(SELECT 1 FROM cps_recon_source s WHERE s.platform='PAYOUT' AND s.source_type='PAYOUT'
+          AND s.withdraw_no=sys_commission_flow.business_id AND s.occurred_on &gt;= #{from} AND s.occurred_on &lt; #{until}))
+    GROUP BY business_id ORDER BY business_id
+  </select>
+  <select id="selectSuccessfulWithdrawals" resultType="com.ruoyi.system.cps.recon.ReconPayout">
+    SELECT withdraw_no,amount FROM cps_withdrawal WHERE status='SUCCEEDED'
+      AND ((completed_at &gt;= #{from} AND completed_at &lt; #{until})
+        OR EXISTS(SELECT 1 FROM cps_recon_source s WHERE s.platform='PAYOUT' AND s.source_type='PAYOUT'
+          AND s.withdraw_no=cps_withdrawal.withdraw_no AND s.occurred_on &gt;= #{from} AND s.occurred_on &lt; #{until})
+        OR EXISTS(SELECT 1 FROM sys_commission_flow f WHERE f.business_id=cps_withdrawal.withdraw_no
+          AND (f.credit_account='PAYOUT' OR f.debit_account='PAYOUT') AND f.create_time &gt;= #{from} AND f.create_time &lt; #{until})) ORDER BY withdraw_no
+  </select>
+  <insert id="insertBatch">
+    INSERT INTO cps_recon_batch(platform,period,status,fingerprint,diff_count,created_at)
+    VALUES(#{platform},#{period},'RUNNING',#{fingerprint},0,UTC_TIMESTAMP(3))
+    ON DUPLICATE KEY UPDATE id=id
+  </insert>
+  <select id="lockBatch" resultType="com.ruoyi.system.cps.recon.ReconBatch">
+    SELECT id,platform,period,status,fingerprint,diff_count,created_at,completed_at
+    FROM cps_recon_batch WHERE fingerprint=#{fingerprint} FOR UPDATE
+  </select>
+  <update id="completeBatch">
+    UPDATE cps_recon_batch SET status='COMPLETED',diff_count=#{diffCount},completed_at=UTC_TIMESTAMP(3)
+    WHERE id=#{id} AND status='RUNNING'
+  </update>
+  <select id="selectBatches" resultType="com.ruoyi.system.cps.recon.ReconBatch">
+    SELECT id,platform,period,status,fingerprint,diff_count,created_at,completed_at FROM cps_recon_batch
+    <where><if test="platform != null">platform=#{platform}</if><if test="period != null">AND period=#{period}</if></where>
+    ORDER BY id DESC LIMIT 200
+  </select>
+  <select id="selectConfigValues" resultType="string">SELECT config_value FROM sys_config WHERE config_key=#{key}</select>
+  <select id="selectExposureConfigValues" resultType="com.ruoyi.system.cps.recon.ExposureConfigValue">
+    SELECT config_key,config_value FROM sys_config
+    WHERE config_key IN ('cps.exposure.limit','cps.exposure.action','cps.exposure.intervalMinutes') ORDER BY config_id
+  </select>
+  <insert id="insertExposureConfig">
+    INSERT INTO sys_config(config_name,config_key,config_value,config_type,create_by,create_time)
+    VALUES(#{name},#{key},#{value},'N',#{operatorId},UTC_TIMESTAMP())
+  </insert>
+  <update id="updateExposureConfig">
+    UPDATE sys_config SET config_value=#{value},update_by=#{operatorId},update_time=UTC_TIMESTAMP()
+    WHERE config_key=#{key}
+  </update>
+  <insert id="appendExposurePolicyAudit">
+    INSERT INTO cps_exposure_policy_audit(operator_id,before_config,after_config,created_at)
+    VALUES(#{operatorId},#{beforeJson},#{afterJson},UTC_TIMESTAMP(3))
+  </insert>
+  <select id="lockExposureSchedule" resultType="com.ruoyi.system.cps.recon.ExposureSchedule">
+    SELECT id,last_capture_at FROM cps_exposure_schedule WHERE id=1 FOR UPDATE
+  </select>
+  <update id="completeExposureCapture">
+    UPDATE cps_exposure_schedule SET last_capture_at=#{capturedAt} WHERE id=1
+  </update>
+  <insert id="appendExposure">
+    INSERT INTO cps_exposure_snapshot(platform,amount,observed_at) VALUES(#{platform},#{amount},UTC_TIMESTAMP(3))
+  </insert>
+  <select id="peakExposure" resultType="java.math.BigDecimal">
+    SELECT COALESCE(MAX(amount),0) FROM cps_exposure_snapshot WHERE platform=#{platform}
+  </select>
+</mapper>

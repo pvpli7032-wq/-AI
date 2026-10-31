@@ -6,6 +6,9 @@ import com.ruoyi.common.core.domain.entity.SysUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.ruoyi.system.cps.withdraw.WithdrawalApplyRequest;
+import com.ruoyi.system.cps.withdraw.WithdrawalService;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
@@ -20,6 +23,9 @@ import java.util.Map;
 @RestController
 @RequestMapping("/miniapp/user")
 public class MiniappUserController extends BaseController {
+
+    @Autowired(required = false)
+    private WithdrawalService withdrawals;
 
     /**
      * 获取用户统计数据
@@ -88,8 +94,9 @@ public class MiniappUserController extends BaseController {
      */
     @Operation(summary = "申请提现")
     @PostMapping("/withdraw/apply")
-    public AjaxResult applyWithdraw(@RequestBody Map<String, Object> params) {
-        return AjaxResult.error("提现申请暂未开放");
+    public AjaxResult applyWithdraw(@RequestBody WithdrawalApplyRequest request) {
+        if (withdrawals == null || !withdrawals.available()) return AjaxResult.error("提现申请暂未开放");
+        return AjaxResult.success(withdrawals.apply(getUserId(), request));
     }
 
     /**
@@ -101,13 +108,9 @@ public class MiniappUserController extends BaseController {
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "10") Integer pageSize) {
         
-        SysUser user = getLoginUser().getUser();
-        
-        // TODO: 从数据库查询提现记录
-        // 暂时返回空列表
+        if (withdrawals == null) return AjaxResult.error("提现记录暂不可用");
         AjaxResult ajax = AjaxResult.success();
-        ajax.put("rows", new java.util.ArrayList<>());
-        ajax.put("total", 0);
+        ajax.putAll(withdrawals.list(getUserId(), page, pageSize));
         return ajax;
     }
 }

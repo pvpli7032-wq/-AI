@@ -56,7 +56,7 @@
 
 **对应：** `plan.md` 第 4.1、4.2、4.10 节，阶段 2。**迁移编号：** V500～V599。
 
-**能改：** `union/adapter/` 的实现、`cps/attribution/`、新增 `MiniappConvertController` 和无主订单、PID 池的后台接口，`MiniappDtkController`、`MiniappJdController`、`MiniappPddController`、`MiniappTbkController`（只接入新逻辑），`ISysWechatUserService` 相关（只改邀请绑定），`tbk-miniapp/api/platform-api.js`、`tbk-miniapp/utils/request.js`（只改第 11 项）。
+**能改：** `union/adapter/` 的实现、`cps/attribution/`、新增 `MiniappConvertController` 和无主订单、PID 池的后台接口，`MiniappDtkController`、`MiniappJdController`、`MiniappPddController`、`MiniappTbkController`（只接入新逻辑），`ISysWechatUserService` 相关（只改邀请绑定），`tbk-miniapp/api/platform-api.js`、`tbk-miniapp/utils/request.js`（只改第 11 项），`tbk-miniapp/utils/auth.js`、`MiniappAuthController`（只改第 8 项首次授权传邀请码），`tbk-miniapp/pages/index/index.js`、`tbk-miniapp/pages/goods/detail/`（只改转发不带身份和第 9 项），`WebUtils`（只改第 10 项超时），`ruoyi-quartz` 新增到期处理和重试任务类。
 
 **要求：**
 
@@ -117,7 +117,7 @@
 8. **后台：** 订单列表和详情（含归因、状态历史），按平台、状态、绑定方式筛选。`GET /miniapp/orders` 我的订单，展示状态用同行四种名称，不展示内部状态码。
 9. **处罚导入：** 人工导入入口，写 `cps_punish_import`。
 10. **采集检查项：**
-    - 分页必须翻完，淘宝用位置游标、京东看 `hasMore`、拼多多用 `lastOrderId`，单次大量订单不能只取第一页。
+    - 分页必须翻完，单次大量订单不能只取第一页。淘宝用位置游标，京东看 `hasMore`，拼多多的翻页参数以大淘客接口文档为准，查不到就在 PR 里写明，不能猜参数名。
     - 增量和历史补采分成两种任务。
     - 过滤不属于本系统 PID、siteId 的订单。
     - 拉取失败要重试和补偿，记录失败窗口，不能只打日志。

@@ -4,13 +4,9 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
-import com.ruoyi.system.domain.SysTbkAgentApply;
 import com.ruoyi.system.service.IJdSdkService;
-import com.ruoyi.system.service.ISysTbkAgentApplyService;
-import com.ruoyi.union.jd.config.JdConfig;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.annotation.Resource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,26 +25,8 @@ import java.util.Map;
 @RequestMapping("/miniapp/jd")
 public class MiniappJdController extends BaseController {
 
-    // Public browsing remains available without a login; request parameters are not identity.
-    private Long currentUserId() {
-        org.springframework.security.core.Authentication authentication =
-                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null && authentication.isAuthenticated()
-                && authentication.getPrincipal() instanceof com.ruoyi.common.core.domain.model.LoginUser loginUser) {
-            return loginUser.getUserId();
-        }
-        return null;
-    }
-
-
     @Autowired
     private IJdSdkService jdSdkService;
-
-    @Resource
-    private JdConfig jdConfig;
-
-    @Autowired
-    private ISysTbkAgentApplyService tbkAgentApplyService;
 
     /**
      * 获取热门商品列表（公开接口）
@@ -90,13 +68,6 @@ public class MiniappJdController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
 
-        // 根据登录态查询已审核的代理信息。
-        Long currentUserId = currentUserId();
-        SysTbkAgentApply agentApply = currentUserId == null ? null : tbkAgentApplyService.selectByUserId(currentUserId);
-        if (agentApply != null && !"1".equals(agentApply.getStatus())) {
-            agentApply = null;
-        }
-        
         // 调用京东联盟SDK查询商品详情
         JSONObject resultOb = jdSdkService.queryGoodsBigField(skuIds);
         
@@ -104,18 +75,6 @@ public class MiniappJdController extends BaseController {
             return AjaxResult.error("商品不存在或已下架");
         }
         
-        // 获取推广链接
-        Map<String, String> promotionParams = new HashMap<>();
-        promotionParams.put("materialId", skuIds);
-        promotionParams.put("positionId", jdConfig.getPositionId().toString()); // 需要看代理商商有没有
-        
-        JSONObject promotionResult = jdSdkService.getPromotionLink(promotionParams);
-        if (promotionResult != null && promotionResult.containsKey("clickURL")) {
-            resultOb.put("clickURL", promotionResult.getString("clickURL"));
-            resultOb.put("shortUrl", promotionResult.getString("shortURL"));
-        }
-
-        logger.info("getGoodsDetail >>>> " +  resultOb.toString());
 
         return AjaxResult.success(resultOb);
     }
@@ -247,7 +206,6 @@ public class MiniappJdController extends BaseController {
         
         // 调用京东联盟SDK
         JSONObject result = jdSdkService.getPromotionLink(params);
-        logger.info("getPromotionUrl result >>>> " +  result.toJSONString());
         return success(result);
     }
 

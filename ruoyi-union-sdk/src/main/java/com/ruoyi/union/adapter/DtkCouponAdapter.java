@@ -139,7 +139,7 @@ public final class DtkCouponAdapter implements UnionAdapter, CouponRecommendatio
     }
 
     private String parsePdd(String input) {
-        URI uri = uri(input, "PDD_PARSE_UNSUPPORTED");
+        URI uri = uri(input, "PARSE_FAILED");
         if (!hostMatches(uri, "pinduoduo.com") && !hostMatches(uri, "yangkeduo.com")) {
             throw failure("PARSE_FAILED", "请使用拼多多商品链接");
         }
@@ -147,10 +147,10 @@ public final class DtkCouponAdapter implements UnionAdapter, CouponRecommendatio
         if (uri.getRawQuery() != null) {
             for (String parameter : uri.getRawQuery().split("&")) {
                 String[] pair = parameter.split("=", 2);
-                String name = URLDecoder.decode(pair[0], StandardCharsets.UTF_8);
+                String name = decodeQueryComponent(pair[0]);
                 if (!name.equals("goods_sign") && !name.equals("goodsSign")) continue;
                 if (pair.length != 2 || sign != null) throw failure("PARSE_FAILED", "商品标识无效");
-                sign = URLDecoder.decode(pair[1], StandardCharsets.UTF_8);
+                sign = decodeQueryComponent(pair[1]);
             }
         }
         if (sign == null || sign.isBlank() || sign.matches("[0-9]+")) {
@@ -159,6 +159,14 @@ public final class DtkCouponAdapter implements UnionAdapter, CouponRecommendatio
             throw failure("PDD_PARSE_UNSUPPORTED", "暂不支持此拼多多链接，请使用含商品标识的商品链接");
         }
         return sign;
+    }
+
+    private String decodeQueryComponent(String value) {
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException invalid) {
+            throw failure("PARSE_FAILED", "商品链接无效");
+        }
     }
 
     @Override

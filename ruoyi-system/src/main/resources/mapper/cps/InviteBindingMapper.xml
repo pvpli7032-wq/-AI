@@ -11,8 +11,18 @@
     <select id="lockSystemUser" resultType="java.lang.Long">
         SELECT user_id FROM sys_user WHERE user_id = #{userId} AND del_flag = '0' AND status = '0' FOR UPDATE
     </select>
+    <select id="lockInvitationMutex" resultType="java.lang.Integer">
+        SELECT id FROM cps_invitation_mutex WHERE id = 1 FOR UPDATE
+    </select>
+    <select id="countCodesOfLength" resultType="long">
+        SELECT COUNT(*) FROM sys_wechat_user
+        WHERE CHAR_LENGTH(invitation_code) = #{length} AND invitation_code REGEXP '^[1-9][0-9]*$' FOR SHARE
+    </select>
+    <select id="countCode" resultType="long">
+        SELECT COUNT(*) FROM sys_wechat_user WHERE invitation_code = #{code} FOR SHARE
+    </select>
     <select id="selectByUserId" resultMap="InviteUser">
-        SELECT id, user_id, openid, invitation_code, inviter_user_id FROM sys_wechat_user WHERE user_id = #{userId}
+        SELECT id, user_id, openid, invitation_code, inviter_user_id FROM sys_wechat_user WHERE user_id = #{userId} FOR SHARE
     </select>
     <select id="selectLockedUser" resultMap="InviteUser">
         SELECT id, user_id, openid, invitation_code, inviter_user_id FROM sys_wechat_user WHERE user_id = #{userId} FOR UPDATE
@@ -20,14 +30,14 @@
     <select id="findInviter" resultMap="InviteUser">
         SELECT w.id, w.user_id, w.openid, w.invitation_code, w.inviter_user_id
         FROM sys_wechat_user w INNER JOIN sys_user u ON u.user_id = w.user_id
-        WHERE w.invitation_code = #{code} AND u.del_flag = '0' AND u.status = '0'
+        WHERE w.invitation_code = #{code} AND u.del_flag = '0' AND u.status = '0' FOR SHARE
     </select>
     <select id="countHistoricalOrders" resultType="long">
         SELECT COUNT(*) FROM sys_order_commission WHERE buyer_user_id = #{userId} OR agent_user_id = #{userId}
     </select>
     <update id="setInvitationCode">
         UPDATE sys_wechat_user SET invitation_code = #{code}, update_time = NOW()
-        WHERE user_id = #{userId} AND (invitation_code IS NULL OR invitation_code = '')
+        WHERE user_id = #{userId}
     </update>
     <update id="changeInviter">
         UPDATE sys_wechat_user SET inviter_user_id = #{inviterUserId}, update_time = NOW() WHERE user_id = #{userId}

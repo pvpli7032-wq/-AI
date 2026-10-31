@@ -142,6 +142,8 @@ public class DtkCouponAdapterTest {
                 () -> adapter.parse("https://pinduoduo.com.example.invalid/goods?goods_sign=sign_abc"));
         assertThrows(UnionCouponException.class,
                 () -> adapter.parse("https://mobile.yangkeduo.com/goods?goods_sign=a&goods_sign=b"));
+        assertEquals("PARSE_FAILED", assertThrows(UnionCouponException.class,
+                () -> adapter.parse("https://mobile.yangkeduo.com/goods?goods_sign=broken%ZZ")).code());
         assertTrue(gateway.requests.isEmpty());
     }
 

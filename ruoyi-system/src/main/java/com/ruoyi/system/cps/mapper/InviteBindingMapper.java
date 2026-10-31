@@ -8,6 +8,9 @@ import org.apache.ibatis.annotations.Param;
 /** Invitation writes are separate from profile updates and never touch order snapshots. */
 public interface InviteBindingMapper {
     Long lockSystemUser(@Param("userId") Long userId);
+    Integer lockInvitationMutex();
+    long countCodesOfLength(@Param("length") int length);
+    long countCode(@Param("code") String code);
     SysWechatUser selectByUserId(@Param("userId") Long userId);
     SysWechatUser selectLockedUser(@Param("userId") Long userId);
     SysWechatUser findInviter(@Param("code") String code);

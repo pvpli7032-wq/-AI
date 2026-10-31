@@ -9,7 +9,6 @@ import jakarta.annotation.PreDestroy;
 import com.ruoyi.union.adapter.*;
 import com.ruoyi.union.dtk.api.client.DtkApiRequest;
 import com.ruoyi.union.dtk.api.client.DtkClient;
-import com.ruoyi.union.dtk.api.http.WebUtils;
 import com.ruoyi.union.dtk.config.DtkConfig;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -25,7 +24,7 @@ public class CouponDtkGateway implements DtkCouponGateway {
     private final BiFunction<String, String, DtkClient> clients;
     @Autowired
     public CouponDtkGateway(DtkConfig credentials, CouponSettings settings, PidPoolService pids) {
-        this(credentials, settings, pids, SafeDtkCouponClient::new);
+        this(credentials, settings, pids, null);
     }
     /** Package-local transport seam; production always constructs the safe fixed-host client. */
     CouponDtkGateway(DtkConfig credentials, CouponSettings settings, PidPoolService pids,
@@ -48,9 +47,12 @@ public class CouponDtkGateway implements DtkCouponGateway {
         return queue.execute(() -> executeSigned(request));
     }
     private <T> T executeSigned(DtkApiRequest<T> request) {
-        WebUtils.setTimeouts(settings.integer("cps.coupon.connect-timeout-ms", 3000, 100, 120000),
-            settings.integer("cps.coupon.read-timeout-ms", 10000, 100, 120000));
-        return clients.apply(credentials.getAppKey(), credentials.getAppSecret()).execute(request);
+        DtkClient client = clients == null
+            ? new SafeDtkCouponClient(credentials.getAppKey(), credentials.getAppSecret(),
+                settings.integer("cps.coupon.connect-timeout-ms", 3000, 100, 120000),
+                settings.integer("cps.coupon.read-timeout-ms", 10000, 100, 120000))
+            : clients.apply(credentials.getAppKey(), credentials.getAppSecret());
+        return client.execute(request);
     }
     @Override public String defaultPid(Platform platform) { return pids.defaultPid(platform); }
     @Override public String jdUnionId() {

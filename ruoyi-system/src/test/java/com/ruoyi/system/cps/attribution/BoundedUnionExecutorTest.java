@@ -146,18 +146,12 @@ public class BoundedUnionExecutorTest {
         } finally { release.countDown(); callers.shutdownNow(); }
     }
 
-    @Test public void webUtilsUsesFiniteConnectionAndReadTimeouts() throws Exception {
+    @Test public void legacyWebUtilsConnectionsKeepTheirOriginalTimeouts() throws Exception {
+        HttpURLConnection connection = WebUtils.getConnection(new URL("https://example.invalid/"), "GET", "application/json");
         try {
-            WebUtils.setTimeouts(1234, 5678);
-            HttpURLConnection connection = WebUtils.getConnection(new URL("https://example.invalid/"), "GET", "application/json");
-            assertEquals(1234, connection.getConnectTimeout());
-            assertEquals(5678, connection.getReadTimeout());
-            connection.disconnect();
-            assertThrows(IllegalArgumentException.class, () -> WebUtils.setTimeouts(0, 100));
-            assertThrows(IllegalArgumentException.class, () -> WebUtils.setTimeouts(100, 0));
-        } finally {
-            WebUtils.setTimeouts(3000, 10000);
-        }
+            assertEquals(0, connection.getConnectTimeout());
+            assertEquals(0, connection.getReadTimeout());
+        } finally { connection.disconnect(); }
     }
 
     private static void await(CountDownLatch latch) {

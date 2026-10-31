@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -57,6 +58,57 @@ public class PidPoolService {
                 return new PidAllocation(slot.pid, true, expiry);
             }
             return new PidAllocation(fallback, false, null);
+        });
+    }
+
+    /** Reserve a conversion without recycling an already published or concurrently used lease. */
+    public PidConversionReservation reserveForConversion(Platform platform, String itemId, Long userId) {
+        return transactions.execute(status -> {
+            lockPool(platform, false);
+            jdbc.update("INSERT INTO cps_pid_item_mutex(platform,item_id) VALUES (?,?) ON DUPLICATE KEY UPDATE item_id=VALUES(item_id)",platform.name(),itemId);
+            jdbc.queryForObject("SELECT item_id FROM cps_pid_item_mutex WHERE platform=? AND item_id=? FOR UPDATE",String.class,platform.name(),itemId);
+            Instant now=AttributionData.now(jdbc);
+            List<Long> existing=userId==null ? List.of() : jdbc.queryForList("SELECT id FROM cps_pid_lease WHERE platform=? AND item_id=? AND user_id=? AND start_at<=? AND expire_at>? FOR UPDATE",Long.class,platform.name(),itemId,userId,AttributionData.timestamp(now),AttributionData.timestamp(now));
+            PidAllocation allocation=allocate(platform,itemId,userId);
+            if (!allocation.tracking()) return new PidConversionReservation(allocation,platform,itemId,null,null);
+            Long leaseId=jdbc.queryForObject("SELECT id FROM cps_pid_lease WHERE platform=? AND item_id=? AND user_id=? AND BINARY pid=BINARY ? AND expire_at>? ORDER BY id DESC LIMIT 1 FOR UPDATE",Long.class,platform.name(),itemId,userId,allocation.pid(),AttributionData.timestamp(now));
+            // A lease without reservation metadata predates this path and may already have produced links.
+            jdbc.update("INSERT IGNORE INTO cps_pid_conversion_state(lease_id,published) VALUES (?,?)",leaseId,existing.contains(leaseId));
+            String attempt=UUID.randomUUID().toString().replace("-","");
+            jdbc.update("INSERT INTO cps_pid_conversion_attempt(attempt_id,lease_id,created_at) VALUES (?,?,?)",attempt,leaseId,AttributionData.timestamp(now));
+            return new PidConversionReservation(allocation,platform,itemId,leaseId,attempt);
+        });
+    }
+
+    public void finishConversion(PidConversionReservation reservation, boolean succeeded) {
+        if (reservation == null || reservation.leaseId() == null) return;
+        transactions.executeWithoutResult(status -> {
+            jdbc.queryForObject("SELECT item_id FROM cps_pid_item_mutex WHERE platform=? AND item_id=? FOR UPDATE",String.class,reservation.platform().name(),reservation.itemId());
+            List<Boolean> states=jdbc.queryForList("SELECT published FROM cps_pid_conversion_state WHERE lease_id=? FOR UPDATE",Boolean.class,reservation.leaseId());
+            if (states.isEmpty()) return;
+            int removed=jdbc.update("DELETE FROM cps_pid_conversion_attempt WHERE attempt_id=? AND lease_id=?",reservation.attemptId(),reservation.leaseId());
+            if (removed==0) return;
+            boolean published=states.get(0) || succeeded;
+            if (succeeded && !states.get(0)) jdbc.update("UPDATE cps_pid_conversion_state SET published=TRUE WHERE lease_id=?",reservation.leaseId());
+            long remaining=jdbc.queryForObject("SELECT COUNT(*) FROM cps_pid_conversion_attempt WHERE lease_id=?",Long.class,reservation.leaseId());
+            if (remaining==0) {
+                if (!published) jdbc.update("DELETE FROM cps_pid_lease WHERE id=?",reservation.leaseId());
+                jdbc.update("DELETE FROM cps_pid_conversion_state WHERE lease_id=?",reservation.leaseId());
+            }
+        });
+    }
+
+    /** Abandoned in-flight markers are safe to remove only after their lease has expired. */
+    public int cleanupExpiredConversionReservations(int limit) {
+        if (limit<=0 || limit>10000) throw new IllegalArgumentException("invalid cleanup batch");
+        Instant now=AttributionData.now(jdbc);
+        return transactions.execute(status -> {
+            List<Long> ids=jdbc.queryForList("SELECT s.lease_id FROM cps_pid_conversion_state s LEFT JOIN cps_pid_lease l ON l.id=s.lease_id WHERE l.id IS NULL OR l.expire_at<=? ORDER BY s.lease_id LIMIT ? FOR UPDATE",Long.class,AttributionData.timestamp(now),limit);
+            for (Long id:ids) {
+                jdbc.update("DELETE FROM cps_pid_conversion_attempt WHERE lease_id=?",id);
+                jdbc.update("DELETE FROM cps_pid_conversion_state WHERE lease_id=?",id);
+            }
+            return ids.size();
         });
     }
 

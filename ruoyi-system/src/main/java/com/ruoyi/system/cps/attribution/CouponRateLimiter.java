@@ -17,8 +17,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 public class CouponRateLimiter {
     private static final DefaultRedisScript<Long> CHECK = new DefaultRedisScript<>(
         "if redis.call('EXISTS',KEYS[4])==1 then return 0 end "
-        + "for i=1,3 do local n=redis.call('INCR',KEYS[i]); if n==1 then redis.call('EXPIRE',KEYS[i],60) end; "
-        + "if n>tonumber(ARGV[i]) then return 0 end end; return 1", Long.class);
+        + "for _,i in ipairs({3,1,2}) do "
+        + "if tonumber(redis.call('GET',KEYS[i]) or '0')>=tonumber(ARGV[i]) then return 0 end end; "
+        + "for i=1,3 do local n=redis.call('INCR',KEYS[i]); if n==1 then redis.call('EXPIRE',KEYS[i],60) end end; "
+        + "return 1", Long.class);
     private static final DefaultRedisScript<Long> FAIL = new DefaultRedisScript<>(
         "local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],60) end; "
         + "if n>=tonumber(ARGV[1]) then redis.call('SET',KEYS[2],'1','EX',ARGV[2]) end; return n", Long.class);

@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
@@ -95,10 +96,11 @@ public class AttributionMySqlTest {
         }
     }
     @Before public void reset() {
-        for(String table:List.of("cps_attribution_settlement_outbox","cps_attribution_inviter_snapshot","cps_attribution_candidate","cps_attribution_current","cps_attribution_review","cps_unclaimed_order","cps_attribution","cps_order_claim","cps_claim_mutex","cps_pid_lease","cps_pid_item_mutex","cps_pid_audit","cps_pid_registry","cps_attribution_token","cps_query_log","cps_settle_item","sys_commission_flow","sys_order_commission","cps_invite_binding_audit","sys_union_platform")) jdbc.update("DELETE FROM "+table);
+        for(String table:List.of("cps_pid_conversion_attempt","cps_pid_conversion_state","cps_attribution_settlement_outbox","cps_attribution_inviter_snapshot","cps_attribution_candidate","cps_attribution_current","cps_attribution_review","cps_unclaimed_order","cps_attribution","cps_order_claim","cps_claim_mutex","cps_pid_lease","cps_pid_item_mutex","cps_pid_audit","cps_pid_registry","cps_attribution_token","cps_query_log","cps_settle_item","sys_commission_flow","sys_order_commission","cps_invite_binding_audit","sys_union_platform")) jdbc.update("DELETE FROM "+table);
         jdbc.update("UPDATE sys_config SET config_value='24' WHERE config_key='cps.attribution.claim.hours'");
         jdbc.update("UPDATE sys_config SET config_value='48' WHERE config_key='cps.attribution.lease.hours'");
         jdbc.update("UPDATE sys_config SET config_value='30' WHERE config_key='cps.attribution.unclaimed.days'");
+        jdbc.update("UPDATE sys_config SET config_value='10' WHERE config_key='cps.attribution.settlement.max-attempts'");
         downstreamFails.set(false);deliveries.clear();
         for(Platform platform:Platform.values()) pids.register(platform,"TEST_"+platform+"_DEFAULT",PidType.DEFAULT,true,1L,"synthetic fixture");
     }
@@ -125,6 +127,24 @@ public class AttributionMySqlTest {
         assertTrue(pids.allocate(Platform.TBK,"casesensitiveitem",B).tracking());
     }
 
+    @Test public void failedConversionReleasesOnlyAnUnpublishedLease() {
+        pids.register(Platform.TBK,"TEST_TRACKING",PidType.TRACKING,true,1L,"fixture");
+        PidConversionReservation failed=pids.reserveForConversion(Platform.TBK,"item",A);
+        pids.finishConversion(failed,false);
+        assertEquals(Long.valueOf(0),count("cps_pid_lease"));
+        PidConversionReservation first=pids.reserveForConversion(Platform.TBK,"item",A);
+        PidConversionReservation second=pids.reserveForConversion(Platform.TBK,"item",A);
+        pids.finishConversion(first,false);
+        assertEquals(Long.valueOf(1),count("cps_pid_lease"));
+        pids.finishConversion(second,true);
+        assertEquals(Long.valueOf(1),count("cps_pid_lease"));
+        PidConversionReservation later=pids.reserveForConversion(Platform.TBK,"item",A);
+        pids.finishConversion(later,false);
+        assertEquals(Long.valueOf(1),count("cps_pid_lease"));
+        assertEquals(Long.valueOf(0),count("cps_pid_conversion_attempt"));
+        assertEquals(Long.valueOf(0),count("cps_pid_conversion_state"));
+    }
+
     @Test public void leasesNeverCaptureOrdersBeforeStartAndExpiryIsExclusive() {
         pids.register(Platform.TBK,"TEST_TRACKING",PidType.TRACKING,true,1L,"fixture");
         pids.allocate(Platform.TBK,"item",A);
@@ -136,6 +156,17 @@ public class AttributionMySqlTest {
         assertEquals(Long.valueOf(A),decide(beginning).userId());
         long ending=order("ending","",Platform.TBK,"item","TEST_TRACKING",null,expiry);
         assertNull(decide(ending).userId());
+    }
+
+    @Test public void legacyOrderReferrerSurvivesWhenInvitationAuditIsMissing() {
+        long id=order("legacy-inviter","",Platform.TBK,"item","TEST_TBK_DEFAULT",null,now().minusSeconds(5));
+        jdbc.update("UPDATE sys_wechat_user SET inviter_user_id=? WHERE user_id=?",B,A);
+        try {
+            jdbc.update("UPDATE sys_order_commission SET buyer_user_id=?,agent_user_id=?,referrer_user_id=?,has_referrer='1' WHERE id=?",A,A,B,id);
+            assertEquals(Long.valueOf(A),decide(id).userId());
+            assertEquals(Long.valueOf(B),jdbc.queryForObject("SELECT referrer_user_id FROM sys_order_commission WHERE id=?",Long.class,id));
+            assertEquals("1",jdbc.queryForObject("SELECT has_referrer FROM sys_order_commission WHERE id=?",String.class,id));
+        } finally { jdbc.update("UPDATE sys_wechat_user SET inviter_user_id=NULL WHERE user_id=?",A); }
     }
 
     @Test public void defaultPidRemainsUnclaimedAndBlockedPidCannotBeClaimed() {
@@ -169,18 +200,19 @@ public class AttributionMySqlTest {
         assertNull(AttributionTokenService.normalize(Platform.PDD,"{\"uid\":\""+token+"\"}{}"));
     }
 
-    @Test public void higherClaimCanReplaceLeaseButLowerEvidenceCannotUndoItAndHistoryIsImmutable() {
+    @Test public void claimAgainstLeaseRequiresReviewAndPreservesOriginalOwner() {
         pids.register(Platform.TBK,"TEST_TRACKING",PidType.TRACKING,true,1L,"fixture");
         pids.allocate(Platform.TBK,"item",A);
         Instant start=jdbc.queryForObject("SELECT start_at FROM cps_pid_lease",Timestamp.class).toInstant();
         long id=order("priority-order","",Platform.TBK,"item","TEST_TRACKING",null,start);
         assertEquals(Long.valueOf(A),decide(id).userId());
         Map<String,Object> original=jdbc.queryForMap("SELECT * FROM cps_attribution WHERE order_line_id=?",id);
-        assertEquals("BOUND",service.claim(B,Platform.TBK,"priority-order").code());
-        assertEquals(Long.valueOf(B),decide(id).userId());
+        assertEquals("MANUAL_REVIEW",service.claim(B,Platform.TBK,"priority-order").code());
+        assertEquals(Long.valueOf(A),decide(id).userId());
         assertEquals(original,jdbc.queryForMap("SELECT * FROM cps_attribution WHERE id=?",original.get("id")));
-        assertEquals(Long.valueOf(2),count("cps_attribution"));
-        assertEquals(Long.valueOf(B),jdbc.queryForObject("SELECT buyer_user_id FROM sys_order_commission WHERE id=?",Long.class,id));
+        assertEquals(Long.valueOf(1),count("cps_attribution"));
+        assertEquals(Long.valueOf(A),jdbc.queryForObject("SELECT buyer_user_id FROM sys_order_commission WHERE id=?",Long.class,id));
+        assertEquals(Long.valueOf(1),jdbc.queryForObject("SELECT COUNT(*) FROM cps_attribution_review WHERE order_line_id=? AND status='PENDING'",Long.class,id));
     }
 
     @Test public void platformTokenCannotBeOverriddenByAnotherManualClaim() {
@@ -188,7 +220,7 @@ public class AttributionMySqlTest {
         Instant paid=jdbc.queryForObject("SELECT issued_at FROM cps_attribution_token",Timestamp.class).toInstant();
         long id=order("token-order","",Platform.JD,"item","TEST_JD_DEFAULT",token,paid);
         assertEquals(Long.valueOf(A),decide(id).userId());
-        assertEquals("BOUND_OTHER",service.claim(B,Platform.JD,"token-order").code());
+        assertEquals("MANUAL_REVIEW",service.claim(B,Platform.JD,"token-order").code());
         assertEquals(Long.valueOf(A),decide(id).userId());
         assertEquals(Long.valueOf(1),count("cps_attribution"));
     }
@@ -201,9 +233,11 @@ public class AttributionMySqlTest {
         List<ClaimResult> results=race(() -> service.claim(A,Platform.TBK,"multi-child"),() -> service.claim(B,Platform.TBK,"multi-child"));
         assertEquals(1,results.stream().filter(r -> "BOUND".equals(r.code())).count());
         assertEquals(1,results.stream().filter(r -> "MANUAL_REVIEW".equals(r.code())).count());
+        Long originalOwner=jdbc.queryForObject("SELECT buyer_user_id FROM sys_order_commission WHERE id=?",Long.class,a);
+        assertTrue(Objects.equals(originalOwner, A) || Objects.equals(originalOwner, B));
         for(long id:List.of(a,b)) {
-            assertNull(jdbc.queryForObject("SELECT buyer_user_id FROM sys_order_commission WHERE id=?",Long.class,id));
-            assertEquals(AttributionMethod.MANUAL,decide(id).method());
+            assertEquals(originalOwner,jdbc.queryForObject("SELECT buyer_user_id FROM sys_order_commission WHERE id=?",Long.class,id));
+            assertEquals(originalOwner,decide(id).userId());
             assertEquals("MANUAL_REVIEW",jdbc.queryForObject("SELECT status FROM cps_unclaimed_order WHERE order_line_id=?",String.class,id));
         }
         assertEquals(Long.valueOf(2),jdbc.queryForObject("SELECT COUNT(*) FROM cps_attribution_review WHERE status='PENDING'",Long.class));
@@ -261,6 +295,42 @@ public class AttributionMySqlTest {
         assertEquals(id,view.orderLineId().longValue());assertEquals("****ires",view.maskedOrderNo());
     }
 
+    @Test public void expiryContinuesPastAnInvalidOrderRow() {
+        long bad=order("bad-row","",Platform.TBK,"item","TEST_TBK_DEFAULT",null,now().minusSeconds(5));
+        long good=order("good-row","",Platform.TBK,"item","TEST_TBK_DEFAULT",null,now().minusSeconds(5));
+        decide(bad); decide(good);
+        jdbc.update("UPDATE cps_unclaimed_order SET expires_at=? WHERE order_line_id IN (?,?)",Timestamp.from(now().minusSeconds(1)),bad,good);
+        jdbc.update("UPDATE sys_order_commission SET platform_type='BAD' WHERE id=?",bad);
+        assertEquals(1,service.expireUnclaimed(100));
+        assertEquals("OPEN",jdbc.queryForObject("SELECT status FROM cps_unclaimed_order WHERE order_line_id=?",String.class,bad));
+        assertEquals("PLATFORM",jdbc.queryForObject("SELECT status FROM cps_unclaimed_order WHERE order_line_id=?",String.class,good));
+    }
+
+    @Test public void settlementRetriesReachVisibleTerminalFailure() {
+        jdbc.update("UPDATE sys_config SET config_value='2' WHERE config_key='cps.attribution.settlement.max-attempts'");
+        long id=order("terminal-retry","",Platform.TBK,"item","TEST_TBK_DEFAULT",null,now().minusSeconds(5));
+        decide(id);
+        assertEquals("BOUND",service.claim(A,Platform.TBK,"terminal-retry").code());
+        downstreamFails.set(true);
+        assertEquals(0,service.retrySettlement(100));
+        assertEquals(0,service.retrySettlement(100));
+        assertEquals("FAILED",jdbc.queryForObject("SELECT status FROM cps_attribution_settlement_outbox WHERE order_line_id=?",String.class,id));
+        assertEquals("DELIVERY_FAILED",jdbc.queryForObject("SELECT last_error FROM cps_attribution_settlement_outbox WHERE order_line_id=?",String.class,id));
+        assertEquals(1,service.failedSettlements(100).size());
+        assertEquals(0,service.retrySettlement(100));
+    }
+
+    @Test public void tokenValidityAndCleanupRespectOrderDelayWindow() {
+        String token=tokens.issue(Platform.JD,"item",A);
+        Instant issued=jdbc.queryForObject("SELECT issued_at FROM cps_attribution_token WHERE token=?",Timestamp.class,token).toInstant();
+        Instant expires=jdbc.queryForObject("SELECT expires_at FROM cps_attribution_token WHERE token=?",Timestamp.class,token).toInstant();
+        assertEquals(Long.valueOf(A),tokens.resolve(Platform.JD,"item",token,issued));
+        assertNull(tokens.resolve(Platform.JD,"item",token,expires));
+        assertEquals(0,tokens.cleanupExpired(100));
+        jdbc.update("UPDATE cps_attribution_token SET expires_at=? WHERE token=?",Timestamp.from(now().minus(31,ChronoUnit.DAYS)),token);
+        assertEquals(1,tokens.cleanupExpired(100));
+    }
+
     @Test public void alreadyPostedReassignmentRequiresAuditedLedgerReviewAndKeepsOwner() {
         pids.register(Platform.TBK,"TEST_TRACKING",PidType.TRACKING,true,1L,"fixture");pids.allocate(Platform.TBK,"item",A);
         Instant paid=jdbc.queryForObject("SELECT start_at FROM cps_pid_lease",Timestamp.class).toInstant();
@@ -283,6 +353,16 @@ public class AttributionMySqlTest {
         decide(id);
         assertEquals(Long.valueOf(C),jdbc.queryForObject("SELECT referrer_user_id FROM sys_order_commission WHERE id=?",Long.class,id));
         assertEquals(Long.valueOf(C),jdbc.queryForObject("SELECT s.inviter_user_id FROM cps_attribution_inviter_snapshot s JOIN cps_attribution_current c ON c.attribution_id=s.attribution_id WHERE c.order_line_id=?",Long.class,id));
+    }
+
+    @Test public void pendingClaimCapIsPerUserAndAllowsRetryOfExistingClaim() {
+        jdbc.update("UPDATE sys_config SET config_value='1' WHERE config_key='cps.attribution.claim.max-pending'");
+        try {
+            assertEquals("NOT_FOUND",service.claimFromClient(A,Platform.TBK,"not-synced-1").code());
+            assertEquals("NOT_FOUND",service.claimFromClient(A,Platform.TBK,"not-synced-1").code());
+            assertThrows(ServiceException.class,() -> service.claimFromClient(A,Platform.TBK,"not-synced-2"));
+            assertEquals("NOT_FOUND",service.claimFromClient(B,Platform.TBK,"not-synced-2").code());
+        } finally { jdbc.update("UPDATE sys_config SET config_value='' WHERE config_key='cps.attribution.claim.max-pending'"); }
     }
 
     @Test public void missingClaimWindowFailsClosedInsteadOfInventingBusinessThreshold() {
@@ -322,7 +402,7 @@ public class AttributionMySqlTest {
         assertEquals("MANUAL_REVIEW",service.claim(B,Platform.JD,"late-token-conflict").code());
         jdbc.update("UPDATE sys_order_commission SET attribution_token=? WHERE id=?",token,conflict);
         AttributionDecision after=decide(conflict);
-        assertNull(after.userId());assertEquals(AttributionMethod.MANUAL,after.method());
+        assertEquals(Long.valueOf(A),after.userId());assertEquals(AttributionMethod.CLAIM,after.method());
         assertEquals("MANUAL_REVIEW",jdbc.queryForObject("SELECT status FROM cps_unclaimed_order WHERE order_line_id=?",String.class,conflict));
     }
 

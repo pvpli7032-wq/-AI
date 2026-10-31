@@ -53,6 +53,11 @@ public class CpsAttributionController {
     @Log(title = "归因后结算重试", businessType = BusinessType.UPDATE)
     @PostMapping("/unclaimed/retry-settlement")
     public AjaxResult retry() { return AjaxResult.success(orders.retrySettlement(100)); }
+    @PreAuthorize("@ss.hasPermi('system:commission:unclaimed:list')")
+    @GetMapping("/unclaimed/failed-settlements")
+    public AjaxResult failedSettlements(@RequestParam(defaultValue = "100") int limit) {
+        return AjaxResult.success(orders.failedSettlements(Math.min(Math.max(limit, 1), 500)));
+    }
     @PreAuthorize("@ss.hasPermi('system:commission:user:edit')")
     @Log(title = "邀请人变更", businessType = BusinessType.UPDATE)
     @PutMapping("/invites/{userId}")

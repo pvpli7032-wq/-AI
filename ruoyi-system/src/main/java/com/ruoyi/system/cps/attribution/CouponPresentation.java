@@ -17,12 +17,18 @@ public final class CouponPresentation {
     private static final Set<String> PROMOTION_LINKS = Set.of("clickurl", "click_url", "couponshareurl",
         "coupon_share_url", "couponclickurl", "coupon_click_url", "shorturl", "short_url",
         "mobileurl", "mobile_url", "mobileshorturl", "mobile_short_url", "promotionurl",
-        "promotion_url", "couponlink", "coupon_link", "tpwd", "longtpwd");
+        "promotion_url", "promotionlink", "promotion_link", "couponlink", "coupon_link", "couponurl", "coupon_url",
+        "shortlink", "short_link", "itemurl", "item_url", "tpwd", "longtpwd");
     private CouponPresentation() {}
-    public static JSONObject detail(JSONObject source) {
+    public static JSONObject catalogue(JSONObject source) {
         if (source == null) return null;
         JSONObject copy = JSONObject.parseObject(source.toJSONString());
         scrub(copy);
+        return copy;
+    }
+    public static JSONObject detail(JSONObject source) {
+        JSONObject copy = catalogue(source);
+        if (copy == null) return null;
         copy.put("estimatedRebate", null);
         copy.put("rebateStatus", "PENDING_RULE_CONTRACT");
         return copy;
@@ -31,7 +37,7 @@ public final class CouponPresentation {
         if (value instanceof JSONObject object) {
             for (String key : new ArrayList<>(object.keySet())) {
                 String normalized = key.toLowerCase(Locale.ROOT);
-                if (INTERNAL.contains(normalized) || PROMOTION_LINKS.contains(normalized)) object.remove(key);
+                if (INTERNAL.contains(normalized) || normalized.contains("commission") || PROMOTION_LINKS.contains(normalized)) object.remove(key);
                 else scrub(object.get(key));
             }
         } else if (value instanceof JSONArray array) for (Object child : array) scrub(child);

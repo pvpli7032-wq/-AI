@@ -338,7 +338,8 @@ public class RuleSettlementBridgeMySqlTest {
             assertEquals(1, captured.configs().size());
             assertEquals(1, captured.configs().getFirst().n());
             assertEquals("forced", captured.configs().getFirst().key());
-            rewards.capture(captured);
+            new org.springframework.transaction.support.TransactionTemplate(manager)
+                .executeWithoutResult(status -> rewards.capture(captured));
             assertEquals(captured, JSON.parseObject(jdbc.queryForObject(
                 "SELECT payload FROM cps_reward_order_snapshot WHERE order_id=?", String.class, id), RewardApi.Snapshot.class));
         }
@@ -421,7 +422,7 @@ public class RuleSettlementBridgeMySqlTest {
         configuration.publish(new SettlementConfigurationService.Settings(freeze, bd("0"), bd("0"), bd("20")), buyer);
     }
     private Instant databaseNow() {
-        return jdbc.queryForObject("SELECT CURRENT_TIMESTAMP(6)", Timestamp.class).toInstant();
+        return LedgerSqlTestClock.now(jdbc);
     }
     private void nextDatabaseMillisecond() {
         // Publication timestamps are database-assigned milliseconds. No UPDATE/backdating immutable rows.

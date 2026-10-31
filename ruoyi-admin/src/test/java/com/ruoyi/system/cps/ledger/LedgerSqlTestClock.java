@@ -12,6 +12,13 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 /** Per-connection test clock alignment only; never changes server/global configuration. */
 final class LedgerSqlTestClock {
     private LedgerSqlTestClock() {}
+    static Instant now(JdbcTemplate jdbc) {
+        // Persisted lifecycle columns are millisecond precision. Windows' JVM/SQL clocks
+        // can differ within one scheduler tick; let that tick elapse without backdating.
+        Instant paid=jdbc.queryForObject("SELECT CURRENT_TIMESTAMP(3)",java.sql.Timestamp.class).toInstant();
+        jdbc.queryForObject("SELECT SLEEP(0.025)",Integer.class);
+        return paid;
+    }
     static JdbcTemplate jdbc(DriverManagerDataSource migrated) {
         String url=migrated.getUrl();
         int question=url.indexOf('?');

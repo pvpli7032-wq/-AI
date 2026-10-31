@@ -15,6 +15,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
+import com.ruoyi.system.cps.contract.OrderEvent;
 import com.ruoyi.system.cps.contract.OrderStatus;
 import com.ruoyi.system.cps.contract.RebateStatus;
 import com.ruoyi.system.cps.contract.StatusTransitions;

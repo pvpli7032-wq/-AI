@@ -164,7 +164,7 @@ public class MiniappAuthController extends BaseController {
             }
 
             // 10. 生成token
-            LoginUser loginUser = new LoginUser(sysUser, Collections.emptySet());
+            LoginUser loginUser = new LoginUser(sysUser.getUserId(), sysUser.getDeptId(), sysUser, Collections.emptySet());
             String token = tokenService.createToken(loginUser);
 
             // 11. 返回登录结果（包含代理状态和绑定平台列表）

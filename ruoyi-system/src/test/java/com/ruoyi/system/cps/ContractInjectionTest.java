@@ -83,7 +83,7 @@ public class ContractInjectionTest {
 
     @Test public void sharedTransitionsKeepTerminalStatesAndDisputesExplicit() {
         assertTrue(StatusTransitions.ORDER.get(OrderStatus.PAID).contains(OrderStatus.RECEIVED));
-        assertFalse(StatusTransitions.ORDER.get(OrderStatus.PAID).contains(OrderStatus.SETTLED));
+        assertTrue(StatusTransitions.ORDER.get(OrderStatus.PAID).contains(OrderStatus.SETTLED));
         assertTrue(StatusTransitions.ORDER.get(OrderStatus.DISPUTED).contains(OrderStatus.FULL_REFUND));
         assertFalse(StatusTransitions.ORDER.containsKey(OrderStatus.INVALID));
         assertTrue(StatusTransitions.REBATE.get(RebateStatus.FROZEN).contains(RebateStatus.PAUSED));

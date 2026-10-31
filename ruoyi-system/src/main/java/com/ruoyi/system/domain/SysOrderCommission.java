@@ -103,8 +103,8 @@ public class SysOrderCommission extends BaseEntity
     @Excel(name = "下单时间", width = 30, dateFormat = "yyyy-MM-dd HH:mm:ss")
     private Date orderTime;
 
-    /** 结算状态(0:未结算 1:已结算) */
-    @Excel(name = "结算状态", readConverterExp = "0=未结算,1=已结算")
+    /** 结算状态(unsettled:未结算 settled:已结算) */
+    @Excel(name = "结算状态", readConverterExp = "unsettled=未结算,settled=已结算")
     private String settleStatus;
 
     /** 实际佣金 */

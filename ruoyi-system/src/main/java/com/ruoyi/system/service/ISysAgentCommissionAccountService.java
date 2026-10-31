@@ -51,6 +51,22 @@ public interface ISysAgentCommissionAccountService
     public int updateSysAgentCommissionAccount(SysAgentCommissionAccount sysAgentCommissionAccount);
 
     /**
+     * 冻结佣金账户，仅修改账户状态。
+     *
+     * @param accountId 佣金账户主键
+     * @return 结果
+     */
+    public int freezeAccount(Long accountId);
+
+    /**
+     * 解冻佣金账户，仅修改账户状态。
+     *
+     * @param accountId 佣金账户主键
+     * @return 结果
+     */
+    public int unfreezeAccount(Long accountId);
+
+    /**
      * 批量删除佣金账户
      * 
      * @param ids 需要删除的佣金账户主键集合

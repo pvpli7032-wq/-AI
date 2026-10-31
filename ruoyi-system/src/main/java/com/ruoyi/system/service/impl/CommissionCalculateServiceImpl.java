@@ -3,9 +3,13 @@ package com.ruoyi.system.service.impl;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Date;
+import java.util.TreeSet;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.system.domain.SysAgentCommissionAccount;
 import com.ruoyi.system.domain.SysCommissionConfig;
@@ -79,6 +83,7 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         orderCommission.setEstimatedCommission(estimatedCommission);
         orderCommission.setCommissionRate(commissionRate);
         orderCommission.setBuyerUserId(buyerUserId);
+        orderCommission.setAgentUserId(buyerUserId);
         // 将String类型的orderTime转换为Date类型
         try {
             java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
@@ -176,21 +181,45 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
     @Transactional
     public boolean settleOrder(Long orderCommissionId, BigDecimal actualCommission)
     {
-        // 查询订单佣金记录
-        SysOrderCommission orderCommission = orderCommissionMapper
-            .selectSysOrderCommissionById(orderCommissionId);
+        // 先锁订单，串行处理同一订单的结算与退款；随后按用户ID顺序锁账户。
+        SysOrderCommission orderCommission = accountMapper
+            .selectOrderCommissionForUpdate(orderCommissionId);
         
         if (orderCommission == null)
         {
             throw new RuntimeException("订单佣金记录不存在");
         }
 
+        if (actualCommission == null || actualCommission.signum() < 0)
+        {
+            throw new ServiceException("实际佣金必须为非负金额");
+        }
+        if ("refunded".equals(orderCommission.getOrderStatus())
+            || "cancelled".equals(orderCommission.getOrderStatus()))
+        {
+            throw new ServiceException("已退款或取消的订单不能结算");
+        }
         if ("settled".equals(orderCommission.getSettleStatus()))
         {
-            throw new RuntimeException("订单已结算，不能重复结算");
+            if (!("confirmed".equals(orderCommission.getOrderStatus())
+                || "settled".equals(orderCommission.getOrderStatus())))
+            {
+                throw new ServiceException("订单状态与结算状态不一致");
+            }
+            if (orderCommission.getActualCommission() == null
+                || orderCommission.getActualCommission().compareTo(actualCommission) != 0)
+            {
+                throw new ServiceException("同一订单重复结算的金额不一致");
+            }
+            return true;
         }
+        if (!"pending".equals(orderCommission.getOrderStatus()))
+        {
+            throw new ServiceException("订单当前状态不允许结算");
+        }
+        lockPostingAccounts(orderCommission);
 
-        // 更新实际佣金
+        // 保留联盟实际佣金原值，仅用户分成金额舍入到分。
         orderCommission.setActualCommission(actualCommission);
         
         // 重新计算实际分成金额（按实际佣金比例分配）
@@ -213,7 +242,10 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         orderCommission.setSettleTime(DateUtils.getNowDate());
         orderCommission.setUpdateTime(new Date());
         
-        orderCommissionMapper.updateSysOrderCommission(orderCommission);
+        if (accountMapper.updateOrderSettlement(orderCommission) != 1)
+        {
+            throw new ServiceException("订单结算状态保存失败");
+        }
 
         // 更新购买者的佣金账户（自购佣金）
         updateUserAccount(orderCommission.getBuyerUserId(), actualSelfAmount, 
@@ -236,48 +268,51 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
     @Transactional
     public boolean refundOrder(Long orderCommissionId)
     {
-        // 查询订单佣金记录
-        SysOrderCommission orderCommission = orderCommissionMapper
-            .selectSysOrderCommissionById(orderCommissionId);
+        // 先锁订单，串行处理同一订单的结算与退款；随后按用户ID顺序锁账户。
+        SysOrderCommission orderCommission = accountMapper
+            .selectOrderCommissionForUpdate(orderCommissionId);
         
         if (orderCommission == null)
         {
             throw new RuntimeException("订单佣金记录不存在");
         }
 
-        if (!"settled".equals(orderCommission.getSettleStatus()))
-        {
-            throw new RuntimeException("订单未结算，无需退款处理");
-        }
-
         if ("refunded".equals(orderCommission.getOrderStatus()))
         {
-            throw new RuntimeException("订单已退款，不能重复处理");
+            return true;
         }
-
-        // 扣减购买者的佣金（自购佣金）
-        BigDecimal selfAmount = orderCommission.getSelfCommissionAmount();
-        if (selfAmount != null && selfAmount.compareTo(BigDecimal.ZERO) > 0)
+        if (!"settled".equals(orderCommission.getSettleStatus())
+            || !("confirmed".equals(orderCommission.getOrderStatus())
+                || "settled".equals(orderCommission.getOrderStatus())))
         {
-            updateUserAccount(orderCommission.getBuyerUserId(), selfAmount.negate(), 
-                "refund", orderCommission.getId(), "订单退款扣减佣金");
+            throw new ServiceException("订单未结算或当前状态不允许退款");
         }
+        lockPostingAccounts(orderCommission);
 
-        // 如果有推荐人，扣减推荐人的佣金（推广佣金）
+        // 自购与推广分别追加退款流水并回退对应统计；余额不足仍记录负余额。
+        BigDecimal selfAmount = orderCommission.getSelfCommissionAmount();
+        if (selfAmount != null && selfAmount.signum() > 0)
+        {
+            updateUserAccount(orderCommission.getBuyerUserId(), selfAmount.negate(), "refund_self",
+                orderCommission.getId(), "订单退款扣减自购佣金");
+        }
         if ("1".equals(orderCommission.getHasReferrer()) && orderCommission.getReferrerUserId() != null)
         {
             BigDecimal promotionAmount = orderCommission.getPromotionCommissionAmount();
-            if (promotionAmount != null && promotionAmount.compareTo(BigDecimal.ZERO) > 0)
+            if (promotionAmount != null && promotionAmount.signum() > 0)
             {
-                updateUserAccount(orderCommission.getReferrerUserId(), promotionAmount.negate(), 
-                    "refund", orderCommission.getId(), "订单退款扣减佣金");
+                updateUserAccount(orderCommission.getReferrerUserId(), promotionAmount.negate(), "refund_promotion",
+                    orderCommission.getId(), "订单退款扣减推广佣金");
             }
         }
 
         // 更新订单状态
         orderCommission.setOrderStatus("refunded");
         orderCommission.setUpdateTime(new Date());
-        orderCommissionMapper.updateSysOrderCommission(orderCommission);
+        if (accountMapper.updateOrderSettlement(orderCommission) != 1)
+        {
+            throw new ServiceException("订单结算状态保存失败");
+        }
 
         return true;
     }
@@ -288,21 +323,27 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
     private void updateUserAccount(Long userId, BigDecimal amount, String flowType, 
         Long relatedOrderId, String description)
     {
-        // 查询或创建用户佣金账户
-        SysAgentCommissionAccount account = accountMapper.selectByUserId(userId);
+        if (!TransactionSynchronizationManager.isActualTransactionActive())
+        {
+            throw new IllegalStateException("账户入账必须在事务中执行");
+        }
+        if (userId == null || userId <= 0 || relatedOrderId == null || relatedOrderId <= 0 || amount == null)
+        {
+            throw new ServiceException("入账必须提供有效用户、金额和唯一业务编号");
+        }
+        boolean income = "income_self".equals(flowType) || "income_promotion".equals(flowType);
+        boolean debit = "refund_self".equals(flowType) || "refund_promotion".equals(flowType)
+            || "withdraw".equals(flowType);
+        if ((!income && !debit) || (income && amount.signum() < 0) || (debit && amount.signum() > 0))
+        {
+            throw new ServiceException("流水类型或金额方向不正确");
+        }
+        amount = amount.setScale(2, RoundingMode.HALF_UP);
+        accountMapper.ensureAccount(userId);
+        SysAgentCommissionAccount account = accountMapper.selectByUserIdForUpdate(userId);
         if (account == null)
         {
-            // 创建新账户
-            account = new SysAgentCommissionAccount();
-            account.setUserId(userId);
-            account.setTotalEarned(BigDecimal.ZERO);
-            account.setSelfEarned(BigDecimal.ZERO);
-            account.setPromotionEarned(BigDecimal.ZERO);
-            account.setBalance(BigDecimal.ZERO);
-            account.setWithdrawn(BigDecimal.ZERO);
-            account.setFrozenAmount(BigDecimal.ZERO);
-            account.setCreateTime(new Date());
-            accountMapper.insertSysAgentCommissionAccount(account);
+            throw new ServiceException("佣金账户创建失败");
         }
 
         // 记录变更前余额
@@ -323,10 +364,18 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
             account.setPromotionEarned(account.getPromotionEarned().add(amount));
             account.setBalance(account.getBalance().add(amount));
         }
-        else if ("refund".equals(flowType))
+        else if ("refund_self".equals(flowType))
         {
-            // 退款扣减
+            // 自购退款扣减
             account.setTotalEarned(account.getTotalEarned().add(amount)); // amount为负数
+            account.setSelfEarned(account.getSelfEarned().add(amount)); // amount为负数
+            account.setBalance(account.getBalance().add(amount)); // amount为负数
+        }
+        else if ("refund_promotion".equals(flowType))
+        {
+            // 推广退款扣减
+            account.setTotalEarned(account.getTotalEarned().add(amount)); // amount为负数
+            account.setPromotionEarned(account.getPromotionEarned().add(amount)); // amount为负数
             account.setBalance(account.getBalance().add(amount)); // amount为负数
         }
         else if ("withdraw".equals(flowType))
@@ -337,7 +386,6 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         }
 
         account.setUpdateTime(new Date());
-        accountMapper.updateSysAgentCommissionAccount(account);
 
         // 记录佣金流水
         SysCommissionFlow flow = new SysCommissionFlow();
@@ -347,10 +395,60 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         flow.setBalanceBefore(balanceBefore);
         flow.setBalanceAfter(account.getBalance());
         // 将Long类型的relatedOrderId转换为String类型
-        flow.setRelatedOrderId(relatedOrderId != null ? relatedOrderId.toString() : null);
+        flow.setOrderCommissionId(relatedOrderId);
+        flow.setRelatedOrderId(relatedOrderId.toString());
         flow.setDescription(description);
         flow.setCreateTime(new Date());
-        flowMapper.insertSysCommissionFlow(flow);
+        // 先尝试追加流水，避免对尚不存在的唯一键加间隙锁。
+        // 唯一键冲突只回滚INSERT语句；当前事务仍持有账户行锁。
+        try
+        {
+            if (flowMapper.insertSysCommissionFlow(flow) != 1)
+            {
+                throw new ServiceException("佣金流水保存失败");
+            }
+        }
+        catch (DuplicateKeyException duplicate)
+        {
+            SysCommissionFlow existing = flowMapper.selectByBusinessKey(userId, flowType, relatedOrderId);
+            if (existing == null)
+            {
+                throw duplicate;
+            }
+            if (existing.getAmount().compareTo(amount) != 0)
+            {
+                throw new ServiceException("同一业务编号重复入账的金额不一致");
+            }
+            return;
+        }
+        if (accountMapper.updateSysAgentCommissionAccount(account) != 1)
+        {
+            throw new ServiceException("佣金账户更新失败");
+        }
+    }
+
+    /** 多个账户按固定顺序加锁，避免互为推荐人的并发订单交叉锁定。 */
+    private void lockPostingAccounts(SysOrderCommission order)
+    {
+        if (order.getBuyerUserId() == null || order.getBuyerUserId() <= 0)
+        {
+            throw new ServiceException("订单缺少有效购买用户");
+        }
+        TreeSet<Long> userIds = new TreeSet<>();
+        userIds.add(order.getBuyerUserId());
+        if ("1".equals(order.getHasReferrer()) && order.getReferrerUserId() != null)
+        {
+            if (order.getReferrerUserId() <= 0)
+            {
+                throw new ServiceException("订单推荐用户无效");
+            }
+            userIds.add(order.getReferrerUserId());
+        }
+        for (Long userId : userIds)
+        {
+            accountMapper.ensureAccount(userId);
+            accountMapper.selectByUserIdForUpdate(userId);
+        }
     }
 
     /**

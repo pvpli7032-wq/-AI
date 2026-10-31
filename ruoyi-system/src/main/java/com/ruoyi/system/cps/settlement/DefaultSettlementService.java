@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.math.RoundingMode;
 import com.ruoyi.system.cps.rule.RewardApi;
+import com.ruoyi.system.cps.rule.RewardCalculator;
 import com.ruoyi.system.cps.rule.RewardService;
 import java.util.List;
 import java.util.Map;
@@ -106,6 +107,7 @@ public class DefaultSettlementService implements SettlementService {
                 throw new IllegalArgumentException("Reward adapter changed historical attribution");
             validateRewardOwnership(snapshot,rewardSnapshot);
             rewards.capture(rewardSnapshot);
+            p.rewardPending=!p.referralManual; p.rewardRetryAt=e.occurredAt();
             if (p.referralManual) repository.manual(p.id,e.eventKey(),"INVITATION_HISTORY_UNKNOWN_BUYER_ONLY");
             for (Benefit b:snapshot.benefits()) repository.insert(p.id,b);
         }
@@ -184,6 +186,13 @@ public class DefaultSettlementService implements SettlementService {
             rewardTransfers(transfers,result.instructions());
             if (result.manualReview()) repository.manual(p.id,e.eventKey(),"REWARD_HISTORY_REQUIRES_MANUAL_REVIEW");
         }
+        // Terminal invalidity is authoritative even when no positive commission was
+        // ever funded. Zero on PAID/RECEIVED alone is NOT terminal evidence.
+        if (e.toStatus()==OrderStatus.INVALID || e.toStatus()==OrderStatus.FULL_REFUND && recovery.signum()==0) {
+            rewards.excludeInvalid(p.id,new RewardApi.Qualification(e.occurredAt(),e.occurredAt(),true,false,
+                repository.paidAmount(p.id),BigDecimal.ZERO,BigDecimal.ZERO));
+            p.rewardPending=false;
+        } else if (recovery.signum()>0 && recovery.compareTo(p.commission)==0) p.rewardPending=false;
         apply(transfers);
         p.recovered=recovery; p.status=e.toStatus(); p.lastEventAt=e.occurredAt();
         p.reportedCommission=p.commission == null ? e.line().estimatedCommission() : p.commission;
@@ -306,6 +315,11 @@ public class DefaultSettlementService implements SettlementService {
         repository.lockOrder(id);
         Position p=repository.load(id);
         if (p==null || p.status==OrderStatus.DISPUTED) return;
+        if (p.status==OrderStatus.INVALID || p.status==OrderStatus.FULL_REFUND && p.recovered.signum()==0) {
+            rewards.excludeInvalid(p.id,new RewardApi.Qualification(now,now,true,false,
+                repository.paidAmount(p.id),BigDecimal.ZERO,BigDecimal.ZERO));
+            p.rewardPending=false; repository.save(p); return;
+        }
         List<Transfer> transfers=new ArrayList<>();
         List<Item> items=repository.items(id);
         Instant latestDue=items.stream().map(i -> i.due).filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(now);
@@ -317,13 +331,27 @@ public class DefaultSettlementService implements SettlementService {
             i.phase="AVAILABLE"; i.status=RebateStatus.CREDITED; repository.save(i);
         }
         boolean released=items.stream().allMatch(i -> "AVAILABLE".equals(i.phase) || i.status==RebateStatus.VOID);
-        if (released && p.terms!=null && p.commission!=null && p.recovered.compareTo(p.commission)<0) {
+        if (released && p.terms!=null && p.commission!=null) {
             BigDecimal rebate=items.stream().filter(i -> i.type.equals("REBATE")).map(i -> i.original.subtract(i.recovered)).reduce(BigDecimal.ZERO,BigDecimal::add);
-            RewardApi.Result result=rewards.qualify(p.id,new RewardApi.Qualification(now,latestDue,true,false,
-                repository.paidAmount(p.id),p.commission.subtract(p.recovered),rebate));
-            rewardTransfers(transfers,result.instructions());
-            if (result.manualReview()) repository.manual(p.id,"unfreeze","REWARD_HISTORY_REQUIRES_MANUAL_REVIEW");
+            RewardApi.Qualification evidence=new RewardApi.Qualification(now,latestDue,true,false,
+                repository.paidAmount(p.id),p.commission.subtract(p.recovered),rebate);
+            // Only SETTLED is final commission proof. A received/provisional zero or
+            // below-threshold observation stays pending for a later alliance update.
+            RewardApi.Snapshot snapshot=rewards.snapshot(p.id);
+            boolean finalInvalid=p.status==OrderStatus.SETTLED && snapshot!=null
+                && !RewardCalculator.valid(snapshot,evidence.paid(),evidence.commission());
+            if (finalInvalid) {
+                rewards.excludeInvalid(p.id,evidence); p.rewardPending=false;
+            } else if (p.recovered.compareTo(p.commission)<0) {
+                RewardApi.Result result=rewards.qualify(p.id,evidence);
+                rewardTransfers(transfers,result.instructions());
+                if (result.manualReview()) repository.manual(p.id,"unfreeze","REWARD_HISTORY_REQUIRES_MANUAL_REVIEW");
+            }
         }
+        // Persist retry scheduling in the same transaction as release/reward postings.
+        // Successful/closed reward states are filtered by discovery; deferrals survive
+        // after every ordinary settlement item has become AVAILABLE.
+        p.rewardRetryAt=now.plusSeconds(60); repository.save(p);
         apply(transfers);
     }
     private static void validate(OrderEvent e) {

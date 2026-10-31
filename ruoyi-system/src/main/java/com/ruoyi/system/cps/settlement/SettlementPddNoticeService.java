@@ -53,9 +53,9 @@ public class SettlementPddNoticeService {
         String prefix=comparison ? PRICE_PREFIX : ZERO_PREFIX;
         String enabled=config(prefix+"enabled");
         if ("false".equalsIgnoreCase(enabled)) return;
-        if (!"true".equalsIgnoreCase(enabled)) throw new IllegalStateException("PDD notice switch must be explicitly true or false");
+        if (!"true".equalsIgnoreCase(enabled)) { configurationIssue(event); return; }
         String message=config(prefix+"message");
-        if (message.isBlank() || message.length()>1000) throw new IllegalStateException("PDD notice message must contain 1-1000 characters");
+        if (message==null || message.isBlank() || message.length()>1000) { configurationIssue(event); return; }
         String key="pdd-zero:"+event.orderLineId()+":"+reason;
         String evidence=event.line().rawResponseJson()==null ? "" : event.line().rawResponseJson();
         jdbc.update("INSERT INTO cps_settlement_pdd_notice(order_line_id,user_id,reason,event_key,business_key_hash,message,source_hash,source_evidence) "
@@ -80,8 +80,15 @@ public class SettlementPddNoticeService {
 
     private String config(String key) {
         List<String> values=jdbc.queryForList("SELECT config_value FROM sys_config WHERE config_key=?",String.class,key);
-        if (values.size()!=1 || values.getFirst()==null) throw new IllegalStateException("PDD notice configuration missing or duplicated");
-        return values.getFirst();
+        return values.size()==1 ? values.getFirst() : null;
+    }
+
+    private void configurationIssue(OrderEvent event) {
+        // Notification display settings never veto authoritative financial corrections.
+        // This is an operational record, not a money hold or a fabricated default message.
+        new SettlementRepository(jdbc).manual(event.orderLineId(),
+            "pdd-notice-config:"+DefaultSettlementService.digest(event.eventKey()),
+            "PDD_NOTICE_CONFIGURATION_INVALID");
     }
 
     static boolean confirmedPriceComparison(String raw,String orderNo) {

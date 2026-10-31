@@ -29,5 +29,5 @@ SELECT '拼多多零佣金通用提示开关','cps.settlement.pdd.zeroCommission
 WHERE NOT EXISTS(SELECT 1 FROM sys_config WHERE config_key='cps.settlement.pdd.zeroCommissionNotice.enabled');
 INSERT INTO sys_config(config_name,config_key,config_value,config_type)
 SELECT '拼多多零佣金通用提示文案','cps.settlement.pdd.zeroCommissionNotice.message',
-'本订单联盟实际佣金为0，不计入有效奖励订单。联盟未提供明确的零佣金原因，请联系客服核对。','N'
+'本订单联盟实际佣金为0，不计入有效奖励订单。如需了解具体原因，请联系客服核对。','N'
 WHERE NOT EXISTS(SELECT 1 FROM sys_config WHERE config_key='cps.settlement.pdd.zeroCommissionNotice.message');

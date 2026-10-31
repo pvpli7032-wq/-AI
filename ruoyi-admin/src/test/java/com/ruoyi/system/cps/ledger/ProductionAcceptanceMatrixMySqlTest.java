@@ -415,6 +415,38 @@ public class ProductionAcceptanceMatrixMySqlTest {
         audit(buyer);
     }
 
+
+    @Test public void invalidPddNoticeSettingsNeverRollBackProvenZeroCommissionRecovery() {
+        publish(Platform.PDD,false,List.of());
+        int scenario=0;
+        for (String problem:List.of("missing-switch","invalid-switch","blank-message")) {
+            configure(SettlementPddNoticeService.ZERO_PREFIX+"enabled","true");
+            configure(SettlementPddNoticeService.ZERO_PREFIX+"message","SYNTHETIC ordinary notice");
+            Instant paid=now(); long order=order(Platform.PDD);
+            settlements.onOrderEvent(event(order,"received-before-bad-config",null,OrderStatus.RECEIVED,paid,"10",null,paid));
+            money("4.50",account(buyer,"frozen_amount"));
+            if ("missing-switch".equals(problem))
+                jdbc.update("DELETE FROM sys_config WHERE config_key=?",SettlementPddNoticeService.ZERO_PREFIX+"enabled");
+            else if ("invalid-switch".equals(problem))
+                configure(SettlementPddNoticeService.ZERO_PREFIX+"enabled","invalid");
+            else configure(SettlementPddNoticeService.ZERO_PREFIX+"message"," ");
+            var zero=event(order,"final-zero-bad-config",OrderStatus.RECEIVED,OrderStatus.SETTLED,paid,"0",null,paid.plusSeconds(1));
+            settlements.onOrderEvent(zero); settlements.onOrderEvent(zero);
+            settlements.unfreezeDue(paid.plusSeconds(86400),1000);
+            money("0",balance(buyer)); money("0",account(buyer,"frozen_amount"));
+            assertEquals("SETTLED",jdbc.queryForObject("SELECT order_status FROM cps_settlement_position WHERE order_line_id=?",String.class,order));
+            assertEquals(0,count("SELECT COUNT(*) FROM cps_settlement_position WHERE order_line_id=? AND manual_hold=1",order));
+            assertEquals(0,count("SELECT COUNT(*) FROM sys_commission_flow WHERE related_order_id=? AND credit_account='USER_AVAILABLE'",Long.toString(order)));
+            assertEquals(1,count("SELECT COUNT(*) FROM cps_settlement_manual WHERE order_line_id=? AND reason='PDD_NOTICE_CONFIGURATION_INVALID'",order));
+            assertEquals(0,count("SELECT COUNT(*) FROM cps_settlement_pdd_notice WHERE order_line_id=?",order));
+            assertEquals(1,count("SELECT COUNT(*) FROM cps_settlement_notification WHERE order_line_id=? AND reason='REBATE_INVALID' AND loss_amount=4.50",order));
+            scenario++;
+        }
+        assertEquals(3,scenario);
+        assertTrue(notices().list(buyer,20).isEmpty());
+        audit(buyer);
+    }
+
     private SettlementPddNoticeService notices() {
         var channels=new StaticListableBeanFactory().getBeanProvider(SettlementNotificationChannel.class);
         var notifications=proxy(new SettlementNotificationService(new SettlementNotificationRepository(jdbc),channels,manager),SettlementNotificationService.class);

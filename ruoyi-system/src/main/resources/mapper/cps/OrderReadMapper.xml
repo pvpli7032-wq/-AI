@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.cps.mapper.OrderReadMapper">
+    <sql id="adminOrder">
+        select o.id, o.platform_type as platform, o.order_id as orderNo, o.sub_order_no as subOrderNo,
+               o.item_id as itemId, o.item_title as itemTitle, o.order_amount as orderAmount,
+               o.line_status as status, o.paid_time as paidTime, o.received_time as receivedTime,
+               o.settle_time as settleTime, a.user_id as attributedUserId, a.method as attributionMethod,
+               a.confidence as attributionConfidence
+        from sys_order_commission o
+        left join cps_attribution a on a.id = (select max(a2.id) from cps_attribution a2
+            where a2.order_line_id = o.id and a2.is_current = 1)
+    </sql>
+    <select id="listAdmin" resultType="map">
+        <include refid="adminOrder"/>
+        <where>
+            <if test="platform != null and platform != ''">and o.platform_type = #{platform}</if>
+            <if test="status != null and status != ''">and o.line_status = #{status}</if>
+            <if test="method != null and method != ''">and a.method = #{method}</if>
+        </where>
+        order by o.id desc
+    </select>
+    <select id="findAdmin" resultType="map"><include refid="adminOrder"/> where o.id = #{id}</select>
+    <select id="attributionHistory" resultType="map">
+        select user_id as userId, method, confidence, decided_by as decidedBy,
+               is_current as isCurrent, created_at as createdAt
+        from cps_attribution where order_line_id = #{id} order by id
+    </select>
+    <select id="statusHistory" resultType="map">
+        select from_status as fromStatus, to_status as toStatus, previous_status as previousStatus,
+               recovered_amount as recoveredAmount, source, created_at as createdAt
+        from cps_order_event where order_line_id = #{id} order by id
+    </select>
+    <select id="listForUser" resultType="map">
+        select o.id, o.platform_type as platform, o.order_id as orderNo, o.sub_order_no as subOrderNo,
+               o.item_title as itemTitle, o.order_amount as orderAmount, o.paid_time as paidTime,
+               case
+                 when o.line_status in ('INVALID', 'FULL_REFUND') then '已退款'
+                 when o.line_status in ('RECEIVED', 'SETTLED') and exists (select 1 from cps_settle_item s where s.order_line_id = o.id
+                       and s.user_id = #{userId} and s.status = 'CREDITED') then '已结算'
+                 when o.line_status = 'PAID' then '待收货'
+                 when o.line_status in ('RECEIVED', 'SETTLED') then '冻结中'
+                 else null
+               end as displayStatus
+        from sys_order_commission o
+        where exists (select 1 from cps_attribution a where a.user_id = #{userId}
+            and a.id = (select max(a2.id) from cps_attribution a2 where a2.order_line_id = o.id and a2.is_current = 1))
+        order by o.id desc
+    </select>
+</mapper>

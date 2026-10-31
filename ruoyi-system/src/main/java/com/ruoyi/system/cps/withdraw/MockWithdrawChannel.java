@@ -5,16 +5,16 @@ import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
-import org.springframework.context.annotation.Profile;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.system.cps.mapper.WithdrawalMapper;
 
-/** Durable simulation only. It is never registered in a prod/production profile. */
+/** Durable simulation only. Registration requires an explicit dev/test profile and excludes production. */
 @Component
-@Profile("!prod & !production")
+@Conditional(MockWithdrawalProfileCondition.class)
 public class MockWithdrawChannel implements WithdrawChannel {
     private final WithdrawalMapper mapper;
     public MockWithdrawChannel(WithdrawalMapper mapper) { this.mapper = mapper; }

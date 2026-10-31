@@ -10,7 +10,11 @@ import java.security.MessageDigest;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -35,6 +39,7 @@ import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -51,6 +56,7 @@ import com.ruoyi.system.cps.ledger.PostingCommand;
 import com.ruoyi.system.cps.mapper.WithdrawalMapper;
 import com.ruoyi.system.cps.recon.ExposureDecision;
 import com.ruoyi.system.cps.recon.ExposureService;
+import com.ruoyi.system.cps.risk.HealthMonitorService;
 import com.ruoyi.system.cps.risk.RiskService;
 import com.ruoyi.system.service.ISysConfigService;
 
@@ -78,6 +84,8 @@ public class WithdrawalMySqlTest {
     private ScriptedChannel channel;
     private ExposureService exposure;
     private RiskService risk;
+    private ISysConfigService configs;
+    private HealthMonitorService health;
     private WithdrawalService service;
     private JSONObject policy;
 
@@ -140,13 +148,14 @@ public class WithdrawalMySqlTest {
             + "WHERE NOT EXISTS(SELECT 1 FROM sys_config WHERE config_key='commission.min.withdraw')");
         jdbc.update("UPDATE sys_config SET config_value='0.01' WHERE config_key='commission.min.withdraw'");
         jdbc.update("UPDATE sys_config SET config_value='PROCESSING' WHERE config_key='cps.withdraw.mock.status'");
-        ISysConfigService configs = mock(ISysConfigService.class);
+        configs = mock(ISysConfigService.class);
         when(configs.selectConfigByKey(any())).thenAnswer(invocation -> {
             List<String> values = jdbc.queryForList("SELECT config_value FROM sys_config WHERE config_key=?",
                 String.class, invocation.getArgument(0));
             return values.isEmpty() ? "" : values.getFirst();
         });
         risk = new RiskService(jdbc, configs);
+        health = new HealthMonitorService(jdbc, configs, manager);
         exposure = mock(ExposureService.class);
         when(exposure.evaluateWithdrawal(any())).thenReturn(new ExposureDecision(false, false, "synthetic-test",
             money("0.00"), money("1000000.00")));
@@ -203,6 +212,111 @@ public class WithdrawalMySqlTest {
     }
 
     @Test
+    public void concurrentPayQueriesThePersistedSubmissionAndPaysOnlyOnce() throws Exception {
+        long user = user("20.00");
+        String no = service.apply(user, request("20.00", "concurrent-pay")).withdrawNo();
+        channel.next = PaymentStatus.SUCCESS;
+        CallGate submission = new CallGate();
+        channel.submitGate = submission;
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<WithdrawalView> first = pool.submit(() -> service.pay(no, 1L));
+            submission.awaitEntered();
+            assertEquals("SUBMITTING", status(no));
+            assertAccount(user, "0.00", "20.00", "0.00");
+            // The original channel call remains in flight while every contender calls pay.
+            List<WithdrawalView> contenders = concurrently(12, i -> service.pay(no, 2L));
+            assertTrue(contenders.stream().allMatch(view -> view.status() == WithdrawalStatus.SUCCEEDED));
+            submission.open();
+            assertEquals(WithdrawalStatus.SUCCEEDED, first.get(20, TimeUnit.SECONDS).status());
+            assertEquals(List.of(no), channel.submitNumbers);
+            assertTrue("A submitted payment must be queried, not submitted again", channel.queried.get() > 0);
+            assertTrue(channel.queryNumbers.stream().allMatch(no::equals));
+            assertEquals(1, channel.submitted.get());
+            assertEquals(1, auditCount(no, "SUBMIT"));
+            assertEquals(1, auditCount(no, "CHANNEL_RESULT"));
+            assertEquals("SUCCEEDED", status(no));
+            assertAccount(user, "0.00", "0.00", "20.00");
+            assertEquals(2, flowCount(user));
+            assertWithdrawalFlows(no, "WITHDRAW_APPLY", "WITHDRAW_SUCCESS");
+        } finally {
+            submission.open();
+            pool.shutdownNow();
+            assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void paymentClaimWinningTheAuditRacePreventsARefundWhileTheChannelIsInFlight() throws Exception {
+        long user = user("20.00");
+        String no = service.apply(user, request("20.00", "pay-before-reject")).withdrawNo();
+        CallGate submission = new CallGate();
+        channel.submitGate = submission;
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<WithdrawalView> payment = pool.submit(() -> service.pay(no, 1L));
+            submission.awaitEntered();
+            assertEquals("SUBMITTING", status(no));
+            ServiceException rejected = assertThrows(ServiceException.class,
+                () -> service.audit(no, false, 2L, "Synthetic competing rejection"));
+            assertEquals("当前提现状态不允许审核或退回", rejected.getMessage());
+            assertEquals("SUBMITTING", status(no));
+            assertAccount(user, "0.00", "20.00", "0.00");
+            assertWithdrawalFlows(no, "WITHDRAW_APPLY");
+            assertEquals(0, auditCount(no, "REJECT"));
+            submission.open();
+            assertEquals(WithdrawalStatus.PROCESSING, payment.get(20, TimeUnit.SECONDS).status());
+            assertEquals(WithdrawalStatus.SUCCEEDED,
+                service.callback(channel.notification(no, PaymentStatus.SUCCESS)).status());
+            assertAccount(user, "0.00", "0.00", "20.00");
+            assertWithdrawalFlows(no, "WITHDRAW_APPLY", "WITHDRAW_SUCCESS");
+            assertEquals(1, channel.submitted.get());
+            assertEquals(1, auditCount(no, "SUBMIT"));
+            assertEquals(0, auditCount(no, "REJECT"));
+        } finally {
+            submission.open();
+            pool.shutdownNow();
+            assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void rejectionWinningThePaymentRaceRefundsOnceAndPreventsSubmission() throws Exception {
+        long user = user("20.00");
+        String no = service.apply(user, request("20.00", "reject-before-pay")).withdrawNo();
+        CallGate refund = new CallGate();
+        ledger.returnGate = refund;
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch payEntered = new CountDownLatch(1);
+        try {
+            Future<WithdrawalView> rejection = pool.submit(() -> service.audit(no, false, 1L, "Synthetic rejection won"));
+            refund.awaitEntered(); // audit holds the real admission/account/withdrawal locks.
+            Future<WithdrawalView> payment = pool.submit(() -> {
+                payEntered.countDown();
+                return service.pay(no, 2L);
+            });
+            assertTrue(payEntered.await(10, TimeUnit.SECONDS));
+            assertEquals("APPROVED", status(no));
+            assertAccount(user, "0.00", "20.00", "0.00");
+            refund.open();
+            assertEquals(WithdrawalStatus.REJECTED, rejection.get(20, TimeUnit.SECONDS).status());
+            assertEquals(WithdrawalStatus.REJECTED, payment.get(20, TimeUnit.SECONDS).status());
+            assertEquals(WithdrawalStatus.REJECTED, service.audit(no, false, 1L, "Synthetic duplicate rejection").status());
+            assertEquals("REJECTED", status(no));
+            assertAccount(user, "20.00", "0.00", "0.00");
+            assertWithdrawalFlows(no, "WITHDRAW_APPLY", "WITHDRAW_RETURN");
+            assertEquals(0, channel.submitted.get());
+            assertEquals(0, channel.queried.get());
+            assertEquals(0, auditCount(no, "SUBMIT"));
+            assertEquals(1, auditCount(no, "REJECT"));
+        } finally {
+            refund.open();
+            pool.shutdownNow();
+            assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     public void submissionTimeoutUsesOriginalNumberAndOnlyQueriesAfterward() {
         long user = user("25.00");
         WithdrawalView applied = service.apply(user, request("25.00", "timeout"));
@@ -240,34 +354,93 @@ public class WithdrawalMySqlTest {
     public void definitiveFailureRefundsOnceAndConflictingLateSuccessCannotMutateMoney() {
         long user = user("45.00");
         WithdrawalView applied = service.apply(user, request("25.00", "failed"));
+        String no = applied.withdrawNo();
         channel.next = PaymentStatus.FAILED;
-        assertEquals(WithdrawalStatus.FAILED, service.pay(applied.withdrawNo(), 1L).status());
-        service.callback(channel.notification(applied.withdrawNo(), PaymentStatus.FAILED));
-        try {
-            service.callback(channel.notification(applied.withdrawNo(), PaymentStatus.SUCCESS));
-        } catch (ServiceException expectedConflict) {
-            assertNotNull(expectedConflict.getMessage());
-        }
-        assertEquals("FAILED", status(applied.withdrawNo()));
+        assertEquals(WithdrawalStatus.FAILED, service.pay(no, 1L).status());
+        assertEquals(WithdrawalStatus.FAILED, service.callback(channel.notification(no, PaymentStatus.FAILED)).status());
+        LocalDateTime completed = mapper.findByNo(no).getCompletedAt();
+        assertNotNull(completed);
+        assertEquals(0, auditCount(no, "RESULT_CONFLICT"));
+        Clock clock = Clock.fixed(Instant.parse("2026-10-31T01:00:00Z"), ZoneOffset.UTC);
+        health = new HealthMonitorService(jdbc, configs, manager, clock);
+        service = newService(ledger, channel);
+        // The scripted adapter deliberately forwards the contradictory terminal result.
+        // A thrown exception must fail this test, rather than masquerade as conflict handling.
+        assertEquals(WithdrawalStatus.FAILED, service.callback(channel.notification(no, PaymentStatus.SUCCESS)).status());
+        assertConflictAudit(no, WithdrawalStatus.FAILED, 1);
+        assertConflictAlert(no, WithdrawalStatus.FAILED, PaymentStatus.SUCCESS);
+        // Deduplication survives service reconstruction and is not the auth-alert 10-minute timer.
+        health = new HealthMonitorService(jdbc, configs, manager, Clock.offset(clock, Duration.ofHours(1)));
+        service = newService(ledger, channel);
+        assertEquals(WithdrawalStatus.FAILED, service.callback(channel.notification(no, PaymentStatus.SUCCESS)).status());
+        assertConflictAudit(no, WithdrawalStatus.FAILED, 2);
+        assertConflictAlert(no, WithdrawalStatus.FAILED, PaymentStatus.SUCCESS);
+        assertEquals("FAILED", status(no));
+        assertEquals(completed, mapper.findByNo(no).getCompletedAt());
         assertAccount(user, "45.00", "0.00", "0.00");
         assertEquals(2, flowCount(user));
+        assertWithdrawalFlows(no, "WITHDRAW_APPLY", "WITHDRAW_RETURN");
         assertEquals(1, channel.submitted.get());
     }
 
     @Test
-    public void lateFailureCannotReverseAnAlreadySuccessfulPayout() {
+    public void lateFailureCannotReverseAnAlreadySuccessfulPayout() throws Exception {
         long user = user("10.00");
         WithdrawalView applied = service.apply(user, request("10.00", "success-conflict"));
+        String no = applied.withdrawNo();
         channel.next = PaymentStatus.SUCCESS;
-        service.pay(applied.withdrawNo(), 1L);
-        try {
-            service.callback(channel.notification(applied.withdrawNo(), PaymentStatus.FAILED));
-        } catch (ServiceException expectedConflict) {
-            assertNotNull(expectedConflict.getMessage());
-        }
-        assertEquals("SUCCEEDED", status(applied.withdrawNo()));
+        assertEquals(WithdrawalStatus.SUCCEEDED, service.pay(no, 1L).status());
+        LocalDateTime completed = mapper.findByNo(no).getCompletedAt();
+        assertNotNull(completed);
+        List<WithdrawalView> callbacks = concurrently(6,
+            i -> service.callback(channel.notification(no, PaymentStatus.FAILED)));
+        assertTrue(callbacks.stream().allMatch(view -> view.status() == WithdrawalStatus.SUCCEEDED));
+        assertConflictAudit(no, WithdrawalStatus.SUCCEEDED, 6);
+        assertConflictAlert(no, WithdrawalStatus.SUCCEEDED, PaymentStatus.FAILED);
+        assertEquals("SUCCEEDED", status(no));
+        assertEquals(completed, mapper.findByNo(no).getCompletedAt());
         assertAccount(user, "0.00", "0.00", "10.00");
         assertEquals(2, flowCount(user));
+        assertWithdrawalFlows(no, "WITHDRAW_APPLY", "WITHDRAW_SUCCESS");
+        assertEquals(1, channel.submitted.get());
+    }
+
+    @Test
+    public void conflictAlertFailureRollsBackItsAuditAndCanBeRetriedWithoutChangingMoney() {
+        long user = user("10.00");
+        String no = service.apply(user, request("10.00", "conflict-alert-rollback")).withdrawNo();
+        channel.next = PaymentStatus.SUCCESS;
+        assertEquals(WithdrawalStatus.SUCCEEDED, service.pay(no, 1L).status());
+        long audits = count("SELECT COUNT(*) FROM cps_withdraw_audit WHERE withdraw_no=?", no);
+        JdbcTemplate failingAlerts = new JdbcTemplate(jdbc.getDataSource()) {
+            @Override
+            public int update(String sql, Object... args) {
+                int changed = super.update(sql, args);
+                if (sql.startsWith("INSERT INTO cps_health_alert(")) {
+                    throw new DataAccessResourceFailureException("Synthetic failure after inserting the conflict alert");
+                }
+                return changed;
+            }
+        };
+        health = new HealthMonitorService(failingAlerts, configs, manager);
+        service = newService(ledger, channel);
+        assertThrows(DataAccessResourceFailureException.class,
+            () -> service.callback(channel.notification(no, PaymentStatus.FAILED)));
+        assertEquals(audits, count("SELECT COUNT(*) FROM cps_withdraw_audit WHERE withdraw_no=?", no));
+        assertEquals(0, auditCount(no, "RESULT_CONFLICT"));
+        assertEquals(0, count("SELECT COUNT(*) FROM cps_health_alert WHERE subject=?", no));
+        assertEquals(0, count("SELECT COUNT(*) FROM cps_health_alert_state WHERE subject=?", no));
+        assertEquals("SUCCEEDED", status(no));
+        assertAccount(user, "0.00", "0.00", "10.00");
+        assertWithdrawalFlows(no, "WITHDRAW_APPLY", "WITHDRAW_SUCCESS");
+
+        health = new HealthMonitorService(jdbc, configs, manager);
+        service = newService(ledger, channel);
+        assertEquals(WithdrawalStatus.SUCCEEDED, service.callback(channel.notification(no, PaymentStatus.FAILED)).status());
+        assertConflictAudit(no, WithdrawalStatus.SUCCEEDED, 1);
+        assertConflictAlert(no, WithdrawalStatus.SUCCEEDED, PaymentStatus.FAILED);
+        assertAccount(user, "0.00", "0.00", "10.00");
+        assertWithdrawalFlows(no, "WITHDRAW_APPLY", "WITHDRAW_SUCCESS");
     }
 
     @Test
@@ -283,6 +456,96 @@ public class WithdrawalMySqlTest {
         channel.results.put(applied.withdrawNo(), channel.result(applied.withdrawNo(), PaymentStatus.FAILED));
         service.query(applied.withdrawNo());
         assertAccount(user, "10.00", "0.00", "0.00");
+    }
+
+    @Test
+    public void submittedNonterminalStatusesCannotBeRejectedOrApprovedAgain() {
+        for (PaymentStatus pending : List.of(PaymentStatus.PROCESSING, PaymentStatus.UNKNOWN,
+                PaymentStatus.AWAITING_CONFIRMATION, PaymentStatus.TIMED_OUT)) {
+            long user = user("10.00");
+            String no = service.apply(user, request("10.00", "reject-submitted-" + pending)).withdrawNo();
+            channel.next = pending;
+            assertEquals(WithdrawalStatus.valueOf(pending.name()), service.pay(no, 1L).status());
+            LocalDateTime submitted = mapper.findByNo(no).getSubmittedAt();
+            assertNotNull(submitted);
+            for (boolean approve : new boolean[] { false, true }) {
+                ServiceException error = assertThrows(ServiceException.class,
+                    () -> service.audit(no, approve, 2L, "Synthetic late review of " + pending));
+                assertEquals("当前提现状态不允许审核或退回", error.getMessage());
+            }
+            assertEquals(pending.name(), status(no));
+            assertEquals(submitted, mapper.findByNo(no).getSubmittedAt());
+            assertNull(mapper.findByNo(no).getCompletedAt());
+            assertAccount(user, "0.00", "10.00", "0.00");
+            assertWithdrawalFlows(no, "WITHDRAW_APPLY");
+            assertEquals(1, auditCount(no, "SUBMIT"));
+            assertEquals(0, auditCount(no, "REJECT"));
+            assertEquals(0, auditCount(no, "APPROVE"));
+        }
+        assertEquals(4, channel.submitted.get());
+    }
+
+    @Test
+    public void queryPendingScansBeyondUnresolvedFirstPageAndIsolatesAnInvalidResult() {
+        long user = user("105.00");
+        List<String> ownNumbers = new ArrayList<>();
+        channel.next = PaymentStatus.UNKNOWN;
+        for (int i = 0; i < 105; i++) {
+            String no = service.apply(user, request("1.00", "pending-page-" + i)).withdrawNo();
+            assertEquals(WithdrawalStatus.UNKNOWN, service.pay(no, 1L).status());
+            ownNumbers.add(no);
+        }
+        long untouchedUser = user("10.00");
+        String approved = service.apply(untouchedUser, request("1.00", "pending-excludes-approved")).withdrawNo();
+        policy.put("reviewAmount", "1.00");
+        savePolicy();
+        String manual = service.apply(untouchedUser, request("1.00", "pending-excludes-manual")).withdrawNo();
+        assertEquals("APPROVED", status(approved));
+        assertEquals("MANUAL_REVIEW", status(manual));
+
+        String invalid = ownNumbers.get(50);
+        String succeeded = ownNumbers.get(100);
+        String failed = ownNumbers.get(104);
+        channel.results.put(invalid, channel.result("synthetic-mismatched-withdrawal", PaymentStatus.SUCCESS));
+        channel.results.put(succeeded, channel.result(succeeded, PaymentStatus.SUCCESS));
+        channel.results.put(failed, channel.result(failed, PaymentStatus.FAILED));
+        // Other tests intentionally leave ambiguous withdrawals reserved. Include them in
+        // the expected scan instead of mutating their states or depending on JUnit order.
+        List<String> pending = pendingNumbers();
+        assertTrue("The conclusive result must be beyond the first 100 rows", pending.indexOf(succeeded) >= 100);
+        assertEquals(pending.size(), service.queryPending());
+        assertEquals("Every pending number must be queried once in ID order", pending, channel.queryNumbers);
+        assertEquals(1, auditCount(invalid, "QUERY_RETRY"));
+        assertEquals("UNKNOWN", status(invalid));
+        assertWithdrawalFlows(invalid, "WITHDRAW_APPLY");
+        assertEquals("SUCCEEDED", status(succeeded));
+        assertWithdrawalFlows(succeeded, "WITHDRAW_APPLY", "WITHDRAW_SUCCESS");
+        assertEquals("FAILED", status(failed));
+        assertWithdrawalFlows(failed, "WITHDRAW_APPLY", "WITHDRAW_RETURN");
+        assertEquals(103, count("SELECT COUNT(*) FROM cps_withdrawal WHERE user_id=? AND status='UNKNOWN'", user));
+        assertAccount(user, "1.00", "103.00", "1.00");
+        assertEquals(107, flowCount(user));
+        assertFalse(channel.queryNumbers.contains(approved));
+        assertFalse(channel.queryNumbers.contains(manual));
+
+        // A later scan retries the failed item under its original number, skips terminal
+        // rows, and still reaches the tail while the first page remains unresolved.
+        channel.queryNumbers.clear();
+        channel.results.put(invalid, channel.result(invalid, PaymentStatus.SUCCESS));
+        List<String> retry = pendingNumbers();
+        assertEquals(pending.size() - 2, retry.size());
+        assertEquals(retry.size(), service.queryPending());
+        assertEquals(retry, channel.queryNumbers);
+        assertFalse(channel.queryNumbers.contains(succeeded));
+        assertFalse(channel.queryNumbers.contains(failed));
+        assertEquals("SUCCEEDED", status(invalid));
+        assertEquals(1, auditCount(invalid, "QUERY_RETRY"));
+        assertWithdrawalFlows(invalid, "WITHDRAW_APPLY", "WITHDRAW_SUCCESS");
+        assertAccount(user, "1.00", "102.00", "2.00");
+        assertEquals(108, flowCount(user));
+        assertAccount(untouchedUser, "8.00", "2.00", "0.00");
+        assertEquals(105, channel.submitted.get());
+        assertEquals(ownNumbers, channel.submitNumbers);
     }
 
     @Test
@@ -459,9 +722,85 @@ public class WithdrawalMySqlTest {
         assertEquals(WithdrawalStatus.APPROVED, applied.status());
         risk.review(user, false, true, true, "Synthetic newly observed abuse signal", 1L);
         assertEquals(WithdrawalStatus.MANUAL_REVIEW, service.pay(applied.withdrawNo(), 1L).status());
+        assertNull(mapper.findByNo(applied.withdrawNo()).getAuditBy());
+        assertNull(mapper.findByNo(applied.withdrawNo()).getAuditAt());
         assertEquals(0, channel.submitted.get());
         assertAccount(user, "0.00", "20.00", "0.00");
         assertEquals(1, flowCount(user));
+    }
+
+    @Test
+    public void riskHoldMustBeResolvedBeforeApprovalAndThenPaymentCompletes() {
+        long user = user("20.00");
+        risk.review(user, false, true, true, "Synthetic risk evidence needs review", 1L);
+        String no = service.apply(user, request("20.00", "resolve-risk-review")).withdrawNo();
+        assertEquals("MANUAL_REVIEW", status(no));
+        ServiceException held = assertThrows(ServiceException.class,
+            () -> service.audit(no, true, 2L, "Synthetic withdrawal review cannot waive risk"));
+        assertEquals("风控人工复核尚未解除，请先在风控台处理", held.getMessage());
+        assertEquals("MANUAL_REVIEW", status(no));
+        assertNull(mapper.findByNo(no).getAuditBy());
+        assertNull(mapper.findByNo(no).getAuditAt());
+        assertEquals(0, auditCount(no, "APPROVE"));
+        assertTrue(jdbc.queryForObject("SELECT manual_review FROM cps_risk_user_state WHERE user_id=?", Boolean.class, user));
+        assertAccount(user, "0.00", "20.00", "0.00");
+        assertWithdrawalFlows(no, "WITHDRAW_APPLY");
+        assertEquals(0, channel.submitted.get());
+
+        risk.review(user, false, false, false, "Synthetic risk evidence independently cleared", 3L);
+        assertEquals(WithdrawalStatus.APPROVED, service.audit(no, true, 2L, "Synthetic review after risk clearance").status());
+        assertEquals(Long.valueOf(2L), mapper.findByNo(no).getAuditBy());
+        assertNotNull(mapper.findByNo(no).getAuditAt());
+        assertFalse(jdbc.queryForObject("SELECT manual_review FROM cps_risk_user_state WHERE user_id=?", Boolean.class, user));
+        channel.next = PaymentStatus.SUCCESS;
+        assertEquals(WithdrawalStatus.SUCCEEDED, service.pay(no, 4L).status());
+        assertAccount(user, "0.00", "0.00", "20.00");
+        assertWithdrawalFlows(no, "WITHDRAW_APPLY", "WITHDRAW_SUCCESS");
+        assertEquals(1, channel.submitted.get());
+        assertEquals(1, auditCount(no, "APPROVE"));
+        assertEquals(1, auditCount(no, "SUBMIT"));
+        assertEquals(0, auditCount(no, "REVIEW_REQUIRED"));
+    }
+
+    @Test
+    public void newlyObservedRiskInvalidatesAnEarlierHumanApprovalAndRequiresANewDecision() {
+        long user = user("20.00");
+        policy.put("reviewAmount", "10.00");
+        savePolicy();
+        String no = service.apply(user, request("20.00", "new-risk-after-human-approval")).withdrawNo();
+        assertEquals(WithdrawalStatus.APPROVED, service.audit(no, true, 1L, "Synthetic first review").status());
+        assertEquals(Long.valueOf(1L), mapper.findByNo(no).getAuditBy());
+        assertNotNull(mapper.findByNo(no).getAuditAt());
+
+        risk.review(user, false, true, true, "Synthetic new evidence after first approval", 3L);
+        assertEquals(WithdrawalStatus.MANUAL_REVIEW, service.pay(no, 4L).status());
+        assertNull("The old reviewer cannot approve newly observed risk", mapper.findByNo(no).getAuditBy());
+        assertNull("The previous approval time must not survive a return to review", mapper.findByNo(no).getAuditAt());
+        ServiceException held = assertThrows(ServiceException.class,
+            () -> service.audit(no, true, 2L, "Synthetic attempt while risk remains active"));
+        assertEquals("风控人工复核尚未解除，请先在风控台处理", held.getMessage());
+        assertEquals(1, auditCount(no, "APPROVE"));
+        assertEquals(1, count("SELECT COUNT(*) FROM cps_withdraw_audit WHERE withdraw_no=? AND action='REVIEW_REQUIRED' "
+            + "AND from_status='APPROVED' AND to_status='MANUAL_REVIEW'", no));
+        assertEquals(0, channel.submitted.get());
+        assertAccount(user, "0.00", "20.00", "0.00");
+
+        risk.review(user, false, false, false, "Synthetic new risk cleared by risk desk", 3L);
+        ServiceException notReapproved = assertThrows(ServiceException.class, () -> service.pay(no, 4L));
+        assertEquals("提现尚未审核通过", notReapproved.getMessage());
+        assertEquals("MANUAL_REVIEW", status(no));
+        assertEquals(0, channel.submitted.get());
+        assertEquals(WithdrawalStatus.APPROVED, service.audit(no, true, 2L, "Synthetic second review after clearance").status());
+        assertEquals(Long.valueOf(2L), mapper.findByNo(no).getAuditBy());
+        assertNotNull(mapper.findByNo(no).getAuditAt());
+        channel.next = PaymentStatus.SUCCESS;
+        assertEquals(WithdrawalStatus.SUCCEEDED, service.pay(no, 4L).status());
+        assertAccount(user, "0.00", "0.00", "20.00");
+        assertWithdrawalFlows(no, "WITHDRAW_APPLY", "WITHDRAW_SUCCESS");
+        assertEquals(1, channel.submitted.get());
+        assertEquals(2, auditCount(no, "APPROVE"));
+        assertEquals(1, auditCount(no, "SUBMIT"));
+        assertEquals(1, auditCount(no, "REVIEW_REQUIRED"));
     }
 
     @Test
@@ -567,7 +906,7 @@ public class WithdrawalMySqlTest {
 
     private WithdrawalService newService(LedgerService posting, WithdrawChannel gateway) {
         return new WithdrawalService(mapper, provider(LedgerService.class, posting), provider(WithdrawChannel.class, gateway),
-            risk, exposure, manager);
+            risk, exposure, health, manager);
     }
 
     private static <T> ObjectProvider<T> provider(Class<T> type, T value) {
@@ -619,6 +958,50 @@ public class WithdrawalMySqlTest {
         return count("SELECT COUNT(*) FROM sys_commission_flow WHERE user_id=?", user);
     }
 
+    private static void assertWithdrawalFlows(String no, String... businessTypes) {
+        List<String> expected = List.of(businessTypes).stream().sorted().toList();
+        assertEquals(expected, jdbc.queryForList("SELECT business_type FROM sys_commission_flow "
+            + "WHERE business_id=? ORDER BY business_type", String.class, no));
+        assertEquals(expected.size(), count("SELECT COUNT(DISTINCT idempotency_key) FROM sys_commission_flow WHERE business_id=?", no));
+        for (String type : expected) {
+            assertEquals(1, count("SELECT COUNT(*) FROM sys_commission_flow WHERE business_id=? "
+                + "AND business_type=? AND idempotency_key=?", no, type, type + ":" + no));
+        }
+        assertEquals(0, count("SELECT COUNT(*) FROM sys_commission_flow f JOIN cps_withdrawal w ON w.withdraw_no=f.business_id "
+            + "WHERE w.withdraw_no=? AND f.amount<>w.amount", no));
+    }
+
+    private static long auditCount(String no, String action) {
+        return count("SELECT COUNT(*) FROM cps_withdraw_audit WHERE withdraw_no=? AND action=?", no, action);
+    }
+
+    private static void assertConflictAudit(String no, WithdrawalStatus original, long expected) {
+        assertEquals(expected, auditCount(no, "RESULT_CONFLICT"));
+        assertEquals(expected, count("SELECT COUNT(*) FROM cps_withdraw_audit WHERE withdraw_no=? "
+            + "AND action='RESULT_CONFLICT' AND from_status=? AND to_status=? AND operator_id IS NULL "
+            + "AND reason LIKE '%人工对账%'", no, original.name(), original.name()));
+    }
+
+    private void assertConflictAlert(String no, WithdrawalStatus original, PaymentStatus incoming) {
+        assertEquals(1, count("SELECT COUNT(*) FROM cps_health_alert WHERE kind='WITHDRAWAL_RESULT_CONFLICT' AND subject=?", no));
+        assertEquals(1, count("SELECT COUNT(*) FROM cps_health_alert_state WHERE kind='WITHDRAWAL_RESULT_CONFLICT' "
+            + "AND subject=? AND condition_active=1 AND last_emitted_at IS NOT NULL", no));
+        List<Map<String, Object>> visible = health.alerts().stream()
+            .filter(alert -> no.equals(alert.get("subject")) && "WITHDRAWAL_RESULT_CONFLICT".equals(alert.get("kind"))).toList();
+        assertEquals("The durable alert must be visible through the operations alert list", 1, visible.size());
+        String message = (String) visible.getFirst().get("message");
+        assertTrue(message, message.contains("本地=" + original));
+        assertTrue(message, message.contains("通道=" + incoming));
+        assertTrue(message, message.contains("人工对账"));
+        Object active = visible.getFirst().get("condition_active");
+        assertTrue(Boolean.TRUE.equals(active) || active instanceof Number number && number.intValue() == 1);
+    }
+
+    private static List<String> pendingNumbers() {
+        return jdbc.queryForList("SELECT withdraw_no FROM cps_withdrawal "
+            + "WHERE status IN('SUBMITTING','PROCESSING','UNKNOWN','AWAITING_CONFIRMATION','TIMED_OUT') ORDER BY id", String.class);
+    }
+
     private static long count(String sql, Object... params) {
         return jdbc.queryForObject(sql, Long.class, params);
     }
@@ -666,10 +1049,33 @@ public class WithdrawalMySqlTest {
         }
     }
 
+    /** Holds an actual in-flight operation at a known boundary, without sleeps. */
+    private static final class CallGate {
+        private final CountDownLatch entered = new CountDownLatch(1);
+        private final CountDownLatch released = new CountDownLatch(1);
+
+        void pause() {
+            entered.countDown();
+            try {
+                assertTrue("Timed out waiting to release the synthetic operation", released.await(40, TimeUnit.SECONDS));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Synthetic operation was interrupted", interrupted);
+            }
+        }
+
+        void awaitEntered() throws InterruptedException {
+            assertTrue("The synthetic operation did not reach its boundary", entered.await(20, TimeUnit.SECONDS));
+        }
+
+        void open() { released.countDown(); }
+    }
+
     /** Test-only contract participant; never scanned or used as a production ledger bean. */
     private static final class SqlLedgerContractFixture implements LedgerService {
         private final JdbcTemplate sql;
         private boolean failAfterSql;
+        private CallGate returnGate;
         SqlLedgerContractFixture(JdbcTemplate sql) { this.sql = sql; }
 
         @Override
@@ -684,6 +1090,7 @@ public class WithdrawalMySqlTest {
                 return new LedgerPosting(((Number) prior.getFirst().get("id")).longValue(), command.businessKey(),
                     (BigDecimal) prior.getFirst().get("balance_after"), true);
             }
+            if (returnGate != null && "WITHDRAW_RETURN".equals(command.businessType())) returnGate.pause();
             BigDecimal available = (BigDecimal) account.get("balance");
             BigDecimal inFlight = (BigDecimal) account.get("withdrawing_amount");
             BigDecimal paid = (BigDecimal) account.get("withdrawn");
@@ -728,12 +1135,17 @@ public class WithdrawalMySqlTest {
         PaymentStatus next = PaymentStatus.PROCESSING;
         boolean throwAfterSubmit;
         boolean throwOnQuery;
+        CallGate submitGate;
 
         @Override
-        public synchronized PaymentResult submit(PaymentRequest request) {
-            submitted.incrementAndGet();
-            submitNumbers.add(request.withdrawNo());
-            PaymentResult result = results.computeIfAbsent(request.withdrawNo(), no -> result(no, next));
+        public PaymentResult submit(PaymentRequest request) {
+            PaymentResult result;
+            synchronized (this) {
+                submitted.incrementAndGet();
+                submitNumbers.add(request.withdrawNo());
+                result = results.computeIfAbsent(request.withdrawNo(), no -> result(no, next));
+            }
+            if (submitGate != null) submitGate.pause();
             if (throwAfterSubmit) throw new ServiceException("Synthetic timeout after channel accepted the original idempotency key");
             return result;
         }

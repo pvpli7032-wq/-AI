@@ -23,6 +23,7 @@ import com.ruoyi.system.service.ISysConfigService;
 @Service
 public class HealthMonitorService {
     public static final Duration AUTH_REPEAT = Duration.ofMinutes(10);
+    public static final String WITHDRAWAL_RESULT_CONFLICT = "WITHDRAWAL_RESULT_CONFLICT";
     private final JdbcTemplate jdbc;
     private final RiskPolicy policy;
     private final TransactionTemplate transactions;
@@ -158,6 +159,16 @@ public class HealthMonitorService {
         }
     }
 
+    /** A contradictory terminal result stays visible without emitting again for callback retries. */
+    public int recordWithdrawalResultConflict(String withdrawNo, String localStatus, String channelStatus) {
+        RiskService.requireText(withdrawNo, 128, "提现号");
+        RiskService.requireText(localStatus, 32, "提现状态");
+        RiskService.requireText(channelStatus, 32, "通道状态");
+        return emit(WITHDRAWAL_RESULT_CONFLICT, withdrawNo,
+            "提现终态矛盾；本地=" + localStatus + "，通道=" + channelStatus + "；保留原终态与原账务，必须人工对账",
+            LocalDateTime.now(clock).truncatedTo(ChronoUnit.MILLIS));
+    }
+
     private int emit(String kind, String subject, String message, LocalDateTime now) {
         Integer result = transactions.execute(status -> {
             // Upsert acquires an exclusive row lock immediately; INSERT IGNORE followed by
@@ -167,8 +178,9 @@ public class HealthMonitorService {
             Map<String, Object> previous = jdbc.queryForMap(
                 "SELECT condition_active,last_emitted_at FROM cps_health_alert_state WHERE kind=? AND subject=? FOR UPDATE", kind, subject);
             Object last = previous.get("last_emitted_at");
-            if (RiskService.flag(previous.get("condition_active")) && last != null
-                && RiskService.toTime(last).plus(AUTH_REPEAT).isAfter(now)) return 0;
+            if (RiskService.flag(previous.get("condition_active"))
+                && (WITHDRAWAL_RESULT_CONFLICT.equals(kind)
+                    || (last != null && RiskService.toTime(last).plus(AUTH_REPEAT).isAfter(now)))) return 0;
             jdbc.update("INSERT INTO cps_health_alert(kind,subject,message,created_at) VALUES (?,?,?,?)", kind, subject, message, now);
             jdbc.update("UPDATE cps_health_alert_state SET condition_active=1,last_emitted_at=? WHERE kind=? AND subject=?", now, kind, subject);
             return 1;

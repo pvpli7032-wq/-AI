@@ -18,15 +18,15 @@ public class CpsExposureController extends BaseController {
 
     public CpsExposureController(ExposureService service) { this.service = service; }
 
-    @PreAuthorize("@ss.hasPermi('cps:exposure:list')")
+    @PreAuthorize("@ss.hasPermi('system:commission:exposure:list')")
     @GetMapping
     public AjaxResult current() { return success(service.current()); }
 
-    @PreAuthorize("@ss.hasPermi('cps:exposure:list')")
+    @PreAuthorize("@ss.hasPermi('system:commission:exposure:list')")
     @GetMapping("/positions")
     public AjaxResult positions() { return success(service.positions()); }
 
-    @PreAuthorize("@ss.hasPermi('cps:exposure:snapshot')")
+    @PreAuthorize("@ss.hasPermi('system:commission:exposure:add')")
     @Log(title = "记录垫付敞口快照", businessType = BusinessType.INSERT)
     @PostMapping("/snapshots")
     public AjaxResult snapshot() { return success(service.capture()); }

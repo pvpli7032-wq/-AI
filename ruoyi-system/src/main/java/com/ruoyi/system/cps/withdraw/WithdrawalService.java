@@ -26,6 +26,7 @@ import com.ruoyi.system.cps.ledger.LedgerService;
 import com.ruoyi.system.cps.ledger.PostingCommand;
 import com.ruoyi.system.cps.mapper.WithdrawalMapper;
 import com.ruoyi.system.cps.recon.ExposureService;
+import com.ruoyi.system.cps.risk.HealthMonitorService;
 import com.ruoyi.system.cps.risk.RiskService;
 
 /** Owns withdrawal state, never account SQL. No channel call is made inside an account transaction. */
@@ -36,17 +37,19 @@ public class WithdrawalService {
     private final ObjectProvider<WithdrawChannel> channels;
     private final RiskService risk;
     private final ExposureService exposure;
+    private final HealthMonitorService health;
     private final TransactionTemplate transactions;
     private Clock clock = Clock.systemUTC();
 
     public WithdrawalService(WithdrawalMapper mapper, ObjectProvider<LedgerService> ledgers,
             ObjectProvider<WithdrawChannel> channels, RiskService risk, ExposureService exposure,
-            PlatformTransactionManager transactionManager) {
+            HealthMonitorService health, PlatformTransactionManager transactionManager) {
         this.mapper = mapper;
         this.ledgers = ledgers;
         this.channels = channels;
         this.risk = risk;
         this.exposure = exposure;
+        this.health = health;
         this.transactions = new TransactionTemplate(transactionManager);
         this.transactions.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         // A caller's rollback must never undo a persisted submission marker after the channel saw it.
@@ -140,8 +143,11 @@ public class WithdrawalService {
             WithdrawalStatus previous = row.getStatus();
             if (approve) {
                 activeAccount(row.getUserId());
-                if (risk.evaluateWithdrawal(row.getUserId()).blocked() || exposure.evaluateWithdrawal(row.getAmount()).blocked())
+                var riskDecision = risk.evaluateWithdrawal(row.getUserId());
+                if (riskDecision.blocked() || exposure.evaluateWithdrawal(row.getAmount()).blocked())
                     throw new ServiceException("账户或敞口限制尚未解除");
+                if (riskDecision.manualReview())
+                    throw new ServiceException("风控人工复核尚未解除，请先在风控台处理");
                 verifyPayeeSnapshot(row);
                 verifyRequiredIdentity(row);
                 row.setStatus(WithdrawalStatus.APPROVED);
@@ -178,6 +184,8 @@ public class WithdrawalService {
             // must resolve its evidence before payment; withdrawal approval cannot erase a hold.
             if (riskDecision.manualReview() || (exposureDecision.manualReview() && row.getAuditBy() == null)) {
                 addReviewReason(row, riskDecision.manualReview() ? "RISK_REVIEW" : "EXPOSURE_LIMIT_REACHED");
+                // Approval predates this hold and must not authorize a later dispatch.
+                row.setAuditBy(null); row.setAuditAt(null);
                 row.setStatus(WithdrawalStatus.MANUAL_REVIEW); row.setUpdatedAt(now()); mapper.updateWithdrawal(row);
                 audit(row, "REVIEW_REQUIRED", WithdrawalStatus.APPROVED, operatorId, "提交前重新检查触发人工审核");
                 return new Submission(row, false);
@@ -252,7 +260,12 @@ public class WithdrawalService {
                 boolean contradiction = (row.getStatus() == WithdrawalStatus.SUCCEEDED && result.status() == PaymentStatus.FAILED)
                     || ((row.getStatus() == WithdrawalStatus.FAILED || row.getStatus() == WithdrawalStatus.REJECTED)
                         && result.status() == PaymentStatus.SUCCESS);
-                if (contradiction) audit(row, "RESULT_CONFLICT", row.getStatus(), null, "通道终态矛盾；保留原终态与原账务，必须人工对账");
+                if (contradiction) {
+                    audit(row, "RESULT_CONFLICT", row.getStatus(), null,
+                        "通道终态矛盾；本地=" + row.getStatus() + "，通道=" + result.status() + "；保留原终态与原账务，必须人工对账");
+                    // REQUIRED joins this result transaction: evidence and its alert commit together.
+                    health.recordWithdrawalResultConflict(expectedNo, row.getStatus().name(), result.status().name());
+                }
                 return WithdrawalView.of(row);
             }
             if (!row.getStatus().submitted()) throw new ServiceException("未提交的提现单不能接收打款结果");

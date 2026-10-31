@@ -29,15 +29,15 @@ public class CpsRiskController extends BaseController {
     }
 
     @GetMapping("/users/{userId}")
-    @PreAuthorize("@ss.hasPermi('cps:risk:query')")
+    @PreAuthorize("@ss.hasPermi('system:commission:risk:query')")
     public AjaxResult user(@PathVariable long userId) { return success(risk.evaluateWithdrawal(userId)); }
 
     @GetMapping("/signals")
-    @PreAuthorize("@ss.hasPermi('cps:risk:list')")
+    @PreAuthorize("@ss.hasPermi('system:commission:risk:list')")
     public AjaxResult signals(@RequestParam(required = false) Long userId) { return success(risk.signals(userId)); }
 
     @PostMapping("/users/{userId}/review")
-    @PreAuthorize("@ss.hasPermi('cps:risk:review')")
+    @PreAuthorize("@ss.hasPermi('system:commission:risk:edit')")
     @Log(title = "用户风控审核", businessType = BusinessType.UPDATE, isSaveRequestData = false)
     public AjaxResult review(@PathVariable long userId, @RequestBody ReviewRequest request) {
         risk.review(userId, request.blockWithdrawal(), request.pauseRewards(), request.manualReview(), request.reason(), getUserId());
@@ -45,7 +45,7 @@ public class CpsRiskController extends BaseController {
     }
 
     @PostMapping("/evidence/devices")
-    @PreAuthorize("@ss.hasPermi('cps:risk:import')")
+    @PreAuthorize("@ss.hasPermi('system:commission:risk:add')")
     @Log(title = "导入设备风险证据", businessType = BusinessType.IMPORT, isSaveRequestData = false)
     public AjaxResult device(@RequestBody DeviceEvidence request) {
         risk.recordDeviceRegistration(request.userId(), request.deviceHash(), request.eventKey(), request.observedAt(), getUserId());
@@ -53,16 +53,16 @@ public class CpsRiskController extends BaseController {
     }
 
     @PostMapping("/scan")
-    @PreAuthorize("@ss.hasPermi('cps:risk:review')")
+    @PreAuthorize("@ss.hasPermi('system:commission:risk:edit')")
     @Log(title = "风险信号检查", businessType = BusinessType.OTHER)
     public AjaxResult scan() { return success(risk.scan()); }
 
     @GetMapping("/alerts")
-    @PreAuthorize("@ss.hasPermi('cps:health:list')")
+    @PreAuthorize("@ss.hasPermi('system:commission:health:list')")
     public AjaxResult alerts() { return success(health.alerts()); }
 
     @PostMapping("/evidence/health")
-    @PreAuthorize("@ss.hasPermi('cps:health:import')")
+    @PreAuthorize("@ss.hasPermi('system:commission:health:add')")
     @Log(title = "导入健康检查证据", businessType = BusinessType.IMPORT, isSaveRequestData = false)
     public AjaxResult observe(@RequestBody HealthObservation observation) {
         health.record(observation, getUserId());

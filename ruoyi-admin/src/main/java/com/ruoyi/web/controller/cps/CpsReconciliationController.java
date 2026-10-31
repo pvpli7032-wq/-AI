@@ -25,44 +25,44 @@ public class CpsReconciliationController extends BaseController {
 
     public CpsReconciliationController(ReconciliationService service) { this.service = service; }
 
-    @PreAuthorize("@ss.hasPermi('cps:recon:list')")
+    @PreAuthorize("@ss.hasPermi('system:commission:recon:list')")
     @GetMapping("/batches")
     public AjaxResult batches(@RequestParam(required = false) String platform, @RequestParam(required = false) String period) {
         return success(service.batches(platform, period));
     }
 
-    @PreAuthorize("@ss.hasPermi('cps:recon:import')")
+    @PreAuthorize("@ss.hasPermi('system:commission:recon:add')")
     @Log(title = "导入对账证据", businessType = BusinessType.IMPORT)
     @PostMapping("/sources")
     public AjaxResult importSource(@RequestBody ReconImportRequest request) {
         return success(service.importSource(request, SecurityUtils.getUserId()));
     }
 
-    @PreAuthorize("@ss.hasPermi('cps:recon:list')")
+    @PreAuthorize("@ss.hasPermi('system:commission:recon:list')")
     @GetMapping("/sources")
     public AjaxResult sources(@RequestParam String platform, @RequestParam String period) {
         return success(service.sources(platform, period));
     }
 
-    @PreAuthorize("@ss.hasPermi('cps:recon:allocate')")
+    @PreAuthorize("@ss.hasPermi('system:commission:recon:add')")
     @Log(title = "财务确认到账覆盖", businessType = BusinessType.INSERT)
     @PostMapping("/coverage")
     public AjaxResult allocate(@RequestBody ReconCoverageRequest request) {
         return success(service.allocateReceipt(request, SecurityUtils.getUserId()));
     }
 
-    @PreAuthorize("@ss.hasPermi('cps:recon:run')")
+    @PreAuthorize("@ss.hasPermi('system:commission:recon:add')")
     @Log(title = "执行四边对账", businessType = BusinessType.OTHER)
     @PostMapping("/batches")
     public AjaxResult reconcile(@RequestBody RunRequest request) {
         return success(service.reconcile(request.platform(), request.period()));
     }
 
-    @PreAuthorize("@ss.hasPermi('cps:recon:list')")
+    @PreAuthorize("@ss.hasPermi('system:commission:recon:list')")
     @GetMapping("/batches/{id}/differences")
     public AjaxResult differences(@PathVariable Long id) { return success(service.differences(id)); }
 
-    @PreAuthorize("@ss.hasPermi('cps:recon:resolve')")
+    @PreAuthorize("@ss.hasPermi('system:commission:recon:edit')")
     @Log(title = "处理对账差异", businessType = BusinessType.UPDATE)
     @PostMapping("/differences/{id}/resolve")
     public AjaxResult resolve(@PathVariable Long id, @RequestBody ResolveRequest request) {

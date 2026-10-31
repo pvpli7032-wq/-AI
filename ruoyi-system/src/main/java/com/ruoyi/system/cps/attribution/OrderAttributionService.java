@@ -206,7 +206,8 @@ public class OrderAttributionService implements AttributionService {
 
     /** Durable retries use the same key; an unavailable settlement implementation is never success. */
     public int retrySettlement(int limit) {
-        List<Map<String,Object>> jobs=jdbc.queryForList("SELECT id,order_line_id FROM cps_attribution_settlement_outbox WHERE status='PENDING' ORDER BY id LIMIT ?",bounded(limit));
+        // Repeated failures must not permanently occupy the entire next batch.
+        List<Map<String,Object>> jobs=jdbc.queryForList("SELECT id,order_line_id FROM cps_attribution_settlement_outbox WHERE status='PENDING' ORDER BY attempts,id LIMIT ?",bounded(limit));
         int sent=0;
         for(Map<String,Object> job:jobs) {
             long jobId=((Number)job.get("id")).longValue(), orderId=((Number)job.get("order_line_id")).longValue();

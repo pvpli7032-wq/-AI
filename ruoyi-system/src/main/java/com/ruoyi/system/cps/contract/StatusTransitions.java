@@ -1,8 +1,7 @@
-package com.ruoyi.system.cps.order;
+package com.ruoyi.system.cps.contract;
 
 import java.util.Map;
 import java.util.Set;
-import com.ruoyi.system.cps.settlement.RebateStatus;
 /** The allowed transition table; DISPUTED may restore only its recorded previous state. */
 public final class StatusTransitions {
     private StatusTransitions() {}
@@ -15,5 +14,6 @@ public final class StatusTransitions {
         RebateStatus.ESTIMATED, Set.of(RebateStatus.FROZEN, RebateStatus.VOID),
         RebateStatus.FROZEN, Set.of(RebateStatus.CREDITED, RebateStatus.PAUSED, RebateStatus.PARTIALLY_RECOVERED, RebateStatus.FULLY_RECOVERED),
         RebateStatus.PAUSED, Set.of(RebateStatus.FROZEN),
-        RebateStatus.CREDITED, Set.of(RebateStatus.PARTIALLY_RECOVERED, RebateStatus.FULLY_RECOVERED));
+        RebateStatus.CREDITED, Set.of(RebateStatus.PARTIALLY_RECOVERED, RebateStatus.FULLY_RECOVERED),
+        RebateStatus.PARTIALLY_RECOVERED, Set.of(RebateStatus.FULLY_RECOVERED));
 }

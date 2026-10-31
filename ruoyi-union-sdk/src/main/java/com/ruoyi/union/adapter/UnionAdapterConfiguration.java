@@ -4,11 +4,14 @@ import java.util.Arrays;
 import java.util.Locale;
 import java.util.List;
 import org.springframework.core.env.Environment;
+import org.springframework.beans.factory.SmartInitializingSingleton;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /** Adapter selection settings. No platform implementation is supplied here. */
 @Component
-public class UnionAdapterConfiguration {
+public class UnionAdapterConfiguration implements SmartInitializingSingleton {
+    private List<UnionAdapter> adapters = List.of();
     private final Environment environment;
 
     public UnionAdapterConfiguration(Environment environment) {
@@ -21,12 +24,20 @@ public class UnionAdapterConfiguration {
         }
     }
 
+    @Autowired(required = false)
+    public void setAdapters(List<UnionAdapter> adapters) { this.adapters = adapters; }
+
+    @Override
+    public void afterSingletonsInstantiated() {
+        for (Platform platform : Platform.values()) select(platform, adapters);
+    }
+
     public AdapterKind kindFor(Platform platform) {
         String value = environment.getProperty("cps.union.adapter." + platform.name().toLowerCase(Locale.ROOT), "official");
         return AdapterKind.valueOf(value.trim().toUpperCase(Locale.ROOT));
     }
 
-    /** Resolve only when a later line asks for an adapter; no implementation is installed by this contract. */
+    /** Resolve exactly one implementation; the same check runs at application startup. */
     public UnionAdapter select(Platform platform, List<UnionAdapter> adapters) {
         List<UnionAdapter> matches = adapters.stream()
             .filter(adapter -> adapter.platform() == platform && adapter.kind() == kindFor(platform)).toList();
@@ -36,6 +47,7 @@ public class UnionAdapterConfiguration {
         return matches.get(0);
     }
 
+    /** Mock is allowed only with dev or test, and never with prod/production. */
     private boolean mockAllowed() {
         String[] profiles = environment.getActiveProfiles();
         boolean nonProduction = Arrays.stream(profiles).anyMatch(p -> p.equalsIgnoreCase("dev") || p.equalsIgnoreCase("test"));

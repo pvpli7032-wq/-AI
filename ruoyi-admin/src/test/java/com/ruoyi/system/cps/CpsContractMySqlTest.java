@@ -60,4 +60,12 @@ public class CpsContractMySqlTest {
         assertEquals("b", orders.selectByOrderLineKey("line8-order", "tbk", "b").getSubOrderNo());
         assertThrows(org.springframework.dao.DuplicateKeyException.class, () -> jdbc.update("INSERT INTO sys_order_commission(order_id, platform_type, sub_order_no, agent_user_id) VALUES ('line8-order','tbk','a',1)"));
     }
+    @Test public void duplicateEventsAndWithdrawalPostingsAreRejected() {
+        jdbc.update("INSERT INTO cps_order_event(event_key,order_line_id,to_status,source,created_at) VALUES ('event-1',1,'PENALIZED','test',NOW())");
+        assertThrows(org.springframework.dao.DuplicateKeyException.class, () -> jdbc.update("INSERT INTO cps_order_event(event_key,order_line_id,to_status,source,created_at) VALUES ('event-1',1,'PENALIZED','test',NOW())"));
+        jdbc.update("INSERT INTO sys_commission_flow(user_id,flow_type,amount,business_type,business_id,account,debit_account,credit_account,idempotency_key) VALUES (1,'withdraw',10,'WITHDRAW','withdraw-1','USER_AVAILABLE','USER_AVAILABLE','USER_WITHDRAWING','withdraw-request-1')");
+        assertThrows(org.springframework.dao.DuplicateKeyException.class, () -> jdbc.update("INSERT INTO sys_commission_flow(user_id,flow_type,amount,business_type,business_id,account,debit_account,credit_account,idempotency_key) VALUES (1,'withdraw',10,'WITHDRAW','withdraw-1','USER_AVAILABLE','USER_AVAILABLE','USER_WITHDRAWING','withdraw-request-2')"));
+        assertThrows(org.springframework.dao.DuplicateKeyException.class, () -> jdbc.update("INSERT INTO sys_commission_flow(user_id,flow_type,amount,business_type,business_id,account,idempotency_key) VALUES (1,'withdraw',10,'WITHDRAW','withdraw-2','USER_AVAILABLE','withdraw-request-1')"));
+    }
+
 }

@@ -14,6 +14,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="id"    column="id"    />
         <result property="orderId"    column="order_id"    />
         <result property="subOrderNo" column="sub_order_no" />
+        <result property="rawStatus" column="raw_status" />
+        <result property="pid" column="pid" />
+        <result property="attributionToken" column="attribution_token" />
+        <result property="paidTime" column="paid_time" />
+        <result property="lineStatus" column="line_status" />
         <result property="receivedTime" column="received_time" />
         <result property="platformType"    column="platform_type"    />
         <result property="itemId"    column="item_id"    />
@@ -42,7 +47,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </resultMap>
 
     <sql id="selectSysOrderCommissionVo">
-        select id, order_id, sub_order_no, received_time, platform_type, item_id, item_title, order_amount,
+        select id, order_id, sub_order_no, received_time, raw_status, pid, attribution_token, paid_time, line_status, platform_type, item_id, item_title, order_amount,
                total_commission, agent_user_id, 
                self_commission_rate, self_commission_amount, 
                has_referrer, referrer_user_id,
@@ -86,11 +91,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where id = #{id}
     </select>
 
+    <!-- 旧入口仅服务无子单订单；线 10 接入后必须使用 selectByOrderLineKey。 -->
     <select id="selectSysOrderCommissionByOrderIdAndPlatformType" resultMap="SysOrderCommissionResult">
         <include refid="selectSysOrderCommissionVo"/>
         where order_id = #{orderId} and platform_type = #{platformType} and sub_order_no = ''
     </select>
 
+    <!-- 完整订单行键；线 10 必须使用此入口。 -->
     <select id="selectByOrderLineKey" resultMap="SysOrderCommissionResult">
         <include refid="selectSysOrderCommissionVo"/>
         where order_id = #{orderId} and platform_type = #{platformType} and sub_order_no = #{subOrderNo}
@@ -101,6 +108,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <trim prefix="(" suffix=")" suffixOverrides=",">
             <if test="orderId != null and orderId != ''">order_id,</if>
             <if test="subOrderNo != null">sub_order_no,</if>
+            <if test="rawStatus != null">raw_status,</if>
+            <if test="pid != null">pid,</if>
+            <if test="attributionToken != null">attribution_token,</if>
+            <if test="paidTime != null">paid_time,</if>
+            <if test="lineStatus != null">line_status,</if>
             <if test="receivedTime != null">received_time,</if>
             <if test="platformType != null and platformType != ''">platform_type,</if>
             <if test="itemId != null and itemId != ''">item_id,</if>
@@ -130,6 +142,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <trim prefix="values (" suffix=")" suffixOverrides=",">
             <if test="orderId != null and orderId != ''">#{orderId},</if>
             <if test="subOrderNo != null">#{subOrderNo},</if>
+            <if test="rawStatus != null">#{rawStatus},</if>
+            <if test="pid != null">#{pid},</if>
+            <if test="attributionToken != null">#{attributionToken},</if>
+            <if test="paidTime != null">#{paidTime},</if>
+            <if test="lineStatus != null">#{lineStatus},</if>
             <if test="receivedTime != null">#{receivedTime},</if>
             <if test="platformType != null and platformType != ''">#{platformType},</if>
             <if test="itemId != null and itemId != ''">#{itemId},</if>
@@ -168,6 +185,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <trim prefix="SET" suffixOverrides=",">
             <if test="orderId != null and orderId != ''">order_id = #{orderId},</if>
             <if test="subOrderNo != null">sub_order_no = #{subOrderNo},</if>
+            <if test="rawStatus != null">raw_status = #{rawStatus},</if>
+            <if test="pid != null">pid = #{pid},</if>
+            <if test="attributionToken != null">attribution_token = #{attributionToken},</if>
+            <if test="paidTime != null">paid_time = #{paidTime},</if>
+            <if test="lineStatus != null">line_status = #{lineStatus},</if>
             <if test="receivedTime != null">received_time = #{receivedTime},</if>
             <if test="platformType != null and platformType != ''">platform_type = #{platformType},</if>
             <if test="itemId != null and itemId != ''">item_id = #{itemId},</if>

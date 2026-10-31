@@ -99,6 +99,10 @@ jobs:
         env:
           MYSQL_CONTAINER: ${{ job.services.mysql.id }}
           REDIS_CONTAINER: ${{ job.services.redis.id }}
+          SPRING_PROFILES_ACTIVE: druid,test
+          CPS_UNION_ADAPTER_TBK: mock
+          CPS_UNION_ADAPTER_JD: mock
+          CPS_UNION_ADAPTER_PDD: mock
           TOKEN_SECRET: ci-only-token-secret-never-use-in-production-0123456789
           DB_USERNAME: cps_ci
           DB_PASSWORD: ci-only-app-not-for-production

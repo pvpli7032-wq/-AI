@@ -8,9 +8,9 @@ import org.springframework.mock.env.MockEnvironment;
 import com.ruoyi.system.cps.attribution.AttributionService;
 import com.ruoyi.system.cps.ledger.LedgerService;
 import com.ruoyi.system.cps.order.OrderStatusMapper;
-import com.ruoyi.system.cps.order.OrderStatus;
-import com.ruoyi.system.cps.order.StatusTransitions;
-import com.ruoyi.system.cps.settlement.RebateStatus;
+import com.ruoyi.system.cps.contract.OrderStatus;
+import com.ruoyi.system.cps.contract.StatusTransitions;
+import com.ruoyi.system.cps.contract.RebateStatus;
 import com.ruoyi.system.cps.settlement.SettlementService;
 import com.ruoyi.system.cps.settlement.RebateStatusMapper;
 import com.ruoyi.system.cps.withdraw.WithdrawChannel;
@@ -33,7 +33,7 @@ public class ContractInjectionTest {
                 public Page<UnionCase> fetchPenalties(TimeWindow window, String cursor) { return null; }
             });
             context.registerBean(OrderStatusMapper.class, () -> (platform, status) -> null);
-            context.registerBean(AttributionService.class, () -> line -> null);
+            context.registerBean(AttributionService.class, () -> (orderLineId, line) -> null);
             context.registerBean(RebateStatusMapper.class, () -> (event, current) -> null);
             context.registerBean(SettlementService.class, () -> event -> {});
             context.registerBean(LedgerService.class, () -> command -> null);
@@ -65,6 +65,21 @@ public class ContractInjectionTest {
         assertThrows(IllegalStateException.class, () -> new UnionAdapterConfiguration(implicit));
     }
 
+    @Test public void productionStartupRejectsMockAndMissingOfficialAdapter() {
+        MockEnvironment prodMock = new MockEnvironment().withProperty("cps.union.adapter.tbk", "mock");
+        prodMock.setActiveProfiles("prod");
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(UnionAdapterConfiguration.class, () -> new UnionAdapterConfiguration(prodMock));
+            assertThrows(Exception.class, context::refresh);
+        }
+        MockEnvironment prodDefault = new MockEnvironment();
+        prodDefault.setActiveProfiles("prod");
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(UnionAdapterConfiguration.class, () -> new UnionAdapterConfiguration(prodDefault));
+            assertThrows(IllegalStateException.class, context::refresh);
+        }
+    }
+
     @Test public void sharedTransitionsKeepTerminalStatesAndDisputesExplicit() {
         assertTrue(StatusTransitions.ORDER.get(OrderStatus.PAID).contains(OrderStatus.RECEIVED));
         assertFalse(StatusTransitions.ORDER.get(OrderStatus.PAID).contains(OrderStatus.SETTLED));
@@ -73,5 +88,6 @@ public class ContractInjectionTest {
         assertTrue(StatusTransitions.REBATE.get(RebateStatus.FROZEN).contains(RebateStatus.PAUSED));
         assertTrue(StatusTransitions.REBATE.get(RebateStatus.PAUSED).contains(RebateStatus.FROZEN));
         assertFalse(StatusTransitions.REBATE.containsKey(RebateStatus.VOID));
+        assertTrue(StatusTransitions.REBATE.get(RebateStatus.PARTIALLY_RECOVERED).contains(RebateStatus.FULLY_RECOVERED));
     }
 }

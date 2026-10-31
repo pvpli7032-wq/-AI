@@ -3,8 +3,6 @@ package com.ruoyi.system.service.impl;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Date;
-import java.util.Map;
-import java.util.TreeMap;
 import java.util.TreeSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
@@ -85,6 +83,7 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         orderCommission.setEstimatedCommission(estimatedCommission);
         orderCommission.setCommissionRate(commissionRate);
         orderCommission.setBuyerUserId(buyerUserId);
+        orderCommission.setAgentUserId(buyerUserId);
         // 将String类型的orderTime转换为Date类型
         try {
             java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
@@ -126,12 +125,12 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
                 // 计算自购佣金（购买者获得）
                 BigDecimal selfCommissionAmount = estimatedCommission
                     .multiply(selfRate)
-                    .divide(new BigDecimal("100"), 2, RoundingMode.DOWN);
+                    .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
                 
                 // 计算推广佣金（推荐人获得）
                 BigDecimal promotionCommissionAmount = estimatedCommission
                     .multiply(promotionRate)
-                    .divide(new BigDecimal("100"), 2, RoundingMode.DOWN);
+                    .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
                 
                 orderCommission.setSelfCommissionRate(selfRate);
                 orderCommission.setSelfCommissionAmount(selfCommissionAmount);
@@ -146,7 +145,7 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
                 
                 BigDecimal selfCommissionAmount = estimatedCommission
                     .multiply(selfRate)
-                    .divide(new BigDecimal("100"), 2, RoundingMode.DOWN);
+                    .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
                 
                 orderCommission.setSelfCommissionRate(selfRate);
                 orderCommission.setSelfCommissionAmount(selfCommissionAmount);
@@ -161,7 +160,7 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
             
             BigDecimal selfCommissionAmount = estimatedCommission
                 .multiply(selfRate)
-                .divide(new BigDecimal("100"), 2, RoundingMode.DOWN);
+                .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
             
             orderCommission.setSelfCommissionRate(selfRate);
             orderCommission.setSelfCommissionAmount(selfCommissionAmount);
@@ -195,7 +194,6 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         {
             throw new ServiceException("实际佣金必须为非负金额");
         }
-        actualCommission = actualCommission.setScale(2, RoundingMode.DOWN);
         if ("refunded".equals(orderCommission.getOrderStatus())
             || "cancelled".equals(orderCommission.getOrderStatus()))
         {
@@ -221,20 +219,20 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         }
         lockPostingAccounts(orderCommission);
 
-        // 更新实际佣金
+        // 保留联盟实际佣金原值，仅用户分成金额舍入到分。
         orderCommission.setActualCommission(actualCommission);
         
         // 重新计算实际分成金额（按实际佣金比例分配）
         BigDecimal actualSelfAmount = actualCommission
             .multiply(orderCommission.getSelfCommissionRate())
-            .divide(new BigDecimal("100"), 2, RoundingMode.DOWN);
+            .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
         
         BigDecimal actualPromotionAmount = BigDecimal.ZERO;
         if ("1".equals(orderCommission.getHasReferrer()) && orderCommission.getReferrerUserId() != null)
         {
             actualPromotionAmount = actualCommission
                 .multiply(orderCommission.getPromotionCommissionRate())
-                .divide(new BigDecimal("100"), 2, RoundingMode.DOWN);
+                .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
         }
 
         orderCommission.setSelfCommissionAmount(actualSelfAmount);
@@ -291,25 +289,21 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         }
         lockPostingAccounts(orderCommission);
 
-        // 同一受益人按订单只写一笔退款；余额不足仍记录负余额，不丢弃追回。
-        Map<Long, BigDecimal> refunds = new TreeMap<>();
+        // 自购与推广分别追加退款流水并回退对应统计；余额不足仍记录负余额。
         BigDecimal selfAmount = orderCommission.getSelfCommissionAmount();
         if (selfAmount != null && selfAmount.signum() > 0)
         {
-            refunds.merge(orderCommission.getBuyerUserId(), selfAmount.negate(), BigDecimal::add);
+            updateUserAccount(orderCommission.getBuyerUserId(), selfAmount.negate(), "refund_self",
+                orderCommission.getId(), "订单退款扣减自购佣金");
         }
         if ("1".equals(orderCommission.getHasReferrer()) && orderCommission.getReferrerUserId() != null)
         {
             BigDecimal promotionAmount = orderCommission.getPromotionCommissionAmount();
             if (promotionAmount != null && promotionAmount.signum() > 0)
             {
-                refunds.merge(orderCommission.getReferrerUserId(), promotionAmount.negate(), BigDecimal::add);
+                updateUserAccount(orderCommission.getReferrerUserId(), promotionAmount.negate(), "refund_promotion",
+                    orderCommission.getId(), "订单退款扣减推广佣金");
             }
-        }
-        for (Map.Entry<Long, BigDecimal> refund : refunds.entrySet())
-        {
-            updateUserAccount(refund.getKey(), refund.getValue(), "refund", orderCommission.getId(),
-                "订单退款扣减佣金");
         }
 
         // 更新订单状态
@@ -338,12 +332,13 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
             throw new ServiceException("入账必须提供有效用户、金额和唯一业务编号");
         }
         boolean income = "income_self".equals(flowType) || "income_promotion".equals(flowType);
-        boolean debit = "refund".equals(flowType) || "withdraw".equals(flowType);
+        boolean debit = "refund_self".equals(flowType) || "refund_promotion".equals(flowType)
+            || "withdraw".equals(flowType);
         if ((!income && !debit) || (income && amount.signum() < 0) || (debit && amount.signum() > 0))
         {
             throw new ServiceException("流水类型或金额方向不正确");
         }
-        amount = amount.setScale(2, RoundingMode.DOWN);
+        amount = amount.setScale(2, RoundingMode.HALF_UP);
         accountMapper.ensureAccount(userId);
         SysAgentCommissionAccount account = accountMapper.selectByUserIdForUpdate(userId);
         if (account == null)
@@ -369,10 +364,18 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
             account.setPromotionEarned(account.getPromotionEarned().add(amount));
             account.setBalance(account.getBalance().add(amount));
         }
-        else if ("refund".equals(flowType))
+        else if ("refund_self".equals(flowType))
         {
-            // 退款扣减
+            // 自购退款扣减
             account.setTotalEarned(account.getTotalEarned().add(amount)); // amount为负数
+            account.setSelfEarned(account.getSelfEarned().add(amount)); // amount为负数
+            account.setBalance(account.getBalance().add(amount)); // amount为负数
+        }
+        else if ("refund_promotion".equals(flowType))
+        {
+            // 推广退款扣减
+            account.setTotalEarned(account.getTotalEarned().add(amount)); // amount为负数
+            account.setPromotionEarned(account.getPromotionEarned().add(amount)); // amount为负数
             account.setBalance(account.getBalance().add(amount)); // amount为负数
         }
         else if ("withdraw".equals(flowType))

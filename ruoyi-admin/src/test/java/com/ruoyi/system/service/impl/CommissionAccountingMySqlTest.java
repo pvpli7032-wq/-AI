@@ -33,10 +33,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.ruoyi.system.domain.SysAgentCommissionAccount;
 import com.ruoyi.system.domain.SysAgentCommissionConfig;
 import com.ruoyi.system.domain.SysCommissionFlow;
+import com.ruoyi.system.domain.SysOrderCommission;
+import com.ruoyi.system.domain.SysTbkAgentApply;
+import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.system.mapper.SysAgentCommissionAccountMapper;
 import com.ruoyi.system.mapper.SysAgentCommissionConfigMapper;
+import com.ruoyi.system.mapper.SysCommissionConfigMapper;
 import com.ruoyi.system.mapper.SysCommissionFlowMapper;
 import com.ruoyi.system.mapper.SysOrderCommissionMapper;
+import com.ruoyi.system.mapper.SysTbkAgentApplyMapper;
 import com.ruoyi.system.service.ICommissionCalculateService;
 
 import static org.junit.Assert.assertEquals;
@@ -44,7 +49,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assume.assumeTrue;
 
 /**
  * Real MySQL acceptance for line 4. No in-memory database or hand-written schema
@@ -54,8 +58,8 @@ import static org.junit.Assume.assumeTrue;
  * MySQL 8 server. The connection must be allowed to create/drop a database and
  * create a trigger. Only a fresh, randomly named line4_commission_* database is
  * migrated, populated and dropped; the URL's existing database is never changed.
- * Without LINE4_MYSQL_URL this optional integration suite is reported as skipped,
- * so acceptance must supply it and check that this suite actually executed.
+ * LINE4_MYSQL_URL is required: missing MySQL configuration fails acceptance
+ * explicitly rather than reporting this accounting suite as skipped.
  */
 public class CommissionAccountingMySqlTest
 {
@@ -72,13 +76,14 @@ public class CommissionAccountingMySqlTest
     private static SysAgentCommissionAccountMapper accounts;
     private static SysAgentCommissionConfigMapper configs;
     private static SysCommissionFlowMapper flows;
+    private static SysOrderCommissionMapper orders;
     private static SysAgentCommissionAccountServiceImpl accountService;
 
     @BeforeClass
     public static void migrateIsolatedMySqlDatabase() throws Exception
     {
         adminUrl = System.getenv("LINE4_MYSQL_URL");
-        assumeTrue("LINE4_MYSQL_URL is required to execute real MySQL acceptance",
+        assertTrue("LINE4_MYSQL_URL is required to execute real MySQL acceptance",
             adminUrl != null && !adminUrl.isBlank());
         assertTrue("This suite requires MySQL rather than an in-memory substitute",
             adminUrl.startsWith("jdbc:mysql://"));
@@ -109,18 +114,21 @@ public class CommissionAccountingMySqlTest
 
         SqlSessionFactoryBean factoryBean = new SqlSessionFactoryBean();
         factoryBean.setDataSource(dataSource);
+        factoryBean.setTypeAliases(SysTbkAgentApply.class, SysUser.class);
         factoryBean.setMapperLocations(
             new ClassPathResource("mapper/system/SysAgentCommissionAccountMapper.xml"),
             new ClassPathResource("mapper/system/SysCommissionFlowMapper.xml"),
             new ClassPathResource("mapper/system/SysOrderCommissionMapper.xml"),
-            new ClassPathResource("mapper/system/SysAgentCommissionConfigMapper.xml"));
+            new ClassPathResource("mapper/system/SysAgentCommissionConfigMapper.xml"),
+            new ClassPathResource("mapper/system/SysCommissionConfigMapper.xml"),
+            new ClassPathResource("mapper/system/SysTbkAgentApplyMapper.xml"));
         SqlSessionFactory factory = factoryBean.getObject();
         assertNotNull(factory);
         SqlSessionTemplate sessions = new SqlSessionTemplate(factory);
         accounts = sessions.getMapper(SysAgentCommissionAccountMapper.class);
         configs = sessions.getMapper(SysAgentCommissionConfigMapper.class);
         flows = sessions.getMapper(SysCommissionFlowMapper.class);
-        SysOrderCommissionMapper orders = sessions.getMapper(SysOrderCommissionMapper.class);
+        orders = sessions.getMapper(SysOrderCommissionMapper.class);
 
         DataSourceTransactionManager manager = new DataSourceTransactionManager(dataSource);
         transactions = new TransactionTemplate(manager);
@@ -128,6 +136,8 @@ public class CommissionAccountingMySqlTest
         ReflectionTestUtils.setField(target, "accountMapper", accounts);
         ReflectionTestUtils.setField(target, "flowMapper", flows);
         ReflectionTestUtils.setField(target, "orderCommissionMapper", orders);
+        ReflectionTestUtils.setField(target, "commissionConfigMapper", sessions.getMapper(SysCommissionConfigMapper.class));
+        ReflectionTestUtils.setField(target, "agentApplyMapper", sessions.getMapper(SysTbkAgentApplyMapper.class));
         TransactionInterceptor interceptor = new TransactionInterceptor();
         interceptor.setTransactionManager(manager);
         interceptor.setTransactionAttributeSource(new AnnotationTransactionAttributeSource());
@@ -152,6 +162,129 @@ public class CommissionAccountingMySqlTest
                 statement.execute("DROP DATABASE IF EXISTS `" + database + "`");
             }
         }
+    }
+
+    @Test
+    public void calculatedOrderSettlesAndRefundsThroughRealMappersWithoutLosingAlliancePrecision()
+    {
+        long buyerId = nextId();
+        long referrerId = nextId();
+        insertAgent(referrerId, null);
+        insertAgent(buyerId, invitation(referrerId));
+        configureLifecycleRates();
+
+        SysOrderCommission calculated = commissions.calculateCommission(
+            "line4-lifecycle-" + nextId(), "tbk", "synthetic-item", "line4 synthetic order",
+            money("99.99"), money("1.2399"), money("12.34"), buyerId, "2026-10-01 10:11:12");
+        assertNotNull(calculated.getId());
+        SysOrderCommission stored = orders.selectSysOrderCommissionById(calculated.getId());
+        assertEquals(Long.valueOf(buyerId), stored.getBuyerUserId());
+        assertEquals(Long.valueOf(buyerId), stored.getAgentUserId());
+        assertEquals(Long.valueOf(referrerId), stored.getReferrerUserId());
+        assertMoney("1.2399", stored.getEstimatedCommission());
+        assertMoney("12.34", stored.getCommissionRate());
+        assertEquals(calculated.getOrderTime(), stored.getOrderTime());
+        assertEquals("unsettled", stored.getSettleStatus());
+        assertMoney("0.62", stored.getSelfCommissionAmount());
+        assertMoney("0.12", stored.getPromotionCommissionAmount());
+        assertNull(accounts.selectByUserId(buyerId));
+        assertNull(accounts.selectByUserId(referrerId));
+        assertEquals(0L, count("SELECT COUNT(*) FROM sys_commission_flow WHERE order_commission_id = ?",
+            stored.getId()));
+
+        SysOrderCommission sameOrder = commissions.calculateCommission(
+            stored.getOrderId(), "tbk", "synthetic-item", "line4 synthetic order",
+            money("99.99"), money("1.2399"), money("12.34"), buyerId, "2026-10-01 10:11:12");
+        assertEquals(stored.getId(), sameOrder.getId());
+        assertEquals(1L, count("SELECT COUNT(*) FROM sys_order_commission WHERE order_id = ? AND platform_type = 'tbk'",
+            stored.getOrderId()));
+
+        assertTrue(commissions.settleOrder(stored.getId(), money("1.2501")));
+        assertTrue(commissions.settleOrder(stored.getId(), money("1.2501")));
+        assertLedger(buyerId, "0.63", 1);
+        assertLedger(referrerId, "0.13", 1);
+        assertAccountTotals(buyerId, "0.63", "0.63", "0.00");
+        assertAccountTotals(referrerId, "0.13", "0.00", "0.13");
+        stored = orders.selectSysOrderCommissionById(stored.getId());
+        assertMoney("1.2501", stored.getActualCommission());
+        assertEquals("settled", stored.getSettleStatus());
+        assertEquals("confirmed", stored.getOrderStatus());
+        assertNotNull(stored.getSettleTime());
+        assertMoney("1.2501", jdbc.queryForObject(
+            "SELECT actual_commission FROM sys_order_commission WHERE id = ?", BigDecimal.class, stored.getId()));
+
+        final Long orderId = stored.getId();
+        assertThrows(RuntimeException.class, () -> commissions.settleOrder(orderId, money("1.2502")));
+        assertLedger(buyerId, "0.63", 1);
+        assertLedger(referrerId, "0.13", 1);
+
+        SysOrderCommission ordinaryUpdate = new SysOrderCommission();
+        ordinaryUpdate.setId(orderId);
+        ordinaryUpdate.setRemark("line4 synthetic audit note");
+        ordinaryUpdate.setActualCommission(money("987.6543"));
+        ordinaryUpdate.setSettleStatus("unsettled");
+        assertEquals(1, orders.updateSysOrderCommission(ordinaryUpdate));
+        stored = orders.selectSysOrderCommissionById(orderId);
+        assertEquals("line4 synthetic audit note", stored.getRemark());
+        assertEquals("settled", stored.getSettleStatus());
+        assertMoney("1.2501", stored.getActualCommission());
+
+        assertTrue(commissions.refundOrder(orderId));
+        assertTrue(commissions.refundOrder(orderId));
+        assertLedger(buyerId, "0.00", 2);
+        assertLedger(referrerId, "0.00", 2);
+        assertAccountTotals(buyerId, "0.00", "0.00", "0.00");
+        assertAccountTotals(referrerId, "0.00", "0.00", "0.00");
+        assertFlow(buyerId, orderId, "income_self", "0.63");
+        assertFlow(buyerId, orderId, "refund_self", "-0.63");
+        assertFlow(referrerId, orderId, "income_promotion", "0.13");
+        assertFlow(referrerId, orderId, "refund_promotion", "-0.13");
+        stored = orders.selectSysOrderCommissionById(orderId);
+        assertEquals("refunded", stored.getOrderStatus());
+        assertEquals("settled", stored.getSettleStatus());
+        assertMoney("1.2501", stored.getActualCommission());
+        assertThrows(RuntimeException.class, () -> commissions.settleOrder(orderId, money("1.2501")));
+    }
+
+    @Test
+    public void calculatedOrderWithOneBeneficiaryReversesSelfAndPromotionStatisticsSeparately()
+    {
+        long userId = nextId();
+        insertAgent(userId, invitation(userId));
+        configureLifecycleRates();
+        SysOrderCommission order = commissions.calculateCommission(
+            "line4-same-beneficiary-" + nextId(), "tbk", "synthetic-item", "line4 synthetic order",
+            money("99.99"), money("1.2399"), money("12.34"), userId, "2026-10-01 10:11:12");
+
+        assertTrue(commissions.settleOrder(order.getId(), money("1.2501")));
+        assertLedger(userId, "0.76", 2);
+        assertAccountTotals(userId, "0.76", "0.63", "0.13");
+        assertTrue(commissions.refundOrder(order.getId()));
+        assertTrue(commissions.refundOrder(order.getId()));
+        assertLedger(userId, "0.00", 4);
+        assertAccountTotals(userId, "0.00", "0.00", "0.00");
+        assertFlow(userId, order.getId(), "refund_self", "-0.63");
+        assertFlow(userId, order.getId(), "refund_promotion", "-0.13");
+    }
+
+    @Test
+    public void backOfficeOrderWithoutBuyerPersistsAgentAsBuyer()
+    {
+        long userId = nextId();
+        SysOrderCommission order = new SysOrderCommission();
+        order.setOrderId("line4-backoffice-" + nextId());
+        order.setPlatformType("tbk");
+        order.setAgentUserId(userId);
+        order.setEstimatedCommission(money("1.2399"));
+        order.setCommissionRate(money("12.34"));
+        order.setRemark("line4 synthetic back-office order");
+
+        assertEquals(1, orders.insertSysOrderCommission(order));
+        SysOrderCommission stored = orders.selectSysOrderCommissionById(order.getId());
+        assertEquals(Long.valueOf(userId), stored.getBuyerUserId());
+        assertMoney("1.2399", stored.getEstimatedCommission());
+        assertMoney("12.34", stored.getCommissionRate());
+        assertEquals("line4 synthetic back-office order", stored.getRemark());
     }
 
     @Test
@@ -453,6 +586,47 @@ public class CommissionAccountingMySqlTest
         assertThrows(DataAccessException.class, () -> flows.deleteSysCommissionFlowById(flowId));
         assertThrows(DataAccessException.class, () -> flows.deleteSysCommissionFlowByIds(new Long[] {flowId}));
         assertLedger(userId, "1.91", 1);
+    }
+
+    private static String invitation(long userId)
+    {
+        return "test-" + userId;
+    }
+
+    private static void insertAgent(long userId, String referrerInvitation)
+    {
+        jdbc.update("INSERT INTO sys_tbk_agent_apply "
+                + "(user_id, mini_app_id, real_name, phone, wechat, invitation_code, referrer_invitation_code, status) "
+                + "VALUES (?, ?, 'line4 synthetic agent', 'test-phone', 'test-wechat', ?, ?, '1')",
+            userId, "line4-synthetic-miniapp-" + userId, invitation(userId), referrerInvitation);
+    }
+
+    private static void configureLifecycleRates()
+    {
+        jdbc.update("INSERT INTO sys_commission_config (config_key, config_value) VALUES ('self_rate', 50.00) "
+            + "ON DUPLICATE KEY UPDATE config_value = 50.00");
+        jdbc.update("INSERT INTO sys_commission_config (config_key, config_value) VALUES ('promotion_rate', 10.00) "
+            + "ON DUPLICATE KEY UPDATE config_value = 10.00");
+    }
+
+    private static void assertAccountTotals(long userId, String total, String self, String promotion)
+    {
+        SysAgentCommissionAccount account = accounts.selectByUserId(userId);
+        assertNotNull(account);
+        assertMoney(total, account.getTotalEarned());
+        assertMoney(self, account.getSelfEarned());
+        assertMoney(promotion, account.getPromotionEarned());
+        assertMoney("0.00", account.getWithdrawn());
+        assertMoney("0.00", account.getFrozenAmount());
+    }
+
+    private static void assertFlow(long userId, long orderId, String flowType, String amount)
+    {
+        assertEquals(1L, count("SELECT COUNT(*) FROM sys_commission_flow "
+            + "WHERE user_id = ? AND order_commission_id = ? AND flow_type = ?", userId, orderId, flowType));
+        assertMoney(amount, jdbc.queryForObject("SELECT amount FROM sys_commission_flow "
+            + "WHERE user_id = ? AND order_commission_id = ? AND flow_type = ?",
+            BigDecimal.class, userId, orderId, flowType));
     }
 
     private static long insertOrder(long buyerId, String selfRate, Long referrerId, String promotionRate)

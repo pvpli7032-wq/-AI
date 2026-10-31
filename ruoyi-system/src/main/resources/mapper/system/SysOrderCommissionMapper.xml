@@ -22,6 +22,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="platformAmount"    column="platform_amount"    />
         <result property="orderStatus"    column="order_status"    />
         <result property="settleTime"    column="settle_time"    />
+        <result property="estimatedCommission"    column="estimated_commission"    />
+        <result property="commissionRate"    column="commission_rate"    />
+        <result property="buyerUserId"    column="buyer_user_id"    />
+        <result property="orderTime"    column="order_time"    />
+        <result property="settleStatus"    column="settle_status"    />
+        <result property="actualCommission"    column="actual_commission"    />
+        <result property="remark"    column="remark"    />
         <result property="createTime"    column="create_time"    />
         <result property="updateTime"    column="update_time"    />
     </resultMap>
@@ -32,7 +39,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                self_commission_rate, self_commission_amount, 
                has_referrer, referrer_user_id,
                promotion_commission_rate, promotion_commission_amount, platform_amount,
-               order_status, settle_time, 
+               order_status, settle_time,
+               estimated_commission, commission_rate, buyer_user_id, order_time,
+               settle_status, actual_commission, remark,
                create_time, update_time
         from sys_order_commission
     </sql>
@@ -93,6 +102,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="platformAmount != null">platform_amount,</if>
             <if test="orderStatus != null">order_status,</if>
             <if test="settleTime != null">settle_time,</if>
+            <if test="estimatedCommission != null">estimated_commission,</if>
+            <if test="commissionRate != null">commission_rate,</if>
+            <if test="buyerUserId != null or agentUserId != null">buyer_user_id,</if>
+            <if test="orderTime != null">order_time,</if>
+            <if test="settleStatus != null">settle_status,</if>
+            <if test="actualCommission != null">actual_commission,</if>
+            <if test="remark != null">remark,</if>
             <if test="createTime != null">create_time,</if>
             <if test="updateTime != null">update_time,</if>
          </trim>
@@ -113,6 +129,18 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="platformAmount != null">#{platformAmount},</if>
             <if test="orderStatus != null">#{orderStatus},</if>
             <if test="settleTime != null">#{settleTime},</if>
+            <if test="estimatedCommission != null">#{estimatedCommission},</if>
+            <if test="commissionRate != null">#{commissionRate},</if>
+            <if test="buyerUserId != null or agentUserId != null">
+                <choose>
+                    <when test="buyerUserId != null">#{buyerUserId},</when>
+                    <otherwise>#{agentUserId},</otherwise>
+                </choose>
+            </if>
+            <if test="orderTime != null">#{orderTime},</if>
+            <if test="settleStatus != null">#{settleStatus},</if>
+            <if test="actualCommission != null">#{actualCommission},</if>
+            <if test="remark != null">#{remark},</if>
             <if test="createTime != null">#{createTime},</if>
             <if test="updateTime != null">#{updateTime},</if>
          </trim>
@@ -137,6 +165,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="platformAmount != null">platform_amount = #{platformAmount},</if>
             <if test="orderStatus != null">order_status = #{orderStatus},</if>
             <if test="settleTime != null">settle_time = #{settleTime},</if>
+            <if test="estimatedCommission != null">estimated_commission = #{estimatedCommission},</if>
+            <if test="commissionRate != null">commission_rate = #{commissionRate},</if>
+            <if test="buyerUserId != null">buyer_user_id = #{buyerUserId},</if>
+            <if test="orderTime != null">order_time = #{orderTime},</if>
+            <if test="remark != null">remark = #{remark},</if>
             <if test="updateTime != null">update_time = #{updateTime},</if>
         </trim>
         where id = #{id}

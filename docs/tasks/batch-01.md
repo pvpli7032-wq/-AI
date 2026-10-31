@@ -54,6 +54,9 @@ PR 里贴原始输出，并列出 `ruoyi-system`、`ruoyi-admin` 是否都编译
 - 以 `sql/cps-202604112202-mt.sql` 为准生成 V1 基线，表全部保留。`sys_tbk_agent_apply` 两版定义以它为准，原有 SQL 文件不删。
 - 开启 Flyway 的 `out-of-order`，多条线并行时脚本合并顺序不固定。
 - 新增一个迁移脚本，补齐代码用到但建表语句缺失的字段，包括 `sys_order_commission` 的 `buyer_user_id`、`estimated_commission`、`commission_rate`、`actual_commission`，`sys_commission_flow` 的 `related_order_id`、`description`。逐一核对实体、Mapper 和建表语句，列出全部差异。
+- 字段类型：`settle_status` 是 `VARCHAR(20) NOT NULL DEFAULT 'unsettled'`，代码写的是 `unsettled`、`settled`，不是单字符。佣金金额列 `DECIMAL(14,4)`。
+- 不把 `sys_commission_config` 默认比例改成与代码回退值矛盾的值；种子数据和代码回退的处理在 T04。
+- `docs/deploy-test.md` 写明部署后必须改 admin 口令，`V1` 的 `initPasswordModify` 设为 1。
 
 **验收：** CI 用空库执行迁移，以测试用环境变量启动 `ruoyi-admin`，请求 `/captchaImage` 返回 200。
 
@@ -83,7 +86,14 @@ PR 里贴原始输出，并列出 `ruoyi-system`、`ruoyi-admin` 是否都编译
 **不能动：** 现有接口路径和页面流程。未登录用户现有的商品浏览保持可用。
 
 **要求：**
+- `MiniappAuthController.java:167` 改用带 userId 和 deptId 的 `LoginUser` 构造函数，加跨用户隔离测试，上线时失效现有 Redis 登录态。这一项单独提小 PR，线 4 合并前必须完成。
 - `MiniappAuthController.java:195` 写死的密码改为每个用户随机生成。小程序用户不能用它登录后台。
+- 后台账户和流水的写接口（`SysAgentCommissionAccountController.java:98,131`、订单 PUT/DELETE、流水 POST）按 `docs/plan.md` 第 9.1 节第 1 项的决定处理，决定前不开放给非超管。
+- 比例回退 40/5 改成配置缺失时报错，并补 `sys_commission_config` 种子。
+- 权限键统一，`order/index.vue:113` 的 `order_status` 取值对齐。
+- 假提现接口 `MiniappUserController.java:90-103` 在提现单上线前返回明确的「暂未开放」，不返回成功；小程序不改路径。
+- 大淘客转链失败时报错，不返回不带 pid 的口令（`DtkApiServiceImpl.java:367-393`）。
+- appSecret、accessToken 不再下发到小程序和前端（后台展示脱敏）。
 - 带用户身份的转链取登录态用户。请求里的 `userId` 参数保留兼容但不再作为身份依据，`pid` 不接受客户端传入。
 - `updateUserAccount` 改成原子更新：加版本号或行锁，防止并发覆盖；流水加业务唯一键，重复调用不重复入账。
 - 生产配置关闭 swagger 和 Druid 控制台（配置关闭，代码保留）。
@@ -94,6 +104,9 @@ PR 里贴原始输出，并列出 `ruoyi-system`、`ruoyi-admin` 是否都编译
 - 小程序创建的用户无法登录后台
 - 请求里伪造 `userId`，不影响实际用户
 - 客户端传入 `pid`，不生效
+- 用户 A 登录后 `/flow/list` 只返回 A 的流水
+- 提现申请接口不返回成功
+- 大淘客转链失败时返回错误
 
 ## T05 换成官方 SDK
 
@@ -114,4 +127,4 @@ PR 里贴原始输出，并列出 `ruoyi-system`、`ruoyi-admin` 是否都编译
 
 ## 后续
 
-第二批开始增加业务功能：粘贴解析、带用户转链、PID 池、查券记录，然后是订单同步、规则、返利、提现、对账，依据 `docs/plan.md`。官方 SDK 到位前，三家官方接口用模拟返回开发和测试，真实联调放到 T05 之后。
+第二批开始增加业务功能：粘贴解析、带用户转链、PID 池、查券记录，然后是订单同步、规则、返利、提现、对账，依据 `docs/plan.md`。官方 SDK 到位前，查券和订单优先接基座已有的大淘客请求类（确认 key 权限后），其余用模拟返回开发和测试，真实联调放到 T05 之后。容量项（缓存、限流、连接池、超时）写入第二批。

@@ -18,7 +18,7 @@
 
 第 2 轮 5 条线同时开始。线 4、5、6 依赖线 3 的建库，可以先写代码，**但要等线 3 合并后同步 `main`，再跑验收、开 PR**。
 
-合并顺序：线 2 随时；线 3 最先；线 4、5、6 不分先后，一次合并一个。
+合并顺序：线 2 随时；线 3 最先（按下方修改清单改完）；然后线 5 的 `MiniappAuthController.java:167` 小 PR；然后线 4（rebase 改完）；线 5 其余和线 6 不分先后，一次合并一个。
 
 ## 各线范围
 
@@ -60,11 +60,25 @@ cd ruoyi-ui && npm install && npm run build:prod
 - 后台静态文件由 Nginx 提供，`/prod-api` 反向代理到后端，后端只监听本机。
 - 配置通过环境变量传入。文档里的域名、路径、账号一律用占位符，不写真实服务器信息。
 
+**合并前修改（评审结果，分支 `codex/line-3-t02-database`）：**
+1. `V2:11` 改 `settle_status VARCHAR(20) NOT NULL DEFAULT 'unsettled'`；`V2:7,9` 改 `DECIMAL(14,4)`；`sql/schema-differences.md:15,20,22,24` 同步。改前确认没有环境执行过 V2。
+2. `docs/deploy-test.md` 第 7 节加部署后必改 admin 口令，`V1:711` 的 `initPasswordModify` 设 1。
+3. `ci.yml:73` 设 `LINE4_MYSQL_URL`，`:83` 附近要求 skipped=0。
+
 ### 线 4 账务
 
-**能改：** `CommissionCalculateServiceImpl`、`ISysAgentCommissionAccountService`、`SysAgentCommissionAccountServiceImpl`、`SysAgentCommissionAccountController`、`SysAgentCommissionAccountMapper`（含 XML）、`SysCommissionFlowMapper`（含 XML）、新增 `SysAgentCommissionConfigMapper.xml`。
+**能改：** `CommissionCalculateServiceImpl`、`ISysAgentCommissionAccountService`、`SysAgentCommissionAccountServiceImpl`、`SysAgentCommissionAccountController`、`SysAgentCommissionAccountMapper`（含 XML）、`SysCommissionFlowMapper`（含 XML）、新增 `SysAgentCommissionConfigMapper.xml`、`SysOrderCommissionMapper.xml`、`SysOrderCommission` 实体。
 
 **要求：** 补冻结和解冻接口，路径见线 2。这两个接口改的是账户状态，不直接改余额。
+
+**合并前修改（评审结果，分支 `codex/line-4-commission-ledger`，当前不通过）：**
+1. rebase 到含线 3 的 `main`。
+2. 订单 XML `:7-38,77-119` 补 6 个字段及 `remark`；`:121-143` 不把 `settle_status`、`actual_commission` 加进通用 update。
+3. 后台新增订单时 buyer 用 `agent_user_id` 兜底；`CommissionCalculateServiceImpl.java:87` 后写 `agent_user_id`。
+4. 实体 `:106-107` 注释对齐 `unsettled`、`settled`。
+5. `CommissionCalculateServiceImpl.java:295-311,372-376` 修退款统计：用 `refund_self`、`refund_promotion` 两种流水分别减，`:341` 同步。
+6. `:198` 落库保留联盟原值。
+7. 测试加「下单 → 结算 → 退款」端到端用例及断言，测试不能因缺环境变量被跳过。
 
 **迁移编号：** V100～V199。
 
@@ -78,18 +92,21 @@ cd ruoyi-ui && npm install && npm run build:prod
 - 补 `/miniapp/auth/refresh`，请求和返回格式按 `tbk-miniapp/utils/auth.js:233` 现有调用来，小程序不改。
 - `MiniappAuthController.java:195` 的固定密码改成每个用户随机生成。
 - 只改上面两个 yml 里各自的开关，不动线 3 的 Flyway 配置。
+- 先单独提 `MiniappAuthController.java:167` 的小 PR（T04 第 1 条），`MiniAppCommissionController` 要做跨用户隔离测试，这个文件由本线负责。
 
 **迁移编号：** V200～V299。
 
-**验收：** T04 的第 3 条：小程序创建的用户无法登录后台。`/miniapp/auth/refresh` 有测试。
+**验收：** T04 的第 3 条：小程序创建的用户无法登录后台。`/miniapp/auth/refresh` 有测试。用户 A 看不到 B 的流水。
 
 ### 线 6 转链身份和邀请
 
 **能改：** `MiniappTbkController`、`MiniappJdController`、`MiniappPddController`、`MiniappDtkController`、`MiniappHdkController`、`SysTbkAgentApply` 相关类和 Mapper、`SysWechatUser` 相关类和 Mapper、`tbk-miniapp/`、`ruoyi-ui/src/views/system/tbkApply/`。
 
 **要求：**
-- 邀请参数统一为 `invitationCode`，`MiniappAuthController` 已经在用这个名字，不用改它。
+- 邀请参数统一为 `invitationCode`。`MiniappAuthController` 读的名字改动前先核对；要改它时，协调线 5，不在本线直接改。
 - 带用户身份的转链取登录态用户；`pid` 不接受客户端传入。
+- 大淘客转链失败报错，不回落到不带 pid 的口令。
+- 不处理 `uk_mini_app_id`，等 `docs/plan.md` 第 9.1 节第 2 项决定。
 
 **迁移编号：** V300～V399。
 

@@ -183,7 +183,8 @@ public class DefaultSettlementService implements SettlementService {
             BigDecimal ratio=recovery.divide(p.commission,18,RoundingMode.HALF_UP);
             RewardApi.Result result=rewards.refund(p.id,new RewardApi.Refund(ratio,
                 Objects.requireNonNull(e.line().paidAmount(),"Alliance paid amount required"),p.commission.subtract(recovery)));
-            rewardTransfers(transfers,result.instructions());
+            rewardTransfers(transfers,result.instructions(),
+                e.toStatus()==OrderStatus.PENALIZED ? "PENALTY_RECOVER" : "RECOVER");
             if (result.manualReview()) repository.manual(p.id,e.eventKey(),"REWARD_HISTORY_REQUIRES_MANUAL_REVIEW");
         }
         // Terminal invalidity is authoritative even when no positive commission was
@@ -265,12 +266,15 @@ public class DefaultSettlementService implements SettlementService {
         transfers.add(new Transfer(i.user,p.id,key,flow,phase,amount,debit,credit));
     }
     private void rewardTransfers(List<Transfer> transfers,List<RewardApi.Instruction> instructions) {
+        rewardTransfers(transfers,instructions,"RECOVER");
+    }
+    private void rewardTransfers(List<Transfer> transfers,List<RewardApi.Instruction> instructions,String recoveryPhase) {
         for (RewardApi.Instruction instruction:instructions) {
             String key=instruction.businessKey();
             if (key.length()>128) throw new IllegalArgumentException("Reward business key exceeds ledger limit");
             // The original award order, NOT the refunded contribution order, is the accounting link.
             transfers.add(new Transfer(instruction.userId(),instruction.awardOrderId(),key,
-                instruction.recovery() ? "reward_recovery" : "reward_credit",instruction.recovery() ? "RECOVER" : "REWARD",
+                instruction.recovery() ? "reward_recovery" : "reward_credit",instruction.recovery() ? recoveryPhase : "REWARD",
                 instruction.amount(),instruction.recovery() ? AccountType.USER_AVAILABLE : AccountType.REWARD_COST,
                 instruction.recovery() ? AccountType.REWARD_COST : AccountType.USER_AVAILABLE));
         }

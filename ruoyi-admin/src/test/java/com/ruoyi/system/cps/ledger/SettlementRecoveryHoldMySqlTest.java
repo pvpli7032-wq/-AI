@@ -371,6 +371,38 @@ public class SettlementRecoveryHoldMySqlTest {
         assertEquals(0,settlements.unfreezeDue(paid.plusSeconds(7200),1000)); audit(buyer); audit(inviter);
     }
 
+
+    @Test public void sourceEvidenceWithoutAllianceTimeHoldsIdempotentlyWithoutInventingOrderEvent() {
+        publish(); configureFreeze(3600);
+        Instant paid=databaseNow(); long id=order();
+        settlements.onOrderEvent(event(id,"received",null,OrderStatus.RECEIVED,paid,"10",null,paid));
+        String key="missing-time:"+id, reason="MISSING_SOURCE_STATUS_TIME";
+        String raw="{\"source\":\"synthetic statement\",\"allianceStatusTime\":null,\"amount\":null,\"orderLineId\":"+id+"}";
+        var repository=new SettlementRepository(jdbc);
+        var transaction=new org.springframework.transaction.support.TransactionTemplate(manager);
+        transaction.executeWithoutResult(status -> ReflectionTestUtils.invokeMethod(
+            repository,"holdUnprocessableEvidence",id,key,reason,raw));
+        Timestamp firstPause=jdbc.queryForObject(
+            "SELECT paused_at FROM cps_settle_item WHERE order_line_id=? AND type='REBATE'",Timestamp.class,id);
+        transaction.executeWithoutResult(status -> ReflectionTestUtils.invokeMethod(
+            repository,"holdUnprocessableEvidence",id,key,reason,raw));
+        held(id,reason,1);
+        assertEquals(firstPause,jdbc.queryForObject(
+            "SELECT paused_at FROM cps_settle_item WHERE order_line_id=? AND type='REBATE'",Timestamp.class,id));
+        assertEquals(1,count("SELECT COUNT(*) FROM cps_settlement_hold_event WHERE order_line_id=?",id));
+        assertEquals(raw,jdbc.queryForObject("SELECT JSON_UNQUOTE(JSON_EXTRACT(event_json,'$.sourceEvidence')) "
+            +"FROM cps_settlement_hold_event WHERE order_line_id=?",String.class,id));
+        assertEquals(1,count("SELECT COUNT(*) FROM cps_settlement_receipt WHERE order_line_id=?",id));
+        assertEquals("RECEIVED",positionState(id));
+        assertThrows(IllegalArgumentException.class,() -> transaction.executeWithoutResult(status ->
+            ReflectionTestUtils.invokeMethod(repository,"holdUnprocessableEvidence",id,key,reason,raw+" ")));
+        assertThrows(IllegalStateException.class,() -> ReflectionTestUtils.invokeMethod(
+            repository,"holdUnprocessableEvidence",id,key,reason,raw));
+        assertEquals(0,settlements.unfreezeDue(paid.plusSeconds(7200),1000));
+        assertEquals(2,flows(id)); money("4.50",balance(buyer,"frozen_amount")); money("0",balance(buyer,"balance"));
+        audit(buyer); audit(inviter);
+    }
+
     private void held(long id,String reason,long reasonCount) {
         assertEquals(Boolean.TRUE,jdbc.queryForObject(
             "SELECT manual_hold FROM cps_settlement_position WHERE order_line_id=?",Boolean.class,id));

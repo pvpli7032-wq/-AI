@@ -86,6 +86,54 @@ public class SettlementRepository {
         jdbc.update("INSERT INTO cps_settlement_hold_event(event_key,order_line_id,reason,event_json) VALUES(?,?,?,?)",
             key,id,reason,payload);
     }
+    /**
+     * A permission-checked import may prove a risk without enough evidence for an OrderEvent.
+     * The processing observation below is only a safety-clock anchor, never alliance state time.
+     * The caller's line transaction owns the hold and its MANUAL_REVIEW projection together.
+     */
+    void holdUnprocessableEvidence(long id,String sourceKey,String reason,String rawEvidenceJson) {
+        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive())
+            throw new IllegalStateException("Manual evidence hold requires the import transaction");
+        if (id<=0 || sourceKey==null || sourceKey.isBlank() || sourceKey.length()>128
+                || reason==null || reason.isBlank() || reason.length()>255
+                || rawEvidenceJson==null || rawEvidenceJson.isBlank())
+            throw new IllegalArgumentException("Incomplete manual hold evidence");
+        lockOrder(id);
+        // Keep evidence-only identities separate from real OrderEvent receipt identities.
+        String key="manual-evidence:"+DefaultSettlementService.digest(sourceKey);
+        List<Map<String,Object>> prior=jdbc.queryForList(
+            "SELECT order_line_id,reason,JSON_UNQUOTE(JSON_EXTRACT(event_json,'$.sourceKey')) AS source_key,"
+            + "JSON_UNQUOTE(JSON_EXTRACT(event_json,'$.sourceEvidence')) AS source_evidence "
+            + "FROM cps_settlement_hold_event WHERE event_key=? FOR UPDATE",key);
+        if (!prior.isEmpty()) {
+            Map<String,Object> stored=prior.getFirst();
+            if (((Number)stored.get("order_line_id")).longValue()!=id
+                    || !sourceKey.equals(stored.get("source_key")) || !reason.equals(stored.get("reason"))
+                    || !rawEvidenceJson.equals(stored.get("source_evidence")))
+                throw new IllegalArgumentException("Manual hold key payload mismatch");
+            return;
+        }
+        Position p=load(id);
+        if (p==null) { p=new Position(); p.id=id; }
+        Instant observedAt=Instant.now();
+        for (Item item:items(id)) {
+            if (!"FROZEN".equals(item.phase) || item.paused!=null
+                    || item.status==RebateStatus.VOID || item.status==RebateStatus.FULLY_RECOVERED) continue;
+            Instant heldAt=item.clock!=null && observedAt.isBefore(item.clock.anchor())
+                ? item.clock.anchor() : observedAt;
+            item.paused=heldAt;
+            if (item.clock!=null)
+                item.clock=new FreezeClock(item.clock.remainingAt(heldAt),heldAt,true);
+            item.status=RebateStatus.PAUSED; save(item);
+        }
+        p.manualHold=true; save(p);
+        Map<String,Object> evidence=new java.util.LinkedHashMap<>();
+        evidence.put("kind","UNPROCESSABLE_PENALTY_EVIDENCE");
+        evidence.put("sourceKey",sourceKey); evidence.put("sourceEvidence",rawEvidenceJson);
+        evidence.put("observedAt",observedAt);
+        holdEvent(id,key,reason,JSON.toJSONString(evidence));
+        manual(id,sourceKey,reason);
+    }
     boolean legacy(long id, Map<String,Object> order) {
         String status = String.valueOf(order.get("order_status"));
         if (List.of("settled", "confirmed", "refunded").contains(status)

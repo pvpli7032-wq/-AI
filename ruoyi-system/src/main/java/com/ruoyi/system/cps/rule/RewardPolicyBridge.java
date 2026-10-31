@@ -15,9 +15,13 @@ import static com.ruoyi.system.cps.rule.RewardApi.*;
  */
 public final class RewardPolicyBridge {
     private RewardPolicyBridge() {}
-    public record Incentive(Type type, Mode mode, int n, BigDecimal value,
+    public record Incentive(String key, Type type, Mode mode, int n, BigDecimal value,
                             Set<String> platforms, Instant from, Instant until) {
-        public Incentive { platforms = Set.copyOf(platforms); }
+        public Incentive(Type type, Mode mode, int n, BigDecimal value,
+                         Set<String> platforms, Instant from, Instant until) {
+            this(type.name(), type, mode, n, value, platforms, from, until);
+        }
+        public Incentive { text(key); platforms = Set.copyOf(platforms); }
     }
     public record Policy(long version, BigDecimal minimumPaid, BigDecimal minimumCommission,
                          BigDecimal maximumReward, List<Incentive> incentives) {
@@ -25,10 +29,10 @@ public final class RewardPolicyBridge {
     }
     public static List<Config> configs(Policy policy) {
         Objects.requireNonNull(policy);
-        List<Config> configs = policy.incentives().stream().map(i -> new Config(i.type(), policy.version(),
+        List<Config> configs = policy.incentives().stream().map(i -> new Config(i.key(), i.type(), policy.version(),
             i.mode(), i.n(), i.value(), i.platforms(), i.from(), i.until())).toList();
-        if (configs.stream().map(Config::type).distinct().count() != configs.size())
-            throw new IllegalArgumentException("duplicate reward type");
+        if (configs.stream().map(Config::key).distinct().count() != configs.size())
+            throw new IllegalArgumentException("duplicate reward key");
         return configs;
     }
     public static Snapshot snapshot(long orderId, OrderKey order, long buyerId, Long paymentTimeInviter,

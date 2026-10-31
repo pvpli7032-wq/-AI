@@ -49,11 +49,16 @@ public final class RewardCalculator {
                 c.mode() == Mode.RATIO ? q.userRebate().multiply(c.value()) :
                 c.value().multiply(BigDecimal.ONE.subtract(priorRefund)));
             if (amount.signum() == 0) continue;
-            // Version and inviter deliberately excluded: changing either never resets a lifetime entitlement.
-            String id = c.type() + ":" + s.buyerId() + ":" + switch (c.type()) {
+            // Independent keys stack (including each forced-first shortfall); budget covers ALL keys.
+            // Version and inviter deliberately excluded: neither resets a lifetime entitlement.
+            // Preserve old API identities. Hash explicit keys to fit the existing ASCII outbox/award limits.
+            boolean legacy = c.key().equals(c.type().name());
+            String identity = legacy ? c.type().name() : c.type() + ":k" + keyDigest(c.key());
+            String id = identity + ":" + s.buyerId() + ":" + switch (c.type()) {
                 case OWN_QUANTITY, INVITEE_FIRST_FIXED -> "once";
-                case FORCED_FIRST -> Base64.getUrlEncoder().withoutPadding().encodeToString(
-                    s.order().platform().getBytes(java.nio.charset.StandardCharsets.UTF_8)) + ":once";
+                case FORCED_FIRST -> (legacy ? Base64.getUrlEncoder().withoutPadding().encodeToString(
+                    s.order().platform().getBytes(java.nio.charset.StandardCharsets.UTF_8)) :
+                    keyDigest(s.order().platform())) + ":once";
                 default -> Long.toString(s.orderId());
             };
             result.add(new Award(id, invitation ? s.inviterId() : s.buyerId(), s.orderId(), s.buyerId(),
@@ -63,8 +68,26 @@ public final class RewardCalculator {
         if (total.compareTo(s.maximumReward()) > 0) throw new IllegalArgumentException("snapshot reward budget exceeded");
         return List.copyOf(result);
     }
+    private static String keyDigest(String key) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
     public static BigDecimal recoveryTarget(Award a, BigDecimal ratio) {
         return money(a.amount().multiply(RewardApi.ratio(ratio))).min(a.amount());
+    }
+    /** Exact commission fraction, adjusted for the persisted pre-grant baseline. Divide only at cents. */
+    public static BigDecimal recoveryTarget(Award a, Refund refund, BigDecimal baseline) {
+        RewardApi.ratio(baseline);
+        if (baseline.compareTo(BigDecimal.ONE) == 0) return a.amount();
+        BigDecimal numerator = refund.cumulativeNumerator()
+            .subtract(baseline.multiply(refund.cumulativeDenominator())).max(BigDecimal.ZERO);
+        BigDecimal denominator = refund.cumulativeDenominator().multiply(BigDecimal.ONE.subtract(baseline));
+        return a.amount().multiply(numerator).divide(denominator, 2, java.math.RoundingMode.HALF_UP).min(a.amount());
     }
     /** Divide only at the final cent: pre-rounding a ratio can misstate large recoveries. */
     public static BigDecimal recoveryTarget(Award a, BigDecimal cumulative, BigDecimal baseline) {

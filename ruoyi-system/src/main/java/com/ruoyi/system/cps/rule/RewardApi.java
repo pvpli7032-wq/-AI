@@ -20,9 +20,15 @@ public final class RewardApi {
     /** FORCED_FIRST uses FIXED value as minimum TOTAL ordinary rebate, not an extra fixed bonus.
      * Its first-valid entitlement is per buyer/platform lifetime; n must be 1.
      */
-    public record Config(Type type, long version, Mode mode, int n, BigDecimal value,
+    public record Config(String key, Type type, long version, Mode mode, int n, BigDecimal value,
                          Set<String> platforms, Instant from, Instant until) {
+        /** Explicit legacy API: stable type-only identity, never publication-version identity. */
+        public Config(Type type, long version, Mode mode, int n, BigDecimal value,
+                      Set<String> platforms, Instant from, Instant until) {
+            this(type.name(), type, version, mode, n, value, platforms, from, until);
+        }
         public Config {
+            text(key);
             Objects.requireNonNull(type); Objects.requireNonNull(mode);
             if (version <= 0 || n <= 0) throw new IllegalArgumentException("version/n must be positive");
             value = nonnegative(value); platforms = Set.copyOf(platforms);
@@ -52,8 +58,8 @@ public final class RewardApi {
             Objects.requireNonNull(order); Objects.requireNonNull(paidAt);
             minimumPaid = money(nonnegative(minimumPaid)); minimumCommission = money(nonnegative(minimumCommission));
             maximumReward = money(nonnegative(maximumReward)); configs = List.copyOf(configs);
-            Set<Type> types = EnumSet.noneOf(Type.class);
-            for (Config c : configs) if (!types.add(c.type())) throw new IllegalArgumentException("duplicate reward type");
+            Set<String> keys = new HashSet<>();
+            for (Config c : configs) if (!keys.add(c.key())) throw new IllegalArgumentException("duplicate reward key");
         }
     }
     /** freezeReleased is authoritative settlement evidence; paused/risk-held orders must pass false.
@@ -67,10 +73,31 @@ public final class RewardApi {
             paid = nonnegative(paid); commission = nonnegative(commission); userRebate = money(nonnegative(userRebate));
         }
     }
-    /** Refund/penalty ratio is cumulative, never an incremental percentage. */
-    public record Refund(BigDecimal cumulativeRatio, BigDecimal remainingPaid, BigDecimal remainingCommission) {
-        public Refund { cumulativeRatio = ratio(cumulativeRatio); remainingPaid = nonnegative(remainingPaid);
-            remainingCommission = nonnegative(remainingCommission); }
+    /** Cumulative loss. Ratio is storage/informational only; monetary recovery uses the exact fraction. */
+    public record Refund(BigDecimal cumulativeRatio, BigDecimal remainingPaid, BigDecimal remainingCommission,
+                         BigDecimal cumulativeNumerator, BigDecimal cumulativeDenominator) {
+        /** Legacy callers explicitly provide a finite decimal ratio. */
+        public Refund(BigDecimal cumulativeRatio, BigDecimal remainingPaid, BigDecimal remainingCommission) {
+            this(cumulativeRatio, remainingPaid, remainingCommission, cumulativeRatio, BigDecimal.ONE);
+        }
+        public Refund {
+            cumulativeRatio = ratio(cumulativeRatio); remainingPaid = nonnegative(remainingPaid);
+            remainingCommission = nonnegative(remainingCommission);
+            cumulativeNumerator = nonnegative(cumulativeNumerator);
+            if (Objects.requireNonNull(cumulativeDenominator).signum() <= 0 ||
+                    cumulativeNumerator.compareTo(cumulativeDenominator) > 0)
+                throw new IllegalArgumentException("invalid cumulative recovery fraction");
+            if (cumulativeRatio.compareTo(cumulativeNumerator.divide(cumulativeDenominator, 18, RoundingMode.HALF_UP)) != 0)
+                throw new IllegalArgumentException("recovery ratio disagrees with exact fraction");
+        }
+        public static Refund fromCommissionRecovery(BigDecimal cumulativeRecovered, BigDecimal originalCommission,
+                                                     BigDecimal remainingPaid, BigDecimal remainingCommission) {
+            nonnegative(cumulativeRecovered);
+            if (Objects.requireNonNull(originalCommission).signum() <= 0)
+                throw new IllegalArgumentException("original commission must be positive");
+            return new Refund(cumulativeRecovered.divide(originalCommission, 18, RoundingMode.HALF_UP),
+                remainingPaid, remainingCommission, cumulativeRecovered, originalCommission);
+        }
     }
     public record Award(String id, long userId, long orderId, long buyerId, Type type,
                         int threshold, BigDecimal amount, BigDecimal recovered) {}

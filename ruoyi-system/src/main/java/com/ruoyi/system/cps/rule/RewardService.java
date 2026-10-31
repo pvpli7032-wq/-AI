@@ -49,7 +49,7 @@ public class RewardService {
     public Snapshot snapshot(long orderId) {
         String payload = mapper.snapshot(orderId);
         if (payload == null) throw new IllegalStateException("missing payment-time reward snapshot; manual review required");
-        return JSON.parseObject(payload, Snapshot.class);
+        return readSnapshot(payload);
     }
 
     public Result qualify(long orderId, Qualification evidence) {
@@ -86,6 +86,54 @@ public class RewardService {
         return new Result(false, replay(orderId));
     }
 
+    /**
+     * FAIL-CLOSED integration guard, NOT an append-only repricing implementation yet.
+     * The settlement caller must propagate this exception in the SAME transaction as ordinary
+     * REPRICE_UP/DOWN; otherwise ordinary and reward balances can diverge. Existing award.amount
+     * is the immutable grant/recovery basis, not a mutable current entitlement. Rewriting it loses
+     * audit evidence and can double-recover when commission repricing and refund are both reported.
+     * Unchanged qualified entitlements replay safely; any required adjustment requires reconciliation.
+     */
+    public Result reprice(long orderId, Qualification actualEvidence) {
+        Snapshot s = snapshot(orderId); lock(s);
+        var state = mapper.state(orderId);
+        if (s.historicalUnknown()) return new Result(true, replay(orderId));
+        if (!state.qualified()) return qualify(orderId, actualEvidence);
+        if (!actualEvidence.freezeReleased() || actualEvidence.pausedOrRiskHeld() ||
+                actualEvidence.now().isBefore(s.paidAt()) || actualEvidence.now().isBefore(actualEvidence.freezeUntil()) ||
+                !RewardCalculator.valid(s, actualEvidence.paid(), actualEvidence.commission()))
+            throw repricingRequired();
+        List<Snapshot> history = history(s.buyerId());
+        long count = history.stream().filter(o -> mapper.state(o.orderId()).valid()).count();
+        List<Award> existing = mapper.awards(s.buyerId());
+        if (existing.stream().anyMatch(a -> a.type() == Type.OWN_QUANTITY && count < a.threshold() &&
+                a.recovered().compareTo(a.amount()) < 0)) throw repricingRequired();
+        boolean variable = s.configs().stream().anyMatch(c -> c.mode() == Mode.RATIO || c.type() == Type.FORCED_FIRST);
+        if (!variable) return new Result(false, replay(orderId));
+        // A ratio/guarantee already exposed to refund requires an explicit persisted basis revision.
+        if (state.refundRatio().signum() != 0 || state.closed()) throw repricingRequired();
+        long ordinal = 1, platformOrdinal = 1;
+        for (Snapshot other : history) {
+            if (RewardCalculator.PAYMENT_ORDER.compare(other, s) < 0 && mapper.state(other.orderId()).qualified()) {
+                ordinal++;
+                if (other.order().platform().equals(s.order().platform())) platformOrdinal++;
+            }
+        }
+        List<Award> desired = RewardCalculator.awards(s, actualEvidence, ordinal, platformOrdinal, count, state.baselineRatio());
+        var current = new java.util.HashMap<String, BigDecimal>();
+        for (Award a : existing) if (a.orderId() == orderId) current.put(a.id(), a.amount().subtract(a.recovered()));
+        for (Award a : desired) {
+            if (a.amount().compareTo(current.getOrDefault(a.id(), BigDecimal.ZERO)) != 0) throw repricingRequired();
+            current.remove(a.id());
+        }
+        if (current.values().stream().anyMatch(v -> v.signum() != 0)) throw repricingRequired();
+        return new Result(false, replay(orderId));
+    }
+
+    private static IllegalStateException repricingRequired() {
+        return new IllegalStateException("reward repricing requires append-only basis reconciliation; manual review required");
+    }
+
     /** Explicit terminal exclusion for a final below-threshold/zero-commission candidate.
      * A merely pending commission update must NOT use this method. Ordinary rebate is unaffected.
      */
@@ -105,7 +153,7 @@ public class RewardService {
         var state = mapper.state(orderId);
         if (refund.cumulativeRatio().compareTo(state.refundRatio()) < 0)
             throw new IllegalArgumentException("cumulative refund cannot decrease");
-        boolean valid = !state.closed() && refund.cumulativeRatio().compareTo(BigDecimal.ONE) < 0 &&
+        boolean valid = !state.closed() && refund.cumulativeNumerator().compareTo(refund.cumulativeDenominator()) < 0 &&
             RewardCalculator.valid(s, refund.remainingPaid(), refund.remainingCommission());
         mapper.refund(orderId, refund.cumulativeRatio(), valid);
         long count = history(s.buyerId()).stream().filter(o -> mapper.state(o.orderId()).valid()).count();
@@ -114,15 +162,16 @@ public class RewardService {
             if (a.orderId() == orderId) {
                 // Award amount already excluded pre-release refunds; recover only the additional loss.
                 ratio = state.baselineRatio().compareTo(BigDecimal.ONE) == 0 ? BigDecimal.ONE :
-                    refund.cumulativeRatio().subtract(state.baselineRatio()).max(BigDecimal.ZERO)
-                        .divide(BigDecimal.ONE.subtract(state.baselineRatio()), 18, RoundingMode.HALF_UP);
+                    refund.cumulativeNumerator().subtract(state.baselineRatio().multiply(refund.cumulativeDenominator()))
+                        .max(BigDecimal.ZERO).divide(refund.cumulativeDenominator().multiply(
+                            BigDecimal.ONE.subtract(state.baselineRatio())), 18, RoundingMode.HALF_UP);
                 if (!valid) ratio = BigDecimal.ONE;
             }
             // The triggering order need not be the refunded contribution.
             if (a.type() == Type.OWN_QUANTITY && count < a.threshold()) ratio = BigDecimal.ONE;
             BigDecimal target = a.orderId() == orderId && valid &&
                     !(a.type() == Type.OWN_QUANTITY && count < a.threshold()) ?
-                RewardCalculator.recoveryTarget(a, refund.cumulativeRatio(), state.baselineRatio()) :
+                RewardCalculator.recoveryTarget(a, refund, state.baselineRatio()) :
                 RewardCalculator.recoveryTarget(a, ratio);
             if (target.compareTo(a.recovered()) <= 0) continue;
             BigDecimal delta = target.subtract(a.recovered());
@@ -145,7 +194,18 @@ public class RewardService {
     }
 
     private List<Snapshot> history(long buyerId) {
-        return mapper.buyerSnapshots(buyerId).stream().map(p -> JSON.parseObject(p, Snapshot.class)).toList();
+        return mapper.buyerSnapshots(buyerId).stream().map(RewardService::readSnapshot).toList();
+    }
+
+    /** Explicit decoder for the historical unkeyed JSON format. Never updates the immutable payload. */
+    private static Snapshot readSnapshot(String payload) {
+        var json = JSON.parseObject(payload);
+        var configs = json.getJSONArray("configs");
+        if (configs != null) for (int i = 0; i < configs.size(); i++) {
+            var config = configs.getJSONObject(i);
+            if (!config.containsKey("key")) config.put("key", config.getString("type"));
+        }
+        return json.toJavaObject(Snapshot.class);
     }
 
     private void append(Instruction instruction) {

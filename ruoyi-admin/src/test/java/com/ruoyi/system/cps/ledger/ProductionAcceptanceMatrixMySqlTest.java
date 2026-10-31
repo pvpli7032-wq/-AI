@@ -463,7 +463,11 @@ public class ProductionAcceptanceMatrixMySqlTest {
     private void publish(Platform platform,boolean referral,List<RulePolicy.Incentive> extra) {
         var base=(RulePolicy)ReflectionTestUtils.invokeMethod(fixture,"policy","0.50",referral);
         var incentives=new java.util.ArrayList<>(base.incentives()); incentives.addAll(extra);
-        BigDecimal floor=extra.stream().anyMatch(i->i.fixed().signum()>0) ? bd("-20") : bd("-0.01");
+        // Synthetic publication budget: the two independently rounded referral/subsidy
+        // legs can cost two cents at tiny commissions. Preserve every actual test
+        // amount and the production worst-margin proof; only this fixture permits it.
+        BigDecimal floor=extra.stream().anyMatch(i->i.fixed().signum()>0) ? bd("-20")
+            : referral && !extra.isEmpty() ? bd("-0.02") : bd("-0.01");
         configure(RuleSafetyConfiguration.PREFIX+platform.name()+".maximumActualCommission","20.00");
         configure(RuleSafetyConfiguration.PREFIX+platform.name()+".minimumMargin",floor.toPlainString());
         var policy=new RulePolicy(platform,base.serviceRate(),base.jdNonSelfRate(),base.maximumCommission(),floor,

@@ -18,6 +18,7 @@ jobs:
         image: mysql:8.4
         env:
           MYSQL_ROOT_PASSWORD: ci-only-root-not-for-production
+          MYSQL_ROOT_HOST: "%"
           MYSQL_DATABASE: cps_test
           MYSQL_USER: cps_ci
           MYSQL_PASSWORD: ci-only-app-not-for-production
@@ -70,6 +71,10 @@ jobs:
       - name: Build placeholder alliance SDKs
         run: bash scripts/build-sdk-stub.sh
       - name: Package backend and run unit tests
+        env:
+          LINE4_MYSQL_URL: jdbc:mysql://127.0.0.1:3306/cps_test?useSSL=true&serverTimezone=GMT%2B8
+          LINE4_MYSQL_USER: root
+          LINE4_MYSQL_PASSWORD: ci-only-root-not-for-production
         run: ./mvnw -B package
       - name: Require executed tests in each foundation module
         run: |
@@ -81,9 +86,14 @@ jobs:
               reports = (Path(module) / "target/surefire-reports").glob("TEST-*.xml")
               suites = [ET.parse(report).getroot() for report in reports]
               executed = sum(int(suite.get("tests", "0")) - int(suite.get("skipped", "0")) for suite in suites)
+              skipped = sum(int(suite.get("skipped", "0")) for suite in suites)
+              failures = sum(int(suite.get("failures", "0")) for suite in suites)
+              errors = sum(int(suite.get("errors", "0")) for suite in suites)
               if executed < 1:
                   raise SystemExit(f"{module}: no tests executed")
-              print(f"{module}: {executed} tests executed")
+              if skipped or failures or errors:
+                  raise SystemExit(f"{module}: skipped={skipped}, failures={failures}, errors={errors}")
+              print(f"{module}: {executed} tests executed, skipped=0, failures=0, errors=0")
           PY
       - name: Migrate an empty database and verify packaged application
         env:
@@ -193,7 +203,11 @@ jobs:
           PY
           captcha_uuid=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["uuid"])' "$response_file")
           test "$(docker exec "$REDIS_CONTAINER" redis-cli -n "$SPRING_DATA_REDIS_DATABASE" EXISTS "captcha_codes:$captcha_uuid")" = 1
-          test "$(mysql_query "SELECT GROUP_CONCAT(version ORDER BY installed_rank) FROM flyway_schema_history WHERE version IN ('1', '2') AND success = 1")" = 1,2
+          test "$(mysql_query "SELECT GROUP_CONCAT(version ORDER BY installed_rank) FROM flyway_schema_history WHERE version IN ('1', '2', '3') AND success = 1")" = 1,2,3
           test "$(mysql_query 'SELECT COUNT(*) FROM flyway_schema_history WHERE success = 0')" = 0
+          test "$(mysql_query "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'sys_order_commission' AND column_name IN ('estimated_commission', 'actual_commission') AND data_type = 'decimal' AND numeric_precision = 14 AND numeric_scale = 4")" = 2
+          test "$(mysql_query "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'sys_order_commission' AND column_name = 'settle_status' AND data_type = 'varchar' AND character_maximum_length = 20 AND is_nullable = 'NO' AND BINARY column_default = BINARY 'unsettled'")" = 1
+          test "$(mysql_query "SELECT COUNT(*) FROM sys_config WHERE config_key = 'sys.account.initPasswordModify' AND config_value = '1'")" = 1
+          test "$(mysql_query "SELECT COUNT(*) FROM sys_user WHERE user_id = 1 AND user_name = 'admin' AND pwd_update_date IS NULL")" = 1
           mysql_query 'SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank'
           kill -0 "$app_pid"

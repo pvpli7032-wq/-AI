@@ -100,7 +100,7 @@ java -Djava.awt.headless=true \
   --ruoyi.profile="$CPS_LOCAL_DIR/uploads"
 ```
 
-应用从空库执行 V1（43 张基座表及明确的测试种子）、V2（5 张表新增 19 列），随后出现 `Started RuoYiApplication`。Flyway 使用与应用相同的数据库地址、账号和密码，通过独立连接迁移，避免 Druid 将可选权限探测失败误判为连接失效；不需要授予其他数据库的读取权限。
+应用从空库执行 V1（43 张基座表及明确的测试种子）、V2（5 张表新增 19 列）、V3（修正佣金金额精度和结算状态），随后出现 `Started RuoYiApplication`。Flyway 使用与应用相同的数据库地址、账号和密码，通过独立连接迁移，避免 Druid 将可选权限探测失败误判为连接失效；不需要授予其他数据库的读取权限。
 
 `includeSystemScope` 已将 5 个 SDK JAR 放进最终程序，不需要额外 classpath。占位 SDK 仅用于编译和离线测试，不能上线；真实接口联调先完成 T05。两个日志参数用于覆盖原有固定日志路径的早期初始化和 Spring Boot 初始化，上传文件也写入当前临时目录，不改动应用源配置。
 
@@ -110,7 +110,7 @@ java -Djava.awt.headless=true \
 curl --fail --silent http://127.0.0.1:8080/captchaImage
 ```
 
-应得到 HTTP 200、JSON `code=200`、非空 `uuid` 和 `img`。CI 还会校验 JPEG 内容及 Redis 验证码缓存，并检查 Flyway V1/V2 成功。重复启动会校验已执行迁移，不重新导入种子；不要修改已经合并并执行的迁移。
+应得到 HTTP 200、JSON `code=200`、非空 `uuid` 和 `img`。CI 还会校验 JPEG 内容及 Redis 验证码缓存，并检查 Flyway V1/V2/V3 成功。重复启动会校验已执行迁移，不重新导入种子；不要修改已经合并并执行的迁移。
 
 ### 3. 打开后台登录页
 
@@ -121,7 +121,7 @@ npm install --legacy-peer-deps --package-lock=false
 BROWSER=none port=18081 NODE_OPTIONS=--openssl-legacy-provider npm run dev -- --host 127.0.0.1
 ```
 
-在本机浏览器打开 `http://127.0.0.1:18081`，应看到账号、密码和验证码输入框及验证码图片。开发服务通过 `/dev-api` 转发到本机后端 8080。新库仅含明确的测试账号 `admin` / `LocalTest123!`；页面原有预填密码不是该测试密码，需要替换。本机步骤已验证完整登录页和真实验证码请求；其他业务页面的修复按并行任务执行。
+在本机浏览器打开 `http://127.0.0.1:18081`，应看到账号、密码和验证码输入框及验证码图片。开发服务通过 `/dev-api` 转发到本机后端 8080。新库仅含明确的测试账号 `admin` / `LocalTest123!`；页面原有预填密码不是该测试密码，需要替换。V1 开启初始密码修改提示，部署后必须立即更改 admin 口令，具体见 `docs/deploy-test.md` 第 7 节。本机步骤已验证完整登录页和真实验证码请求；其他业务页面的修复按并行任务执行。
 
 `node_modules`、构建输出、环境文件和日志都是本地生成物，不加入 PR。只停止本次启动的前台进程；需要暂停数据服务时执行 `docker compose stop`。不要删除已有项目的数据卷来处理迁移错误。
 
@@ -131,6 +131,8 @@ BROWSER=none port=18081 NODE_OPTIONS=--openssl-legacy-provider npm run dev -- --
 - V1 采用 `sql/cps-202604112202-mt.sql` 的全部表，保留旧 SQL 文件；不复制历史用户、日志、联盟凭据或财务配置。返利比例默认值使用中性 `0.00`，不代表生产业务配置。
 - `out-of-order=true` 支持并行迁移合并；线 3 使用 V1～V99，后续线使用各自编号段。`baseline-on-migrate=false`、`clean-disabled=true`，已有非空且未受 Flyway 管理的库需要单独核对接入，不能自动覆盖。
 - [宝塔测试部署说明](docs/deploy-test.md) 由管理员人工执行，使用独立项目目录、Java、数据库及 Redis 库；只修改本项目站点的 Nginx 配置。
+
+本分支评审前的 V1/V2 已在本地验收库执行；评审按要求调整尚未合并的 V1 初始密码提示种子，V2 保持不变并新增 V3。旧验收库会触发 V1 校验和不匹配，应保留旧库并使用新的独立空库验收；不使用 Flyway repair、删除历史或跳过校验。其他环境若已执行旧 V1，部署前须先协调迁移方案。
 
 ## 许可
 

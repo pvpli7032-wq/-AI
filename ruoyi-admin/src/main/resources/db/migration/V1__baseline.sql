@@ -697,7 +697,7 @@ VALUES (1, 'local-test', 'LOCAL TEST POST', 1, '0', 'test-fixture');
 INSERT INTO sys_role (role_id, role_name, role_key, role_sort, data_scope, status, del_flag, create_by)
 VALUES (1, 'LOCAL TEST ADMIN', 'admin', 1, '1', '0', '0', 'test-fixture');
 INSERT INTO sys_user (user_id, dept_id, user_name, nick_name, user_type, email, phonenumber, sex, password, status, del_flag, pwd_update_date, create_by, remark)
-VALUES (1, 100, 'admin', 'LOCAL TEST ADMIN', '00', '', '', '2', '$2a$10$7OCOjlvHT1sbzSvAhD6iXu2n0vPgFSeKSgGWJpwrvouf8XwOAroZm', '0', '0', CURRENT_TIMESTAMP, 'test-fixture', 'LOCAL TEST FIXTURE ONLY');
+VALUES (1, 100, 'admin', 'LOCAL TEST ADMIN', '00', '', '', '2', '$2a$10$7OCOjlvHT1sbzSvAhD6iXu2n0vPgFSeKSgGWJpwrvouf8XwOAroZm', '0', '0', NULL, 'test-fixture', 'LOCAL TEST FIXTURE ONLY');
 INSERT INTO sys_user_role (user_id, role_id) VALUES (1, 1);
 INSERT INTO sys_user_post (user_id, post_id) VALUES (1, 1);
 
@@ -708,5 +708,5 @@ INSERT INTO sys_config (config_id, config_name, config_key, config_value, config
 (4, 'LOCAL TEST captcha', 'sys.account.captchaEnabled', 'true', 'Y', 'test-fixture', 'LOCAL TEST FIXTURE'),
 (5, 'LOCAL TEST registration', 'sys.account.registerUser', 'false', 'Y', 'test-fixture', 'LOCAL TEST FIXTURE'),
 (6, 'LOCAL TEST IP filter', 'sys.login.blackIPList', '', 'Y', 'test-fixture', 'LOCAL TEST FIXTURE'),
-(7, 'LOCAL TEST password prompt', 'sys.account.initPasswordModify', '0', 'Y', 'test-fixture', 'LOCAL TEST FIXTURE'),
+(7, 'LOCAL TEST password prompt', 'sys.account.initPasswordModify', '1', 'Y', 'test-fixture', 'LOCAL TEST FIXTURE'),
 (8, 'LOCAL TEST password age', 'sys.account.passwordValidateDays', '0', 'Y', 'test-fixture', 'LOCAL TEST FIXTURE');

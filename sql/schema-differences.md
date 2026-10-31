@@ -4,24 +4,28 @@
 
 `V1` 保留全部表结构；`V2__complete_existing_columns.sql` 只给 5 张表新增 19 列，不删除、重命名、改类型或改约束，不回填业务数据。以下“缺列”与“现有列未被 Mapper 读写”分别记录；增加列不会自动修复 Mapper 或业务逻辑。
 
+V2 已在上轮本地验收库执行（版本 2，checksum `-317547659`），不满足“确认未执行”的修改前提，因此保留 V2 原文，由 `V3__correct_order_commission_types.sql` 修正最终类型。V1 尚未合并，按清单将 `sys.account.initPasswordModify` 种子设为 `1`，并将测试 admin 的 `pwd_update_date` 设为 NULL，使现有登录检查实际显示初始密码修改提示。这会改变 V1 校验和：上轮本地验收库不能直接启动新版制品，必须保留旧库并另建独立空库验收；不得用 repair、删除历史记录或关闭校验掩盖差异。若其他环境也已运行旧 V1，应先协调兼容迁移方案再部署。
+
+金额扩宽只保留已有数值，不能恢复旧精度曾丢失的小数；部署前必须核对既有状态，V3 不会将其他未知显式值静默转为未结算。
+
 ## V1 的脱敏调整
 
 V1 保留上述 43 张表的字段、索引、字符集和排序规则。不导入原始脚本中的历史用户、订单、日志、会话、联盟凭据和财务比例种子；保留通用菜单/字典，并使用明确标识为本地测试的管理员、部门、岗位、角色和本地系统配置。测试账号只用于空库开发验收。
 
 原始基线中 `sys_order_commission.self_commission_rate` 以及 `sys_tbk_agent_apply.self_commission_rate/promotion_commission_rate` 带有非零比例默认值，V1 将这些默认值改为中性的 `0.00`，不将上游业务比例作为本项目的真实配置。列名、`DECIMAL(5,2)` 类型及其他结构保持不变；上线业务比例仍应由后续后台配置决定。 建表语句按外键依赖顺序排列（先建 Quartz 父表再建子表），保留原有 5 个外键，不依赖关闭外键校验。
 
-## V2 新增的全部列
+## V2 新增列及 V3 修正后的最终类型
 
-新增列统一允许 `NULL`，默认 `NULL`，表示旧数据没有该项信息。不会用 `0`、虚构用户、当前时间或默认结算状态替代未知值。金额沿用现有金额列的 `DECIMAL(10,2)`，比例沿用 `DECIMAL(5,2)`，对应 Java `BigDecimal`；ID 用 `BIGINT`，时间用 `DATETIME`。未增加账务唯一键、锁、版本号或订单状态约束，这些属于后续任务。
+除结算状态外，新增列允许 `NULL`，默认 `NULL`，表示旧数据没有该项信息。按 T02 和线 3 合并前清单，V3 将预估、实际佣金金额修正为 `DECIMAL(14,4)`，比例仍为 `DECIMAL(5,2)`，对应 Java `BigDecimal`；结算状态修正为 `VARCHAR(20) NOT NULL DEFAULT 'unsettled'`，先扩宽状态列，再将 V2 注释定义的 `0/1` 转为 `unsettled/settled`，NULL 置为 `unsettled`；其他显式状态值保留待核查，不推断已结算。ID 用 `BIGINT`，时间用 `DATETIME`。未增加账务唯一键、锁、版本号或订单状态约束，这些属于后续任务。
 
 | 表 | 新列及类型 | 实体 / Mapper 依据 |
 |---|---|---|
 | `sys_order_commission` | `buyer_user_id BIGINT` | `SysOrderCommission.buyerUserId: Long`；列表筛选引用此列 |
-| 同上 | `estimated_commission DECIMAL(10,2)` | `estimatedCommission: BigDecimal`；佣金计算服务设置该持久化业务属性 |
+| 同上 | `estimated_commission DECIMAL(14,4)` | `estimatedCommission: BigDecimal`；佣金计算服务设置该持久化业务属性 |
 | 同上 | `commission_rate DECIMAL(5,2)` | `commissionRate: BigDecimal`，注释单位为百分比 |
-| 同上 | `actual_commission DECIMAL(10,2)` | `actualCommission: BigDecimal`；结算服务设置该属性 |
+| 同上 | `actual_commission DECIMAL(14,4)` | `actualCommission: BigDecimal`；结算服务设置该属性 |
 | 同上 | `order_time DATETIME` | `orderTime: Date`；列表的起止下单时间筛选引用此列 |
-| 同上 | `settle_status CHAR(1)` | `settleStatus: String`；列表筛选引用，实体约定 `0/1` |
+| 同上 | `settle_status VARCHAR(20) NOT NULL DEFAULT 'unsettled'` | `settleStatus: String`；列表筛选引用，业务代码写入 `unsettled` / `settled`；实体旧注释由线 4 对齐 |
 | `sys_commission_flow` | `related_order_id VARCHAR(100)` | `relatedOrderId: String`；Mapper 查询、筛选、插入、更新均引用。长度与订单表 `order_id` 一致，不冒充数值外键 |
 | 同上 | `description VARCHAR(500)` | `description: String`；Mapper 查询、插入、更新均引用 |
 | `sys_commission_config` | `description VARCHAR(500)` | `description: String` 为配置描述，属于业务模型属性；当前 Mapper 尚未映射，增加列只补齐存储位置 |

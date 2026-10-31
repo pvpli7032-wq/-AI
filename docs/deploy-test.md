@@ -31,7 +31,7 @@
 
 ## 2. 准备本项目的数据库和 Redis
 
-在宝塔创建独立 MySQL 8 数据库 `<MYSQL_DATABASE>` 和专属账号 `<MYSQL_APP_USER>`，使用 `utf8mb4`。账号只授权本项目数据库，包含应用读写和 Flyway 迁移需要的建表、改表、索引权限，不授予其他项目数据库权限。首次部署使用空库，不手工导入旧 SQL；应用首次启动会执行 JAR 内的 Flyway V1 基线和 V2 补字段迁移。
+在宝塔创建独立 MySQL 8 数据库 `<MYSQL_DATABASE>` 和专属账号 `<MYSQL_APP_USER>`，使用 `utf8mb4`。账号只授权本项目数据库，包含应用读写和 Flyway 迁移需要的建表、改表、索引权限，不授予其他项目数据库权限。首次部署使用空库，不手工导入旧 SQL；应用首次启动会执行 JAR 内的 Flyway V1 基线、V2 补字段和 V3 类型修正迁移。
 
 升级前仅备份本项目库，备份文件放在本项目的非网站目录中。下面命令会交互式询问密码，不把密码写在命令行：
 
@@ -168,7 +168,7 @@ exec "$JAVA_HOME/bin/java" \
   -jar '<PROJECT_DIR>/app/ruoyi-admin.jar'
 ```
 
-两个日志系统属性都放在 `-jar` 前：`logback.configurationFile` 覆盖 Logback 早期初始化，`logging.config` 覆盖 Spring Boot 后续初始化。首次在前台运行这个脚本，检查 Flyway V1/V2 成功以及应用启动完成，再交给本项目的进程守护任务。不要使用开发模式代替最终 JAR 的启动验收，也不要让守护程序在迁移失败时无限重启。
+两个日志系统属性都放在 `-jar` 前：`logback.configurationFile` 覆盖 Logback 早期初始化，`logging.config` 覆盖 Spring Boot 后续初始化。首次在前台运行这个脚本，检查 Flyway V1/V2/V3 成功以及应用启动完成，再交给本项目的进程守护任务。不要使用开发模式代替最终 JAR 的启动验收，也不要让守护程序在迁移失败时无限重启。
 
 ## 6. 配置本项目 Nginx 站点
 
@@ -206,11 +206,12 @@ server {
 
 按顺序验证：
 
-1. 在本项目库查询 `flyway_schema_history`，确认 V1、V2 成功，后续已合并版本也应成功；迁移成功不代表所有后续业务任务已经完成。
+1. 在本项目库查询 `flyway_schema_history`，确认 V1、V2、V3 成功，后续已合并版本也应成功；迁移成功不代表所有后续业务任务已经完成。
 2. 检查监听地址仅为 `127.0.0.1:<BACKEND_PORT>`。
 3. 本机请求 `http://127.0.0.1:<BACKEND_PORT>/captchaImage`，确认 HTTP 200、JSON `code=200`；验证码开启时还应有非空的 `uuid` 和 `img`。
 4. 通过测试站点请求 `https://<TEST_DOMAIN>/prod-api/captchaImage`，验证同样结果。
 5. 打开 `https://<TEST_DOMAIN>/`，确认后台登录页及静态资源加载成功，并检查浏览器请求使用 `/prod-api`。
+6. 部署后必须立即登录后台修改 `admin` 初始口令，改为本环境独有的强口令；不得继续使用公开测试种子的口令。V1 将 `sys.account.initPasswordModify` 设为 `1`，首次登录会提示修改，但提示不能代替人工完成修改。修改后退出，用新口令重新登录，并确认旧口令不能登录；不得把新口令贴入文档、聊天或 PR。完成前保持站点隔离，不对外开放。
 
 后续更新先备份本项目库，保留上一版本的 JAR、静态文件和项目配置，再只停止本项目进程、替换本项目文件并重新运行以上检查。新增迁移可能无法随旧 JAR 自动回退；需要恢复时先核对数据库兼容性，只操作本项目的备份，不还原其他项目的库或目录。
 

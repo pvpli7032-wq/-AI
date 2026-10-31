@@ -409,16 +409,16 @@ public class CommissionAccountingMySqlTest
     }
 
     @Test
-    public void userMoneyIsRoundedDownToCents()
+    public void userMoneyIsRoundedHalfUpToCents()
     {
         long userId = nextId();
         post(userId, "1.239", "income_self", nextId());
-        assertLedger(userId, "1.23", 1);
+        assertLedger(userId, "1.24", 1);
 
         long settlementUser = nextId();
         long orderId = insertOrder(settlementUser, "50.00", null, "0.00");
         assertTrue(commissions.settleOrder(orderId, money("0.05")));
-        assertLedger(settlementUser, "0.02", 1);
+        assertLedger(settlementUser, "0.03", 1);
     }
 
     @Test
@@ -504,7 +504,7 @@ public class CommissionAccountingMySqlTest
     }
 
     @Test
-    public void oneBeneficiaryGetsOneCombinedRefundForSelfAndPromotionIncome()
+    public void oneBeneficiaryGetsSeparateIdempotentRefundsForSelfAndPromotionIncome()
     {
         long userId = nextId();
         long orderId = insertOrder(userId, "60.00", userId, "10.00");
@@ -512,11 +512,13 @@ public class CommissionAccountingMySqlTest
         assertLedger(userId, "7.00", 2);
 
         assertTrue(commissions.refundOrder(orderId));
-        assertTrue(commissions.refundOrder(orderId));
-
-        assertLedger(userId, "0.00", 3);
+        assertLedger(userId, "0.00", 4);
         assertEquals(1L, count("SELECT COUNT(*) FROM sys_commission_flow "
-            + "WHERE user_id = ? AND flow_type = 'refund' AND order_commission_id = ?", userId, orderId));
+            + "WHERE user_id = ? AND flow_type = 'refund_self' AND order_commission_id = ?", userId, orderId));
+        assertEquals(1L, count("SELECT COUNT(*) FROM sys_commission_flow "
+            + "WHERE user_id = ? AND flow_type = 'refund_promotion' AND order_commission_id = ?", userId, orderId));
+        assertTrue(commissions.refundOrder(orderId));
+        assertLedger(userId, "0.00", 4);
     }
 
     @Test

@@ -21,11 +21,13 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.junit.Assert.*;
-import static org.junit.Assume.assumeTrue;
+import com.ruoyi.system.cps.withdraw.WithdrawalMySqlTest;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * Opt-in REAL MySQL 8 tests; not an in-memory SQL substitute.
- * CPS_NOTIFICATION_MYSQL_URL must target a disposable existing schema whose name
+ * REAL MySQL 8 tests; not an in-memory SQL substitute. When the dedicated URL is
+ * absent, reuse the common SQL harness's newly created UUID schema (including CI).
+ * CPS_NOTIFICATION_MYSQL_URL, when supplied, must target a disposable schema whose name
  * ends in _notification_test (no query parameters). Set CPS_NOTIFICATION_MYSQL_USER
  * and CPS_NOTIFICATION_MYSQL_PASSWORD separately. Creates/drops only the new
  * outbox table, and fails rather than overwriting a pre-existing table.
@@ -37,21 +39,33 @@ public class SettlementNotificationMySqlTest
     private SettlementNotificationRepository repository;
     private SettlementNotificationService service;
     private boolean created;
+    private boolean commonHarness;
 
     @Before
     public void setup() throws Exception
     {
         String url = System.getenv("CPS_NOTIFICATION_MYSQL_URL");
-        assumeTrue("Dedicated MySQL schema not configured", url != null);
-        assertTrue("Use a disposable schema ending in _notification_test", url.matches("jdbc:mysql://[^?]+/_?[a-zA-Z0-9]+_notification_test"));
-        DriverManagerDataSource source = new DriverManagerDataSource(url,
-                System.getenv("CPS_NOTIFICATION_MYSQL_USER"), System.getenv("CPS_NOTIFICATION_MYSQL_PASSWORD"));
-        jdbc = new JdbcTemplate(source);
+        DriverManagerDataSource source;
+        if (url == null || url.isBlank())
+        {
+            WithdrawalMySqlTest.migrateFreshRealMySqlDatabase();
+            commonHarness = true;
+            jdbc = (JdbcTemplate) ReflectionTestUtils.getField(WithdrawalMySqlTest.class, "jdbc");
+            source = (DriverManagerDataSource) jdbc.getDataSource();
+        }
+        else
+        {
+            assertTrue("Use a disposable schema ending in _notification_test", url.matches("jdbc:mysql://[^?]+/_?[a-zA-Z0-9]+_notification_test"));
+            source = new DriverManagerDataSource(url,
+                    System.getenv("CPS_NOTIFICATION_MYSQL_USER"), System.getenv("CPS_NOTIFICATION_MYSQL_PASSWORD"));
+            jdbc = new JdbcTemplate(source);
+        }
         DataSourceTransactionManager manager = new DataSourceTransactionManager(source);
         tx = new TransactionTemplate(manager);
         repository = new SettlementNotificationRepository(jdbc);
         service = new SettlementNotificationService(repository,
                 new DefaultListableBeanFactory().getBeanProvider(SettlementNotificationChannel.class), manager);
+        if (commonHarness) return; // All immutable migrations, including V705, already applied.
         Path root = Path.of("").toAbsolutePath();
         while (root != null && !Files.isDirectory(root.resolve("ruoyi-admin")))
         {
@@ -63,9 +77,13 @@ public class SettlementNotificationMySqlTest
     }
 
     @After
-    public void cleanup()
+    public void cleanup() throws Exception
     {
-        if (created)
+        if (commonHarness)
+        {
+            WithdrawalMySqlTest.dropOnlyTheDatabaseCreatedByThisSuite();
+        }
+        else if (created)
         {
             jdbc.execute("DROP TABLE cps_settlement_notification");
         }

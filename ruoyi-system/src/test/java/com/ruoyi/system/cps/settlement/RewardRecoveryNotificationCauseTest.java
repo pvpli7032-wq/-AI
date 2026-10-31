@@ -19,18 +19,24 @@ public class RewardRecoveryNotificationCauseTest {
     @Test public void penaltyRewardRecoveryRetainsPenaltyCause() { check("PENALTY_RECOVER"); }
     @Test public void ordinaryRewardRecoveryRetainsRefundCause() { check("RECOVER"); }
 
-    private void check(String phase) {
+    @Test public void replayDoesNotRelabelPenaltyOutboxAsRefund() { check("reward-key","RECOVER",true); }
+    @Test public void repricingRecoveryHasStableAdjustmentCause() { check("RP:synthetic","RECOVER",false); }
+
+    private void check(String phase) { check("reward-key",phase,false); }
+    private void check(String key,String phase,boolean replayed) {
         LedgerService ledger=mock(LedgerService.class);
         SettlementExternalServices external=mock(SettlementExternalServices.class);
-        when(ledger.post(any())).thenReturn(new LedgerPosting(1L,"reward-key",new BigDecimal("-2.00"),false));
+        when(ledger.post(any())).thenReturn(new LedgerPosting(1L,key,new BigDecimal("-2.00"),replayed));
         DefaultSettlementService service=new DefaultSettlementService(null,ledger,null,null,external,null,null,
             mock(PlatformTransactionManager.class));
         List<Object> transfers=new ArrayList<>();
-        RewardApi.Instruction instruction=new RewardApi.Instruction("reward-key",10L,"award",20L,10L,
+        RewardApi.Instruction instruction=new RewardApi.Instruction(key,10L,"award",20L,10L,
             RewardApi.Type.FIRST_N_SUBSIDY,true,new BigDecimal("3.00"),BigDecimal.ONE);
         ReflectionTestUtils.invokeMethod(service,"rewardTransfers",transfers,List.of(instruction),phase);
         ReflectionTestUtils.invokeMethod(service,"apply",transfers);
-        verify(external).notify("reward-key",20L,10L,phase,new BigDecimal("3.00"),new BigDecimal("-2.00"));
+        if (replayed) verifyNoInteractions(external);
+        else verify(external).notify(key,20L,10L,key.startsWith("RP:") ? "REPRICE_DOWN" : phase,
+            new BigDecimal("3.00"),new BigDecimal("-2.00"));
         verify(ledger,times(1)).post(any());
     }
 }

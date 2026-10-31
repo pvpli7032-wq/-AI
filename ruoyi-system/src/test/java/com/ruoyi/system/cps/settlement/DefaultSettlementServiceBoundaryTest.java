@@ -32,6 +32,7 @@ public class DefaultSettlementServiceBoundaryTest {
         when(external.invitation(anyLong(),any(),any())).thenReturn(new SettlementExternalServices.Invitation(2L,false,"payment-evidence"));
         rewards=mock(RewardService.class);
         when(rewards.qualify(anyLong(),any())).thenReturn(new RewardApi.Result(false,List.of()));
+        when(rewards.reprice(anyLong(),any())).thenReturn(new RewardApi.Result(false,List.of()));
         when(rewards.refund(anyLong(),any())).thenReturn(new RewardApi.Result(false,List.of()));
         terms=new SettlementTermsPort() {
             public Terms snapshot(long id,Long buyer,UnionOrderLine line,Long inviter) {

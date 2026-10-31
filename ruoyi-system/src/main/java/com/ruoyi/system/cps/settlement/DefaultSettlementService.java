@@ -122,7 +122,7 @@ public class DefaultSettlementService implements SettlementService {
         boolean funding=List.of(OrderStatus.RECEIVED,OrderStatus.SETTLED,OrderStatus.PARTIAL_REFUND,OrderStatus.PENALIZED).contains(e.toStatus());
         if (funding) {
             if (e.line().actualCommission() == null) throw new IllegalStateException("Actual alliance commission required before funding");
-            reprice(p,items,e);
+            reprice(p,items,e,transfers);
             for (Item i:items) {
                 if ("NONE".equals(i.phase) && i.status != RebateStatus.VOID) {
                     Benefit b=benefit(p.effectiveTerms(),i);
@@ -134,7 +134,7 @@ public class DefaultSettlementService implements SettlementService {
             }
         }
         if (e.toStatus() == OrderStatus.FULL_REFUND && p.commission == null && e.line().actualCommission()!=null)
-            reprice(p,items,e);
+            reprice(p,items,e,transfers);
         if (e.toStatus() == OrderStatus.DISPUTED && p.status != OrderStatus.DISPUTED) {
             p.previous=p.status == null ? e.previousStatus() : p.status;
             for (Item i:items) if ("FROZEN".equals(i.phase) && i.paused == null) {
@@ -208,7 +208,7 @@ public class DefaultSettlementService implements SettlementService {
         repository.save(p); repository.order(p);
         repository.receipt(e.eventKey(),p.id,fingerprint);
     }
-    private void reprice(Position p,List<Item> items,OrderEvent e) {
+    private void reprice(Position p,List<Item> items,OrderEvent e,List<Transfer> transfers) {
         BigDecimal actual=e.line().actualCommission();
         if (actual.signum()<0 || actual.compareTo(p.terms.maxCommission())>0)
             throw new IllegalArgumentException("Actual commission exceeds snapshot ceiling");
@@ -227,9 +227,11 @@ public class DefaultSettlementService implements SettlementService {
             boolean released=items.stream().allMatch(i -> "AVAILABLE".equals(i.phase) || i.original.signum()==0);
             // Propagate fail-closed award repricing in this transaction: ordinary money must
             // never be adjusted while already-qualified variable awards retain their old basis.
-            rewards.reprice(p.id,new RewardApi.Qualification(e.occurredAt(),freezeUntil,released,
+            RewardApi.Result repriced=rewards.reprice(p.id,new RewardApi.Qualification(e.occurredAt(),freezeUntil,released,
                 items.stream().anyMatch(i -> i.paused!=null),
                 Objects.requireNonNull(e.line().paidAmount(),"Alliance paid amount required"),actual,rebate));
+            rewardTransfers(transfers,repriced.instructions());
+            if (repriced.manualReview()) repository.manual(p.id,e.eventKey(),"REWARD_REPRICING_REQUIRES_MANUAL_REVIEW");
         }
         for (Item i:items) {
             Benefit b=benefit(recalculated,i);
@@ -292,7 +294,8 @@ public class DefaultSettlementService implements SettlementService {
             if (key.length()>128) throw new IllegalArgumentException("Reward business key exceeds ledger limit");
             // The original award order, NOT the refunded contribution order, is the accounting link.
             transfers.add(new Transfer(instruction.userId(),instruction.awardOrderId(),key,
-                instruction.recovery() ? "reward_recovery" : "reward_credit",instruction.recovery() ? recoveryPhase : "REWARD",
+                instruction.recovery() ? "reward_recovery" : "reward_credit",
+                instruction.recovery() ? (key.startsWith("RP:") ? "REPRICE_DOWN" : recoveryPhase) : "REWARD",
                 instruction.amount(),instruction.recovery() ? AccountType.USER_AVAILABLE : AccountType.REWARD_COST,
                 instruction.recovery() ? AccountType.REWARD_COST : AccountType.USER_AVAILABLE));
         }
@@ -311,8 +314,11 @@ public class DefaultSettlementService implements SettlementService {
             }
             LedgerPosting result=ledger.post(new PostingCommand(t.key(),"CPS_SETTLEMENT",t.key(),t.debit(),t.user(),t.order(),
                 t.flow(),t.debit(),t.credit(),t.amount(),t.phase(),null));
-            external.notify(t.key(),t.user(),t.order(),t.phase(),t.phase().endsWith("RECOVER") || t.phase().equals("REPRICE_DOWN")
-                ? t.amount() : BigDecimal.ZERO,result.balanceAfter());
+            // Posting and its outbox entry commit atomically. Replayed historical instructions
+            // must not re-label the original loss (e.g. a penalty replayed by a later refund).
+            if (!result.replayed()) external.notify(t.key(),t.user(),t.order(),t.phase(),
+                t.phase().endsWith("RECOVER") || t.phase().equals("REPRICE_DOWN")
+                    ? t.amount() : BigDecimal.ZERO,result.balanceAfter());
         }
     }
     private AccountType cost(Item i) { return i.type.equals("REBATE") ? AccountType.REBATE_COST : AccountType.REWARD_COST; }

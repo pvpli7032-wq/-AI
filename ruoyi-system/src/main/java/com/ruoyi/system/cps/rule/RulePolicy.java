@@ -6,7 +6,8 @@ import java.util.List;
 import java.util.Set;
 import com.ruoyi.union.adapter.Platform;
 
-/** Complete immutable publication unit. Fractions, not percentages. No production defaults. */
+/** Complete immutable publication unit. Fractions, not percentages. No production defaults.
+ * minimumRebate is a rounded rebate floor, including at zero commission, and is fully costed. */
 public record RulePolicy(Platform platform, BigDecimal serviceRate, BigDecimal jdNonSelfRate,
         BigDecimal maximumCommission, BigDecimal minimumMargin, BigDecimal payoutCostRate,
         BigDecimal minimumRebate, boolean targetedWithTier, List<Proportion> proportions,
@@ -32,7 +33,13 @@ public record RulePolicy(Platform platform, BigDecimal serviceRate, BigDecimal j
             long firstN, long dormantDays, String publicActivity, List<Tier> tiers) {
         public Proportion { tiers = List.copyOf(tiers); }
     }
-    /** Fixed and proportional components are additive; invitation commission uses rebate as base. */
+    /** Exclusive immutable reward configuration; no independent RewardService configuration.
+     * INVITATION_COMMISSION is rebate ratio only. FIRST_N_SUBSIDY is fixed OR rebate ratio.
+     * Other kinds are fixed only. ORDER_COUNT pays once when prior valid orders == n-1.
+     * FORCED_FIRST is a top-up to fixed guaranteed rebate within withinDays of signup, first valid
+     * order only; it does not alter the rebate base for invitation commission. All components may
+     * stack across distinct keys, including multiple forced guarantees (each relative to base rebate).
+     * Periods are [startsAt,endsAt); null endpoints mean unbounded, not disabled. */
     public record Incentive(String key, IncentiveKind kind, BigDecimal fixed, BigDecimal rate,
             long n, long withinDays, Instant startsAt, Instant endsAt) { }
 }

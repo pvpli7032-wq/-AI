@@ -47,8 +47,7 @@ public class RuleEngine {
         operator(operatorId); RuleEvaluation.validate(policy);
         Draft draft = locked(documentId, expectedRevision);
         if (!draft.platform().equals(policy.platform().name())) throw new IllegalArgumentException("platform is immutable");
-        // Validate rounded economics on SAVE too; a draft with external rewards may be retained only
-        // after a future trusted reward integration, not by providing a client-supplied maxCost.
+        // Validate every immutable incentive on SAVE too; never accept client-supplied maxCost.
         verifyPublication(policy);
         replace(draft, JSON.toJSONString(policy), false, operatorId);
         return drafts.byPlatform(draft.platform());
@@ -72,7 +71,7 @@ public class RuleEngine {
     private String verifyPublication(RulePolicy policy) {
         RuleEvaluation.validate(policy);
         RulePorts.PublicationSafety port = safety.getIfAvailable();
-        if (port == null) throw new IllegalStateException("trusted server commission limits/reward safety adapter unavailable");
+        if (port == null) throw new IllegalStateException("trusted server commission limits adapter unavailable");
         RulePorts.Limits limits = Objects.requireNonNull(port.limits(policy));
         if (limits.sourceReference() == null || limits.sourceReference().isBlank()
                 || limits.maximumActualCommission() == null || limits.maximumActualCommission().signum() <= 0
@@ -81,8 +80,6 @@ public class RuleEngine {
         if (policy.maximumCommission().compareTo(limits.maximumActualCommission()) > 0
                 || policy.minimumMargin().compareTo(limits.minimumMargin()) < 0)
             throw new IllegalArgumentException("policy exceeds trusted server financial limits");
-        if (!limits.rewardsDisabled() || !policy.incentives().isEmpty())
-            throw new IllegalStateException("reward-stacked publication blocked until trusted reward costs integrated");
         RuleEvaluation.worstMargin(policy);
         return limits.sourceReference();
     }
@@ -103,8 +100,8 @@ public class RuleEngine {
         if (version == null || !version.enabled()) throw new IllegalStateException("no published policy as of paidAt");
         RulePolicy policy = JSON.parseObject(version.config(), RulePolicy.class);
         RulePorts.Qualification provider = qualifications.getIfAvailable();
-        Evidence evidence = provider == null ? Evidence.unknown(line.paidAt())
-            : Objects.requireNonNull(provider.asOf(orderLineId, buyerUserId, line, line.paidAt()));
+        Evidence evidence = provider == null ? null : provider.asOf(orderLineId, buyerUserId, line, line.paidAt());
+        if (evidence == null) evidence = Evidence.unknown(line.paidAt());
         if (!line.paidAt().equals(evidence.asOf())) throw new IllegalArgumentException("qualification is not as of paidAt");
         if ((evidence.shopId() != null || evidence.categoryId() != null || evidence.jdSelfOperated() != null)
                 && (evidence.sourceReference() == null || evidence.sourceReference().isBlank()))

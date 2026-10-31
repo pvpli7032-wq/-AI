@@ -7,9 +7,13 @@ import com.ruoyi.union.adapter.Platform;
 
 /** Decision and evidence are persisted with full configuration; never resolve current policy to settle. */
 public record RuleDecision(String proportionKey, BigDecimal userRate, List<String> incentiveKeys,
-        List<String> publicActivities) {
+        List<String> publicActivities, List<String> manualReviewReasons) {
     public RuleDecision {
         incentiveKeys = List.copyOf(incentiveKeys); publicActivities = List.copyOf(publicActivities);
+        manualReviewReasons = manualReviewReasons == null ? List.of() : List.copyOf(manualReviewReasons);
+    }
+    public RuleDecision(String proportionKey, BigDecimal userRate, List<String> incentiveKeys, List<String> publicActivities) {
+        this(proportionKey, userRate, incentiveKeys, publicActivities, List.of());
     }
     /** Null is unknown, NOT zero/false. Counts exclude this order and refunded/self purchases.
      * Provider must reconstruct evidence AS OF paidAt, including historical inviter/qualification.
@@ -27,6 +31,8 @@ public record RuleDecision(String proportionKey, BigDecimal userRate, List<Strin
     public record Snapshot(long orderLineId, long buyerUserId, Platform platform, String orderNo,
             String subOrderNo, String itemId, Instant paidAt, long versionId, RulePolicy policy,
             Evidence evidence, RuleDecision decision) { }
+    /** Advisory cost breakdown ONLY. RewardService owns reservation, freeze, posting and reversal.
+     * Never post these payments in addition to RewardService results. All ratios use rebate, not commission. */
     public record Payment(String key, RulePolicy.IncentiveKind kind, Long recipientUserId,
             BigDecimal amount, boolean requiresValidOrderAndFreeze) { }
     public record Calculation(BigDecimal netCommission, BigDecimal rebate, List<Payment> rewards,

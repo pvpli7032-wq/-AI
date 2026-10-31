@@ -51,9 +51,10 @@ public class RuleEvaluationTest {
             new Target(Set.of(), Set.of(), Set.of("shop"), Set.of("category")), 0, 0, null, List.of());
         assertEquals("base", RuleEvaluation.choose(policy(List.of(base("0.2"), shop)), facts(Evidence.unknown(AT))).proportionKey());
     }
-    @Test public void missingQualificationFailsRatherThanInventingNewcomer() {
+    @Test public void missingQualificationSkipsUnprovenNewcomerAndPersistsReview() {
         Proportion n = new Proportion("new", Kind.NEWCOMER, Mode.FIXED, d("0.7"), any(), 5, 0, null, List.of());
-        assertThrows(IllegalStateException.class, () -> RuleEvaluation.choose(policy(List.of(base("0.2"), n)), facts(Evidence.unknown(AT))));
+        RuleDecision decision = RuleEvaluation.choose(policy(List.of(base("0.2"), n)), facts(Evidence.unknown(AT)));
+        assertEquals("base", decision.proportionKey()); assertFalse(decision.manualReviewReasons().isEmpty());
     }
     @Test public void cumulativeTiersRequireBothCountAndAmount() {
         Proportion t = new Proportion("tier", Kind.TIERED, Mode.CUMULATIVE_TIERS, d("0.1"), any(), 0, 0, null,
@@ -80,7 +81,7 @@ public class RuleEvaluationTest {
         Proportion i = new Proportion("base", Kind.BASE, Mode.INVITATION_TIERS, d("0.1"), any(), 0, 0, null,
             List.of(new Tier(3, d("0"), d("0.4")), new Tier(8, d("0"), d("0.6"))));
         assertEquals(d("0.4"), RuleEvaluation.choose(policy(List.of(i)), facts(evidence())).userRate());
-        assertThrows(IllegalStateException.class, () -> RuleEvaluation.choose(policy(List.of(i)), facts(Evidence.unknown(AT))));
+        assertEquals(d("0.1"), RuleEvaluation.choose(policy(List.of(i)), facts(Evidence.unknown(AT))).userRate());
     }
     @Test public void ambiguousRulesFail() {
         Proportion n = new Proportion("new", Kind.NEWCOMER, Mode.FIXED, d("0.7"), any(), 5, 0, null, List.of());
@@ -118,7 +119,7 @@ public class RuleEvaluationTest {
         RulePolicy rewards = new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), p.maximumCommission(), p.minimumMargin(),
             p.payoutCostRate(), p.minimumRebate(), false, p.proportions(),
             List.of(new Incentive("first", IncentiveKind.INVITATION_FIRST, d("1"), d("0"), 1, 5, null, null)));
-        assertThrows(IllegalStateException.class, () -> RuleEvaluation.worstMargin(rewards));
+        assertThrows(IllegalArgumentException.class, () -> RuleEvaluation.worstMargin(rewards));
     }
     @Test public void jdFeeRequiresAuthoritativeOperationEvidence() {
         RulePolicy p = new RulePolicy(Platform.JD, d("0.1"), d("0.2"), d("10"), d("-1"), d("0"), d("0"), false, List.of(base("0.5")), List.of());

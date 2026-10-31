@@ -14,6 +14,8 @@ import static com.ruoyi.system.cps.rule.RuleDecision.*;
 
 /** Pure matching/calculation. No database, user application, or current-version dependency. */
 public final class RuleEvaluation {
+    public static final long MAX_PROOF_CENTS = 1_000_000;
+    public static final long MAX_PROOF_WORK = 4_000_000;
     private RuleEvaluation() { }
     public static BigDecimal money(BigDecimal value) { return value.setScale(2, RoundingMode.HALF_UP); }
     private static void nonNegative(BigDecimal value) {
@@ -25,6 +27,9 @@ public final class RuleEvaluation {
     }
     public static void validate(RulePolicy p) {
         Objects.requireNonNull(p.platform()); rate(p.serviceRate()); rate(p.jdNonSelfRate());
+        if (p.proportions().size() > 128 || p.incentives().size() > 128
+                || p.proportions().stream().mapToLong(r -> r.tiers().size()).sum() > 1024)
+            throw new IllegalArgumentException("rule configuration exceeds bounded proof complexity");
         rate(p.payoutCostRate()); nonNegative(p.maximumCommission()); nonNegative(p.minimumRebate());
         Objects.requireNonNull(p.minimumMargin());
         if (p.maximumCommission().stripTrailingZeros().scale() > 2 || p.maximumCommission().signum() == 0)
@@ -70,6 +75,24 @@ public final class RuleEvaluation {
         for (Incentive i : p.incentives()) {
             if (i.key() == null || i.key().isBlank() || !keys.add(i.key())) throw new IllegalArgumentException("incentive key");
             Objects.requireNonNull(i.kind()); nonNegative(i.fixed()); rate(i.rate());
+            if (i.fixed().stripTrailingZeros().scale() > 2) throw new IllegalArgumentException("fixed reward must be cents");
+            switch (i.kind()) {
+                case INVITATION_COMMISSION -> {
+                    if (i.fixed().signum() != 0) throw new IllegalArgumentException("invitation commission is rebate ratio only");
+                }
+                case INVITATION_FIRST, INVITATION_FIRST_N, ORDER_COUNT, FORCED_FIRST -> {
+                    if (i.rate().signum() != 0) throw new IllegalArgumentException("fixed reward cannot also have ratio");
+                }
+                case FIRST_N_SUBSIDY -> {
+                    if (i.fixed().signum() != 0 && i.rate().signum() != 0)
+                        throw new IllegalArgumentException("first-N subsidy requires fixed OR rebate ratio");
+                }
+            }
+            if ((i.kind() == IncentiveKind.INVITATION_FIRST_N || i.kind() == IncentiveKind.ORDER_COUNT
+                    || i.kind() == IncentiveKind.FIRST_N_SUBSIDY) && i.n() < 1)
+                throw new IllegalArgumentException("positive reward N required");
+            if (i.kind() == IncentiveKind.FORCED_FIRST && i.withinDays() < 1)
+                throw new IllegalArgumentException("forced-first requires explicit signup-day window");
             if (i.n() < 0 || i.withinDays() < 0 || (i.startsAt() != null && i.endsAt() != null && !i.endsAt().isAfter(i.startsAt())))
                 throw new IllegalArgumentException("incentive threshold/period");
         }
@@ -116,6 +139,45 @@ public final class RuleEvaluation {
             }
         };
     }
+    private static boolean eligible(Proportion r, Facts f, List<String> reviews) {
+        try {
+            if ((!r.target().shops().isEmpty() && f.evidence().shopId() == null)
+                    || (!r.target().categories().isEmpty() && f.evidence().categoryId() == null))
+                reviews.add(r.key() + ": shop/category qualification unavailable");
+            return matches(r, f);
+        } catch (IllegalStateException unproven) {
+            reviews.add(r.key() + ": " + unproven.getMessage()); return false;
+        }
+    }
+    private static boolean invitation(IncentiveKind kind) {
+        return kind == IncentiveKind.INVITATION_COMMISSION || kind == IncentiveKind.INVITATION_FIRST
+            || kind == IncentiveKind.INVITATION_FIRST_N;
+    }
+    /** Counts exclude the current order. Active periods are [startsAt,endsAt), window is since signup.
+     * Unknown historical qualification never awards; it is persisted for manual review instead. */
+    private static boolean rewardEligible(Incentive i, Facts f) {
+        if ((i.startsAt() != null && f.paidAt().isBefore(i.startsAt()))
+                || (i.endsAt() != null && !f.paidAt().isBefore(i.endsAt()))) return false;
+        Evidence e = f.evidence(); reliable(e);
+        if (e.selfPurchase() == null) throw new IllegalStateException("reward self-purchase evidence unavailable");
+        if (e.selfPurchase()) return false;
+        if (invitation(i.kind())) {
+            if (e.inviterUserId() == null) throw new IllegalStateException("historical inviter unavailable");
+            if (e.inviterUserId() <= 0 || e.inviterUserId() == f.buyerUserId())
+                throw new IllegalStateException("invalid historical inviter");
+        }
+        if (i.withinDays() > 0) {
+            if (e.joinedAt() == null) throw new IllegalStateException("historical signup unavailable");
+            if (e.joinedAt().isAfter(f.paidAt())
+                    || Duration.between(e.joinedAt(), f.paidAt()).toDays() >= i.withinDays()) return false;
+        }
+        return switch (i.kind()) {
+            case INVITATION_COMMISSION -> true;
+            case INVITATION_FIRST, FORCED_FIRST -> orders(e) == 0;
+            case INVITATION_FIRST_N, FIRST_N_SUBSIDY -> orders(e) < i.n();
+            case ORDER_COUNT -> orders(e) == i.n() - 1;
+        };
+    }
     private static int priority(Kind kind) {
         return switch (kind) { case TARGETED -> 0; case NEWCOMER, DORMANCY -> 1; case TIERED -> 2; case BASE -> 3; };
     }
@@ -145,15 +207,21 @@ public final class RuleEvaluation {
             throw new IllegalArgumentException("invalid paid-time facts");
         commission(p, f.estimatedCommission());
         // Only inspect lower priorities when required; missing evidence never fabricates a match.
+        List<String> reviews = new ArrayList<>();
         List<Proportion> candidates = new ArrayList<>();
         for (int pr = 0; pr <= 3 && candidates.isEmpty(); pr++) {
-            for (Proportion r : p.proportions()) if (priority(r.kind()) == pr && matches(r, f)) candidates.add(r);
+            for (Proportion r : p.proportions()) if (priority(r.kind()) == pr && eligible(r, f, reviews)) candidates.add(r);
         }
         if (candidates.size() != 1) throw new IllegalArgumentException("ambiguous matching proportion rules");
         Proportion selected = candidates.getFirst();
-        BigDecimal selectedRate = selectedRate(selected, f);
+        BigDecimal selectedRate;
+        try { selectedRate = selectedRate(selected, f); }
+        catch (IllegalStateException unproven) {
+            // An invitation-tier base still has a configured ordinary rate, never invented invitations.
+            reviews.add(selected.key() + ": " + unproven.getMessage()); selectedRate = selected.rate();
+        }
         if (selected.kind() == Kind.TARGETED && p.targetedWithTier()) {
-            List<Proportion> tiers = p.proportions().stream().filter(r -> r.kind() == Kind.TIERED && matches(r, f)).toList();
+            List<Proportion> tiers = p.proportions().stream().filter(r -> r.kind() == Kind.TIERED && eligible(r, f, reviews)).toList();
             if (tiers.size() > 1) throw new IllegalArgumentException("ambiguous tier combination");
             if (!tiers.isEmpty()) {
                 if (selected.mode() == Mode.INVITATION_TIERS || tiers.getFirst().mode() == Mode.INVITATION_TIERS)
@@ -161,9 +229,13 @@ public final class RuleEvaluation {
                 selectedRate = selectedRate.max(selectedRate(tiers.getFirst(), f));
             }
         }
-        if (!p.incentives().isEmpty()) throw new IllegalStateException("reward qualification/cost integration required");
-        return new RuleDecision(selected.key(), selectedRate, List.of(),
-            selected.kind() == Kind.DORMANCY ? List.of(selected.publicActivity()) : List.of());
+        List<String> incentives = new ArrayList<>();
+        for (Incentive i : p.incentives()) {
+            try { if (rewardEligible(i, f)) incentives.add(i.key()); }
+            catch (IllegalStateException unproven) { reviews.add(i.key() + ": " + unproven.getMessage()); }
+        }
+        return new RuleDecision(selected.key(), selectedRate, incentives,
+            selected.kind() == Kind.DORMANCY ? List.of(selected.publicActivity()) : List.of(), reviews);
     }
     private static void commission(RulePolicy p, BigDecimal commission) {
         nonNegative(commission);
@@ -172,39 +244,61 @@ public final class RuleEvaluation {
     }
     public static Calculation calculate(Snapshot snapshot, BigDecimal actualCommission) {
         RulePolicy p = snapshot.policy(); commission(p, actualCommission);
-        if (!p.incentives().isEmpty() || !snapshot.decision().incentiveKeys().isEmpty())
-            throw new IllegalStateException("reward cost integration required");
         BigDecimal jd = BigDecimal.ZERO;
         if (p.platform() == Platform.JD && p.jdNonSelfRate().signum() != 0) {
             if (snapshot.evidence().jdSelfOperated() == null) throw new IllegalStateException("JD operation evidence unavailable");
             reliable(snapshot.evidence());
             if (!snapshot.evidence().jdSelfOperated()) jd = p.jdNonSelfRate();
         }
-        return quote(p, actualCommission, snapshot.decision().userRate(), jd);
+        List<Incentive> incentives = p.incentives().stream()
+            .filter(i -> snapshot.decision().incentiveKeys().contains(i.key())).toList();
+        if (incentives.size() != snapshot.decision().incentiveKeys().size())
+            throw new IllegalArgumentException("unknown/duplicate selected incentive");
+        return quote(p, actualCommission, snapshot.decision().userRate(), jd, incentives,
+            snapshot.buyerUserId(), snapshot.evidence().inviterUserId(), false);
     }
-    private static Calculation quote(RulePolicy p, BigDecimal commission, BigDecimal userRate, BigDecimal jd) {
+    private static Calculation quote(RulePolicy p, BigDecimal commission, BigDecimal userRate, BigDecimal jd,
+            List<Incentive> incentives, Long buyer, Long inviter, boolean conservative) {
         rate(userRate);
         var q = CommissionCalculator.calculate(commission, p.maximumCommission(), p.serviceRate(), jd,
             userRate, BigDecimal.ZERO, BigDecimal.ZERO, p.payoutCostRate());
-        BigDecimal rebate = q.rebate().compareTo(new BigDecimal("0.01")) < 0 ? money(p.minimumRebate()) : q.rebate();
-        BigDecimal cost = money(rebate.multiply(p.payoutCostRate()));
-        return new Calculation(q.netCommission(), rebate, List.of(), cost, money(q.netCommission().subtract(rebate).subtract(cost)));
+        BigDecimal rebate = q.rebate().max(money(p.minimumRebate()));
+        List<Payment> payments = new ArrayList<>();
+        BigDecimal totalRewards = BigDecimal.ZERO;
+        for (Incentive i : incentives) {
+            BigDecimal amount = i.kind() == IncentiveKind.FORCED_FIRST
+                ? (conservative ? i.fixed() : i.fixed().subtract(rebate).max(BigDecimal.ZERO))
+                : i.fixed().add(rebate.multiply(i.rate()));
+            amount = money(amount);
+            Long recipient = invitation(i.kind()) ? inviter : buyer;
+            if (!conservative && (recipient == null || recipient <= 0))
+                throw new IllegalStateException("selected reward has no proven recipient");
+            payments.add(new Payment(i.key(), i.kind(), recipient, amount, true));
+            totalRewards = totalRewards.add(amount);
+        }
+        BigDecimal cost = money(rebate.add(totalRewards).multiply(p.payoutCostRate()));
+        return new Calculation(q.netCommission(), rebate, payments, cost,
+            money(q.netCommission().subtract(rebate).subtract(totalRewards).subtract(cost)));
     }
     /** Exhaustive cent-domain proof (including zero). No client maxCost is accepted.
      * Worst possible rate is conservative even where targets/tiers cannot overlap.
-     * Both JD fee paths are checked. Bound limits synchronous publishing work, not money precision. */
+     * All incentive keys are conservatively simultaneous, even disjoint periods/qualifications.
+     * Forced guarantees are charged at full fixed value rather than their smaller actual top-up,
+     * preserving monotonicity in the maximum rebate rate. Zero covers the minimum-rebate discontinuity.
+     * Both JD fee paths are checked. At most 1,000,000 cents and 4,000,000 quote-incentive work units;
+     * two JD paths * (cents+1) * (incentive count+1). Exceeding either bound rejects publication. */
     public static BigDecimal worstMargin(RulePolicy p) {
         validate(p);
-        if (!p.incentives().isEmpty()) throw new IllegalStateException("reward-stacked publication blocked until trusted reward costs integrated");
         long cents = p.maximumCommission().movePointRight(2).longValueExact();
-        if (cents > 1_000_000) throw new IllegalArgumentException("publication proof domain exceeds 1000000 cents");
+        if (cents > MAX_PROOF_CENTS || (cents + 1) * 2 * (p.incentives().size() + 1L) > MAX_PROOF_WORK)
+            throw new IllegalArgumentException("publication proof exceeds 1000000 cents / 4000000 quote-incentive work units");
         BigDecimal highest = p.proportions().stream().map(Proportion::rate).max(Comparator.naturalOrder()).orElseThrow();
         for (Proportion r : p.proportions()) for (Tier t : r.tiers()) highest = highest.max(t.rate());
         BigDecimal worst = null;
         for (long c = 0; c <= cents; c++) {
             BigDecimal commission = BigDecimal.valueOf(c, 2);
-            BigDecimal margin = quote(p, commission, highest, p.jdNonSelfRate()).margin()
-                .min(quote(p, commission, highest, BigDecimal.ZERO).margin());
+            BigDecimal margin = quote(p, commission, highest, p.jdNonSelfRate(), p.incentives(), null, null, true).margin()
+                .min(quote(p, commission, highest, BigDecimal.ZERO, p.incentives(), null, null, true).margin());
             worst = worst == null ? margin : worst.min(margin);
         }
         if (worst.compareTo(p.minimumMargin()) < 0) throw new IllegalArgumentException("rounded worst-case margin below minimum: " + worst);

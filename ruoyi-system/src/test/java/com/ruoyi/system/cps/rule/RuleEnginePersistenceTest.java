@@ -21,6 +21,8 @@ import static org.junit.Assert.*;
 public class RuleEnginePersistenceTest {
     static class Drafts implements RuleMapper {
         Draft draft;
+        List<RuleSafetyConfiguration.Entry> limits = List.of();
+        public List<RuleSafetyConfiguration.Entry> financialLimits(String max, String min) { return limits; }
         public int create(String platform, String config, long operator) {
             draft = new Draft(1, platform, 1, config, false); return 1;
         }
@@ -90,7 +92,7 @@ public class RuleEnginePersistenceTest {
         RuleEngine limited = engine(drafts, versions, p -> new RulePorts.Limits(d("1"), d("-1"), true, "server"));
         assertThrows(IllegalArgumentException.class, () -> limited.create(policy(List.of(base("0.2"))), 3));
         RuleEngine rewardEnabled = engine(drafts, versions, p -> new RulePorts.Limits(d("10"), d("-1"), false, "server"));
-        assertThrows(IllegalStateException.class, () -> rewardEnabled.create(policy(List.of(base("0.2"))), 3));
+        assertNotNull(rewardEnabled.create(policy(List.of(base("0.2"))), 3));
     }
     @Test public void deletePreservesHistoryAndPreviouslyFrozenSnapshot() {
         Drafts drafts = new Drafts(); Versions versions = new Versions(); RuleEngine engine = engine(drafts, versions, safe());

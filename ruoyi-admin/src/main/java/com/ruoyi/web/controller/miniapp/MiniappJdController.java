@@ -62,6 +62,7 @@ public class MiniappJdController extends BaseController {
 
         // 构建请求参数
         Map<String, String> params = new HashMap<>();
+        if (keyword != null && !keyword.isBlank()) params.put("keyword", keyword);
         
         // 京东联盟热销榜参数（参考官方文档：https://union.jd.com/openplatform/api/v2?apiName=jd.union.open.goods.rank.query）
         // rankId: 榜单ID（必填）- 榜单ID（200000：全部，200001：食品酒水，200002：家庭清洁，200003：个护美妆，200004：医药保健，200005：生鲜，200006：数码家电，200007：家居日用，200008：时尚生活）
@@ -129,9 +130,9 @@ public class MiniappJdController extends BaseController {
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "20") Integer pageSize) {
         
-        // 京东联盟暂不支持关键词搜索的公开API
-        // 这里使用热销榜作为替代方案
+        // The service decorator routes actual keywords to DTK's keyword search.
         Map<String, String> params = new HashMap<>();
+        params.put("keyword", keyword);
         
         // 使用正确的参数名（参考官方文档）
         params.put("rankGoodsReq.rankId", "200000"); // 全部榜单
@@ -162,6 +163,7 @@ public class MiniappJdController extends BaseController {
 
         // 构建请求参数
         Map<String, String> params = new HashMap<>();
+        if (keyword != null && !keyword.isBlank()) params.put("keyword", keyword);
         
         // 京东联盟榜单参数（参考官方文档）
         // rankId: 榜单ID（必填）- 200000：全部

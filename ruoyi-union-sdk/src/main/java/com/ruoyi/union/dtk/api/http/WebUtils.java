@@ -36,6 +36,19 @@ public class WebUtils {
 
     private static int keepAliveTimeout = 0;
 
+    private record RequestTimeouts(int connectMillis, int readMillis) {}
+
+    /** Infrastructure defaults only; deployment may configure both finite limits. */
+    private static volatile RequestTimeouts requestTimeouts = new RequestTimeouts(3000, 10000);
+
+    public static void setTimeouts(int connectTimeoutMillis, int readTimeoutMillis) {
+        if (connectTimeoutMillis < 1 || readTimeoutMillis < 1
+                || connectTimeoutMillis > 120000 || readTimeoutMillis > 120000) {
+            throw new IllegalArgumentException("HTTP timeouts must be between 1 and 120000 milliseconds");
+        }
+        requestTimeouts = new RequestTimeouts(connectTimeoutMillis, readTimeoutMillis);
+    }
+
     /**
      * 是否校验SSL服务端证书，默认为需要校验
      */
@@ -197,6 +210,9 @@ public class WebUtils {
             }
         }
 
+        RequestTimeouts timeouts = requestTimeouts;
+        conn.setConnectTimeout(timeouts.connectMillis());
+        conn.setReadTimeout(timeouts.readMillis());
         conn.setRequestMethod(method);
         conn.setDoInput(true);
         conn.setDoOutput(true);

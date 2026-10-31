@@ -36,6 +36,9 @@ import java.util.Map;
 @RequestMapping("/miniapp/tbk")
 public class MiniappTbkController extends BaseController {
 
+    @Autowired
+    private com.ruoyi.system.cps.attribution.CouponConversionService couponConversionService;
+
     // Public browsing remains available without a login; request parameters are not identity.
     private Long currentUserId() {
         org.springframework.security.core.Authentication authentication =
@@ -492,7 +495,13 @@ public class MiniappTbkController extends BaseController {
         
         // 6、如果找到了匹配的商品（含推广链接），返回该商品
         if (matchedItem != null) {
-            return AjaxResult.success(matchedItem);
+            var converted = couponConversionService.convert(currentUserId(),
+                    com.ruoyi.system.cps.attribution.CouponRequestIdentity.remoteAddress(),
+                    com.ruoyi.union.adapter.Platform.TBK, id);
+            JSONObject display = com.ruoyi.system.cps.attribution.CouponPresentation.detail(matchedItem);
+            // CouponPresentation has recursively removed the catalogue's promotion links, including nested aliases.
+            if (converted.successful()) display.put("conversion", converted);
+            return AjaxResult.success(display);
         }
         
         // 7、如果没找到匹配的商品（可能是该商品不支持推广），返回基本信息
@@ -533,7 +542,7 @@ public class MiniappTbkController extends BaseController {
         publishInfo.put("clickUrl", itemInfo.getString("itemUrl")); // 使用普通商品链接
         result.put("publishInfo", publishInfo);
         
-        return AjaxResult.success(result);
+        return AjaxResult.success(com.ruoyi.system.cps.attribution.CouponPresentation.detail(result));
     }
 
     /**
@@ -644,31 +653,21 @@ public class MiniappTbkController extends BaseController {
     @Operation(summary = "获取淘口令")
     @GetMapping("/getTpwd")
     public AjaxResult getTpwd(
-            @RequestParam String text,
-            @RequestParam String url,
+            @RequestParam(required = false) String text,
+            @RequestParam(required = false) String url,
+            @RequestParam(required = false) String goodsId,
+            @RequestParam(required = false) String itemId,
             @RequestParam(required = false) String logo,
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
-
-        // 根据登录态查询已审核的代理信息。
-        Long currentUserId = currentUserId();
-        SysTbkAgentApply agentApply = currentUserId == null ? null : tbkAgentApplyService.selectByUserId(currentUserId);
-        if (agentApply != null && !"1".equals(agentApply.getStatus())) {
-            agentApply = null;
-        }
-        
-        // 2、构建淘口令请求参数
-        Map<String, String> params = new HashMap<>();
-        params.put("apiMethodName", TbkApiConstants.API_METHOD_NAME_CREATE_TPWD);
-        params.put("text", text);
-        params.put("url", url);
-        if (logo != null && !logo.isEmpty()) {
-            params.put("logo", logo);
-        }
-
-        // 3、根据代理信息选择调用方式
-        Map<String, Object> result = tbkSdkService.getTpwd(params);
-        return success(result);
+        // Keep the path, but no client URL (including encoded/foreign PIDs) can reach a token API.
+        if (url != null && !url.isBlank()) return AjaxResult.error("请使用商品ID重新转链，不接受客户端推广链接");
+        String id = goodsId == null || goodsId.isBlank() ? itemId : goodsId;
+        var result = couponConversionService.convert(currentUserId(),
+                com.ruoyi.system.cps.attribution.CouponRequestIdentity.remoteAddress(),
+                com.ruoyi.union.adapter.Platform.TBK, id);
+        if (!result.successful()) return AjaxResult.error(result.message()).put("data", result);
+        return AjaxResult.success(com.ruoyi.system.cps.attribution.CouponPresentation.link(result));
     }
 
     /**

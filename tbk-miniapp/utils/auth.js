@@ -61,6 +61,13 @@ function doLogin(code, userInfo) {
     const loginData = {
       code: code
     };
+
+    // 邀请码只随授权请求提交。后端仅在首次创建用户时解析，不用它选择商品身份。
+    const app = getApp();
+    const referralCode = (app && app.globalData.referralCode) || wx.getStorageSync('referralCode');
+    if (!getToken() && typeof referralCode === 'string' && referralCode.trim()) {
+      loginData.invitationCode = referralCode.trim();
+    }
     
     if (userInfo) {
       loginData.nickName = userInfo.nickName;
@@ -115,6 +122,9 @@ function doLogin(code, userInfo) {
           console.log('微信用户信息:', wechatUser);
           
           setToken(token);
+          // 已完成一次授权；老用户也清除待用邀请码，避免后续登录重复提交。
+          if (app && app.globalData) app.globalData.referralCode = '';
+          wx.removeStorageSync('referralCode');
           
           // 构建完整的用户信息对象，包含token、isAgent、invitationCode、boundPlatforms等
           const completeUserInfo = {
@@ -129,7 +139,6 @@ function doLogin(code, userInfo) {
           console.log('boundPlatforms数量:', completeUserInfo.boundPlatforms.length);
           
           // 更新 app 全局数据
-          const app = getApp();
           if (app && app.login) {
             app.login(completeUserInfo);
           }

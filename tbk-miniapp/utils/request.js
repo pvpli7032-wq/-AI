@@ -187,6 +187,11 @@ function publicGet(url, data) {
   return request(url, 'GET', data, false);
 }
 
+/** 商品浏览和转链可匿名访问；有会话时仍发送当前用户的 token。 */
+function optionalGet(url, data) {
+  return request(url, 'GET', data, true);
+}
+
 /**
  * POST请求（公开接口，不需要认证）
  */
@@ -363,6 +368,7 @@ module.exports = {
   put,
   del,
   publicGet,
+  optionalGet,
   publicPost,
   publicPostForm,
   upload

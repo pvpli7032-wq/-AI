@@ -15,6 +15,8 @@
 - 分支名用 `codex/line-N-<内容>`，从最新的 `main` 拉出。
 - 开 PR 前同步最新的 `main`，有冲突自己解决，并重新跑验收。
 - 迁移脚本用自己这条线的编号段。
+- 改动范围和迁移编号由 CI 按 `.github/pr-scope.conf` 检查（`scripts/check-pr-scope.sh`）。越界时停下，在 PR 里说明，不要改清单或脚本绕过。
+- 清单和检查脚本只能由 `chore/guardrails-*` 分支修改。
 
 ## 技术约定
 

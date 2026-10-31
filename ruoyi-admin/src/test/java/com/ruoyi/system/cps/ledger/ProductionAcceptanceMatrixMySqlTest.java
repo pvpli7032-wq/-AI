@@ -305,7 +305,7 @@ public class ProductionAcceptanceMatrixMySqlTest {
         money("4.50",account(buyer,"frozen_amount")); money("0",balance(buyer));
         assertEquals(result.importId(),penalties.importStatement(request,buyer).importId());
         penalties.retry(result.importId());
-        assertEquals(2,count("SELECT COUNT(*) FROM cps_settlement_hold_event WHERE event_key LIKE 'penalty:%'"));
+        assertEquals(2,count("SELECT COUNT(*) FROM cps_settlement_hold_event WHERE reason IN ('MISSING_SOURCE_STATUS_TIME','MISSING_SETTLEMENT_COMMISSION_OR_PAYMENT_EVIDENCE')"));
         audit(buyer);
     }
 

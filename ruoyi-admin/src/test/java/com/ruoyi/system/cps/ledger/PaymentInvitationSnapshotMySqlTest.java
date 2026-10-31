@@ -1,4 +1,7 @@
-package com.ruoyi.system.cps.settlement;
+package com.ruoyi.system.cps.ledger;
+
+import com.ruoyi.system.cps.settlement.PaymentInvitationSnapshotPort;
+import com.ruoyi.system.cps.settlement.PaymentInvitationSnapshotService;
 
 import static org.junit.Assert.*;
 import java.math.BigDecimal;
@@ -55,7 +58,8 @@ public class PaymentInvitationSnapshotMySqlTest
         jdbc = new JdbcTemplate(ds);
         tx = new TransactionTemplate(new DataSourceTransactionManager(ds));
         Path root = Path.of("").toAbsolutePath();
-        if (root.getFileName().toString().equals("ruoyi-system")) root = root.getParent();
+        while (root != null && !java.nio.file.Files.isDirectory(root.resolve("ruoyi-admin"))) root = root.getParent();
+        assertNotNull("Repository root not found", root);
         new ResourceDatabasePopulator(new FileSystemResource(root.resolve(
             "ruoyi-admin/src/main/resources/db/migration/V703__payment_invitation_snapshot.sql"))).execute(ds);
         jdbc.execute("CREATE TABLE sys_wechat_user(user_id BIGINT PRIMARY KEY, inviter_user_id BIGINT NULL)");

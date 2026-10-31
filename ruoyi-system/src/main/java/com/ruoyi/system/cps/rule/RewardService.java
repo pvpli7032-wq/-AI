@@ -16,7 +16,11 @@ import static com.ruoyi.system.cps.rule.RewardApi.*;
  * LedgerService with businessKey as idempotency key before committing. On retry, instructions are
  * replayed from an append-only outbox. No account mutation occurs here. Consumers must use the same
  * database transaction or durably drain the outbox; a returned instruction is NOT proof of payment.
- * Qualification order is serialized freeze-release order, not backdated payment order.
+ * First-N eligibility is payment-time ordered. Capture EVERY payment (even empty configs) before
+ * settlement release. Later payments wait for earlier captured candidates to qualify or be explicitly
+ * excluded. Late backfills preceding an already qualified order fail closed for manual reconciliation;
+ * there is no way to infer unreceived historical orders here. Retry deferred orders after predecessors.
+ * historicalUnknown blocks rewards only: ordinary buyer rebate is a separate settlement responsibility.
  */
 @Service
 @Transactional(propagation = Propagation.MANDATORY, rollbackFor = Exception.class)
@@ -27,12 +31,15 @@ public class RewardService {
     /** Must run at payment snapshot creation, even if configs is empty. Insert-only and fail on drift. */
     public void capture(Snapshot snapshot) {
         lock(snapshot);
-        String prior = mapper.snapshot(snapshot.orderId());
-        if (prior != null) {
-            // Compare decoded immutable values (set iteration order does not affect equality).
-            if (!JSON.parseObject(prior, Snapshot.class).equals(snapshot))
-                throw new IllegalStateException("immutable reward snapshot conflict");
+        List<Snapshot> history = history(snapshot.buyerId());
+        var prior = history.stream().filter(o -> o.orderId() == snapshot.orderId()).findFirst();
+        if (prior.isPresent()) {
+            if (!prior.get().equals(snapshot)) throw new IllegalStateException("immutable reward snapshot conflict");
             return;
+        }
+        for (Snapshot later : history) {
+            if (RewardCalculator.PAYMENT_ORDER.compare(snapshot, later) < 0 && mapper.state(later.orderId()).qualified())
+                throw new IllegalStateException("late payment precedes qualified reward history; manual reconciliation required");
         }
         mapper.insertSnapshot(snapshot.orderId(), snapshot.order().platform(), snapshot.order().orderNo(),
             snapshot.order().subOrderNo(), snapshot.buyerId(), snapshot.inviterId(), JSON.toJSONString(snapshot));
@@ -50,12 +57,25 @@ public class RewardService {
         var state = mapper.state(orderId);
         if (s.historicalUnknown()) return new Result(true, replay(orderId));
         if (state.qualified() || state.closed()) return new Result(false, replay(orderId));
-        if (!evidence.freezeReleased() || evidence.pausedOrRiskHeld() || evidence.now().isBefore(evidence.freezeUntil()) ||
+        if (!evidence.freezeReleased() || evidence.pausedOrRiskHeld() || evidence.now().isBefore(s.paidAt()) ||
+                evidence.now().isBefore(evidence.freezeUntil()) ||
                 !RewardCalculator.valid(s, evidence.paid(), evidence.commission()))
             return new Result(false, replay(orderId));
-        long ordinal = mapper.lifetimeCount(s.buyerId()) + 1;
-        long count = mapper.validCount(s.buyerId()) + 1;
-        List<Award> awards = RewardCalculator.awards(s, evidence, ordinal, count, state.refundRatio());
+        long ordinal = 1, platformOrdinal = 1, count = 1;
+        for (Snapshot other : history(s.buyerId())) {
+            if (other.orderId() == orderId) continue;
+            var otherState = mapper.state(other.orderId());
+            if (otherState.valid()) count++;
+            if (RewardCalculator.PAYMENT_ORDER.compare(other, s) < 0) {
+                if (!otherState.qualified() && !otherState.closed())
+                    return new Result(other.historicalUnknown(), replay(orderId));
+                if (otherState.qualified()) {
+                    ordinal++;
+                    if (other.order().platform().equals(s.order().platform())) platformOrdinal++;
+                }
+            }
+        }
+        List<Award> awards = RewardCalculator.awards(s, evidence, ordinal, platformOrdinal, count, state.refundRatio());
         mapper.qualify(orderId); // Every valid order contributes, even when no configured reward applies.
         for (Award a : awards) {
             if (mapper.awardExists(a.id()) != 0) continue;
@@ -66,6 +86,20 @@ public class RewardService {
         return new Result(false, replay(orderId));
     }
 
+    /** Explicit terminal exclusion for a final below-threshold/zero-commission candidate.
+     * A merely pending commission update must NOT use this method. Ordinary rebate is unaffected.
+     */
+    public void excludeInvalid(long orderId, Qualification finalEvidence) {
+        Snapshot s = snapshot(orderId); lock(s);
+        var state = mapper.state(orderId);
+        if (!finalEvidence.freezeReleased() || finalEvidence.pausedOrRiskHeld() ||
+                finalEvidence.now().isBefore(s.paidAt()) || finalEvidence.now().isBefore(finalEvidence.freezeUntil()) ||
+                RewardCalculator.valid(s, finalEvidence.paid(), finalEvidence.commission()))
+            throw new IllegalArgumentException("terminal invalid-order evidence required");
+        if (state.qualified()) throw new IllegalStateException("qualified contribution must be reversed through refund");
+        mapper.refund(orderId, state.refundRatio(), false);
+    }
+
     public Result refund(long orderId, Refund refund) {
         Snapshot s = snapshot(orderId); lock(s);
         var state = mapper.state(orderId);
@@ -74,7 +108,7 @@ public class RewardService {
         boolean valid = !state.closed() && refund.cumulativeRatio().compareTo(BigDecimal.ONE) < 0 &&
             RewardCalculator.valid(s, refund.remainingPaid(), refund.remainingCommission());
         mapper.refund(orderId, refund.cumulativeRatio(), valid);
-        long count = mapper.validCount(s.buyerId());
+        long count = history(s.buyerId()).stream().filter(o -> mapper.state(o.orderId()).valid()).count();
         for (Award a : mapper.awards(s.buyerId())) {
             BigDecimal ratio = BigDecimal.ZERO;
             if (a.orderId() == orderId) {
@@ -107,7 +141,11 @@ public class RewardService {
     public long validInvitees(long inviterId) {
         if (inviterId <= 0) throw new IllegalArgumentException("invalid inviter");
         mapper.ensureUser(inviterId); mapper.lockUser(inviterId);
-        return mapper.validInvitees(inviterId);
+        return mapper.validInviteeBuyers(inviterId).stream().distinct().count();
+    }
+
+    private List<Snapshot> history(long buyerId) {
+        return mapper.buyerSnapshots(buyerId).stream().map(p -> JSON.parseObject(p, Snapshot.class)).toList();
     }
 
     private void append(Instruction instruction) {

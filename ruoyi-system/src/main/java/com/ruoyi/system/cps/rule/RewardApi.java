@@ -8,7 +8,7 @@ import java.util.*;
 /** Caller supplies authenticated attribution and payment-time configuration, never live referral lookup. */
 public final class RewardApi {
     private RewardApi() {}
-    public enum Type { INVITATION_RATIO, INVITEE_FIRST_FIXED, INVITEE_FIRST_N_FIXED, OWN_QUANTITY, FIRST_N_SUBSIDY }
+    public enum Type { INVITATION_RATIO, INVITEE_FIRST_FIXED, INVITEE_FIRST_N_FIXED, OWN_QUANTITY, FIRST_N_SUBSIDY, FORCED_FIRST }
     public enum Mode { FIXED, RATIO }
     public record OrderKey(String platform, String orderNo, String subOrderNo) {
         public OrderKey {
@@ -17,6 +17,9 @@ public final class RewardApi {
                 throw new IllegalArgumentException("order identity exceeds storage limits");
         }
     }
+    /** FORCED_FIRST uses FIXED value as minimum TOTAL ordinary rebate, not an extra fixed bonus.
+     * Its first-valid entitlement is per buyer/platform lifetime; n must be 1.
+     */
     public record Config(Type type, long version, Mode mode, int n, BigDecimal value,
                          Set<String> platforms, Instant from, Instant until) {
         public Config {
@@ -29,13 +32,17 @@ public final class RewardApi {
             if (type == Type.INVITATION_RATIO ? mode != Mode.RATIO :
                     type != Type.FIRST_N_SUBSIDY && mode != Mode.FIXED)
                 throw new IllegalArgumentException("unsupported reward mode");
+            if (type == Type.FORCED_FIRST && n != 1)
+                throw new IllegalArgumentException("FORCED_FIRST requires n=1");
             if (mode == Mode.FIXED) value = money(value);
         }
         public boolean applies(Snapshot s) {
             return platforms.contains(s.order().platform()) && !s.paidAt().isBefore(from) && s.paidAt().isBefore(until);
         }
     }
-    /** historicalUnknown prevents automatic qualification, including when inviter is null. */
+    /** historicalUnknown prevents ALL automatic reward qualification, including own subsidies.
+     * It MUST NOT prevent settlement from posting the separate ordinary buyer rebate.
+     */
     public record Snapshot(long orderId, OrderKey order, long buyerId, Long inviterId, Instant paidAt,
                            boolean historicalUnknown, BigDecimal minimumPaid, BigDecimal minimumCommission,
                            BigDecimal maximumReward, List<Config> configs) {
@@ -49,7 +56,9 @@ public final class RewardApi {
             for (Config c : configs) if (!types.add(c.type())) throw new IllegalArgumentException("duplicate reward type");
         }
     }
-    /** freezeReleased is authoritative settlement evidence; paused/risk-held orders must pass false. */
+    /** freezeReleased is authoritative settlement evidence; paused/risk-held orders must pass false.
+     * userRebate is the current ordinary rebate ONLY, excluding every reward/guarantee instruction.
+     */
     public record Qualification(Instant now, Instant freezeUntil, boolean freezeReleased,
                                 boolean pausedOrRiskHeld, BigDecimal paid, BigDecimal commission,
                                 BigDecimal userRebate) {

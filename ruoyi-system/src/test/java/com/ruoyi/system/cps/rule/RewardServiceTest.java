@@ -145,12 +145,14 @@ public class RewardServiceTest {
     }
 
     /** In-memory contract fake only. Intentionally supplies NO SQL/locking/rollback guarantees. */
-    private static final class Memory implements RewardProgressMapper {
+    static final class Memory implements RewardProgressMapper {
         final Map<Long,String> snapshots=new HashMap<>(); final Map<Long,State> states=new HashMap<>();
         final Map<Long,Long> buyers=new HashMap<>(); final Map<String,Award> awards=new LinkedHashMap<>();
         final Map<String,String> instructions=new LinkedHashMap<>(); final Map<String,Long> causes=new HashMap<>();
         public int ensureUser(long id){return 1;} public long lockUser(long id){return id;}
         public String snapshot(long id){return snapshots.get(id);}
+        public List<String> buyerSnapshots(long buyer){return snapshots.values().stream().filter(p->JSON.parseObject(p,Snapshot.class).buyerId()==buyer).toList();}
+        public List<Long> validInviteeBuyers(long inviter){return snapshots.entrySet().stream().filter(e->states.get(e.getKey()).valid()).map(e->JSON.parseObject(e.getValue(),Snapshot.class)).filter(s->Objects.equals(s.inviterId(),inviter)).map(Snapshot::buyerId).toList();}
         public int insertSnapshot(long id,String p,String o,String sub,long b,Long i,String payload){snapshots.put(id,payload);return 1;}
         public int insertState(long id,long buyer){states.put(id,new State(false,false,false,d("0"),d("0")));buyers.put(id,buyer);return 1;}
         public State state(long id){return states.get(id);}

@@ -14,8 +14,19 @@ public final class RewardCalculator {
         return s.inviterId() == null ? List.of(s.buyerId()) :
             new TreeSet<>(List.of(s.buyerId(), s.inviterId())).stream().toList();
     }
-    /** Ordinal counts all lifetime qualified orders, including later-invalidated ones. No slot recycling. */
+    /** Payment-time order, with stable natural-order tie breaking; never freeze-release order. */
+    public static final Comparator<Snapshot> PAYMENT_ORDER = Comparator.comparing(Snapshot::paidAt)
+        .thenComparing(s -> s.order().platform()).thenComparing(s -> s.order().orderNo())
+        .thenComparing(s -> s.order().subOrderNo()).thenComparingLong(Snapshot::orderId);
+
+    /** Ordinals include previously qualified then refunded orders: no lifetime slot recycling. */
     public static List<Award> awards(Snapshot s, Qualification q, long ordinal, long validCount, BigDecimal priorRefund) {
+        if (s.configs().stream().anyMatch(c -> c.type() == Type.FORCED_FIRST))
+            throw new IllegalArgumentException("FORCED_FIRST requires explicit platform ordinal");
+        return awards(s, q, ordinal, ordinal, validCount, priorRefund);
+    }
+    public static List<Award> awards(Snapshot s, Qualification q, long ordinal, long platformOrdinal,
+                                     long validCount, BigDecimal priorRefund) {
         List<Award> result = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
         for (Config c : s.configs()) {
@@ -28,16 +39,21 @@ public final class RewardCalculator {
             boolean eligible = switch (c.type()) {
                 case INVITATION_RATIO -> true;
                 case INVITEE_FIRST_FIXED -> ordinal == 1;
+                case FORCED_FIRST -> platformOrdinal == 1;
                 case INVITEE_FIRST_N_FIXED, FIRST_N_SUBSIDY -> ordinal <= c.n();
                 case OWN_QUANTITY -> validCount >= c.n();
             };
             if (!eligible) continue;
-            BigDecimal amount = money(c.mode() == Mode.RATIO ? q.userRebate().multiply(c.value()) :
+            BigDecimal amount = money(c.type() == Type.FORCED_FIRST ?
+                c.value().subtract(q.userRebate()).max(BigDecimal.ZERO) :
+                c.mode() == Mode.RATIO ? q.userRebate().multiply(c.value()) :
                 c.value().multiply(BigDecimal.ONE.subtract(priorRefund)));
             if (amount.signum() == 0) continue;
             // Version and inviter deliberately excluded: changing either never resets a lifetime entitlement.
             String id = c.type() + ":" + s.buyerId() + ":" + switch (c.type()) {
                 case OWN_QUANTITY, INVITEE_FIRST_FIXED -> "once";
+                case FORCED_FIRST -> Base64.getUrlEncoder().withoutPadding().encodeToString(
+                    s.order().platform().getBytes(java.nio.charset.StandardCharsets.UTF_8)) + ":once";
                 default -> Long.toString(s.orderId());
             };
             result.add(new Award(id, invitation ? s.inviterId() : s.buyerId(), s.orderId(), s.buyerId(),

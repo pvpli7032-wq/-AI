@@ -5,6 +5,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Objects;
 import com.ruoyi.union.dtk.api.client.DtkClient;
+import com.ruoyi.union.dtk.api.client.AbstractDtkApiClient;
 import com.ruoyi.union.dtk.api.request.mastertool.DtkGetOrderDetailsRequest;
 import com.ruoyi.union.dtk.api.request.mastertool.DtkJdOrderQueryV2Request;
 import com.ruoyi.union.dtk.api.response.base.DtkApiResponse;
@@ -49,10 +50,17 @@ public final class DtkOrderPageClient {
         return data;
     }
 
-    public DtkJdOrderQueryV2Response fetchJd(TimeWindow window, int pageNo) {
+    public DtkJdOrderQueryV2Response fetchJd(TimeWindow window, int pageNo, String authorizationKey) {
         validate(window, Duration.ofHours(1));
         if (pageNo < 1) throw new IllegalArgumentException("JD page number must be positive");
+        if (authorizationKey == null || authorizationKey.isBlank()) {
+            throw new IllegalArgumentException("JD authorization key is required");
+        }
+        if (client instanceof AbstractDtkApiClient) {
+            throw new IllegalStateException("JD order requests require a client that does not log authorization keys; existing DTK client needs the line 14 logging fix");
+        }
         DtkJdOrderQueryV2Request request = new DtkJdOrderQueryV2Request();
+        request.setKey(authorizationKey);
         request.setStartTime(FORMAT.format(window.from().atZone(providerZone)));
         request.setEndTime(FORMAT.format(window.to().atZone(providerZone)));
         request.setPageNo(pageNo);

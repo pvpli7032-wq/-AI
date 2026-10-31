@@ -3,6 +3,7 @@ package com.ruoyi.system.cps.order;
 import com.ruoyi.union.adapter.DtkOrderPageClient;
 import com.ruoyi.union.adapter.TimeWindow;
 import com.ruoyi.union.dtk.api.client.DtkClient;
+import com.ruoyi.union.dtk.api.client.AbstractDtkApiClient;
 import com.ruoyi.union.dtk.api.request.mastertool.DtkGetOrderDetailsRequest;
 import com.ruoyi.union.dtk.api.request.mastertool.DtkJdOrderQueryV2Request;
 import com.ruoyi.union.dtk.api.response.base.DtkApiResponse;
@@ -40,12 +41,15 @@ public class DtkOrderPageClientTest {
         data.setHasMore(1);
         when(api.execute(any(DtkJdOrderQueryV2Request.class))).thenReturn(DtkApiResponse.buildSuccess(data));
         DtkOrderPageClient client = new DtkOrderPageClient(api, ZoneOffset.UTC);
-        assertSame(data, client.fetchJd(WINDOW, 3));
+        assertSame(data, client.fetchJd(WINDOW, 3, "test-only-authorization"));
         ArgumentCaptor<DtkJdOrderQueryV2Request> request = ArgumentCaptor.forClass(DtkJdOrderQueryV2Request.class);
         verify(api).execute(request.capture());
         assertEquals(Integer.valueOf(3), request.getValue().getPageNo());
+        assertEquals("test-only-authorization", request.getValue().getKey());
+        assertNull(request.getValue().getChildUnionId());
         data.setHasMore(null);
-        assertThrows(IllegalStateException.class, () -> client.fetchJd(WINDOW, 4));
+        assertThrows(IllegalStateException.class, () -> client.fetchJd(WINDOW, 4, "test-only-authorization"));
+        assertThrows(IllegalArgumentException.class, () -> client.fetchJd(WINDOW, 4, " "));
     }
 
     @Test public void providerErrorsAndMissingCursorFail() {
@@ -54,5 +58,14 @@ public class DtkOrderPageClientTest {
         DtkOrderPageClient client = new DtkOrderPageClient(api, ZoneOffset.UTC);
         assertThrows(IllegalStateException.class, () -> client.fetchTbk(WINDOW, 1, 1, null));
         assertThrows(IllegalArgumentException.class, () -> client.fetchTbk(WINDOW, 1, 2, null));
+    }
+
+    @Test public void jdRefusesKnownClientThatLogsAuthorizationKeys() {
+        AbstractDtkApiClient api = mock(AbstractDtkApiClient.class);
+        DtkOrderPageClient client = new DtkOrderPageClient(api, ZoneOffset.UTC);
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+            () -> client.fetchJd(WINDOW, 1, "test-only-authorization"));
+        assertTrue(failure.getMessage().contains("line 14"));
+        verifyNoInteractions(api);
     }
 }

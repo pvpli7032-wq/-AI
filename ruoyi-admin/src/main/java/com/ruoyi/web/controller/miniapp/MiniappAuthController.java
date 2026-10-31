@@ -7,8 +7,12 @@ import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
+import com.ruoyi.common.constant.Constants;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.StringUtils;
+import jakarta.servlet.http.HttpServletRequest;
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.Collections;
 import com.ruoyi.framework.web.service.TokenService;
 import com.ruoyi.system.domain.SysWechatUser;
@@ -28,6 +32,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -41,6 +46,10 @@ import org.springframework.web.bind.annotation.*;
 public class MiniappAuthController extends BaseController {
 
     private static final Logger log = LoggerFactory.getLogger(MiniappAuthController.class);
+    private static final SecureRandom PASSWORD_RANDOM = new SecureRandom();
+
+    @Value("${token.header}")
+    private String tokenHeader;
 
     @Autowired
     private WxMaService wxMaService;
@@ -191,8 +200,10 @@ public class MiniappAuthController extends BaseController {
         // 使用openid后8位作为默认用户名
         user.setUserName("wx_" + openid.substring(openid.length() - 8));
         user.setNickName("微信用户");
-        // 设置初始密码为123456，使用与PC端相同的加密方式
-        user.setPassword(SecurityUtils.encryptPassword("123456"));
+        // 32 字节随机值编码为 43 字符，超过后台登录允许的密码长度，且低于 BCrypt 的 72 字节限制。
+        byte[] randomPassword = new byte[32];
+        PASSWORD_RANDOM.nextBytes(randomPassword);
+        user.setPassword(SecurityUtils.encryptPassword(Base64.getUrlEncoder().withoutPadding().encodeToString(randomPassword)));
         user.setStatus("0"); // 正常状态
         user.setDelFlag("0"); // 未删除
         user.setCreateBy("miniapp");
@@ -200,6 +211,27 @@ public class MiniappAuthController extends BaseController {
         // 插入用户
         userService.insertUser(user);
         return user;
+    }
+
+    /** 只延长当前有效会话，返回小程序现有请求所需的 token 格式。 */
+    @Operation(summary = "刷新登录令牌")
+    @PostMapping("/refresh")
+    public AjaxResult refresh(HttpServletRequest request) {
+        LoginUser current = getLoginUser();
+        LoginUser cached = tokenService.getLoginUser(request);
+        if (cached == null || StringUtils.isEmpty(current.getToken())
+                || !current.getToken().equals(cached.getToken())) {
+            return AjaxResult.error("登录已失效，请重新登录");
+        }
+        String token = request.getHeader(tokenHeader);
+        if (StringUtils.isEmpty(token)) {
+            return AjaxResult.error("登录已失效，请重新登录");
+        }
+        if (token.startsWith(Constants.TOKEN_PREFIX)) {
+            token = token.substring(Constants.TOKEN_PREFIX.length());
+        }
+        tokenService.refreshToken(cached);
+        return AjaxResult.success(Collections.singletonMap("token", token));
     }
 
     /**

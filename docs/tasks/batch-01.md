@@ -88,7 +88,7 @@ PR 里贴原始输出，并列出 `ruoyi-system`、`ruoyi-admin` 是否都编译
 **要求：**
 - `MiniappAuthController.java:167` 改用带 userId 和 deptId 的 `LoginUser` 构造函数，加跨用户隔离测试，上线时失效现有 Redis 登录态。这一项单独提小 PR，线 4 合并前必须完成。
 - `MiniappAuthController.java:195` 写死的密码改为每个用户随机生成。小程序用户不能用它登录后台。
-- 后台账户和流水的写接口（`SysAgentCommissionAccountController.java:98,131`、订单 PUT/DELETE、流水 POST）按 `docs/plan.md` 第 9.1 节第 1 项的决定处理，决定前不开放给非超管。
+- 后台不能直接改钱（`docs/plan.md` 第 9.1 节第 1 项）：账户删除（`SysAgentCommissionAccountController.java:131`）和改 `user_id`（`:98`）不开放；金额调整、订单 PUT/DELETE、流水 POST 改成写冲正分录，留审计。
 - 比例回退 40/5 改成配置缺失时报错，并补 `sys_commission_config` 种子。
 - 权限键统一，`order/index.vue:113` 的 `order_status` 取值对齐。
 - 假提现接口 `MiniappUserController.java:90-103` 在提现单上线前返回明确的「暂未开放」，不返回成功；小程序不改路径。

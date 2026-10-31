@@ -106,7 +106,7 @@ cd ruoyi-ui && npm install && npm run build:prod
 - 邀请参数统一为 `invitationCode`。`MiniappAuthController` 读的名字改动前先核对；要改它时，协调线 5，不在本线直接改。
 - 带用户身份的转链取登录态用户；`pid` 不接受客户端传入。
 - 大淘客转链失败报错，不回落到不带 pid 的口令。
-- 不处理 `uk_mini_app_id`，等 `docs/plan.md` 第 9.1 节第 2 项决定。
+- `uk_mini_app_id` 保持不动，普通用户账户模型见 `docs/plan.md` 第 9.1 节第 2 项，放第二批。
 
 **迁移编号：** V300～V399。
 

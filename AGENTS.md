@@ -31,7 +31,7 @@
 
 这些规则任何任务都不能违反：
 
-- 金额用 `BigDecimal`，禁止 `double` 和 `float`。用户金额算到分，向下取整。
+- 金额用 `BigDecimal`，禁止 `double` 和 `float`。用户金额算到分，四舍五入（`HALF_UP`）。
 - 账户余额只能经统一的入账方法改变（基于 `CommissionCalculateServiceImpl.updateUserAccount`），其他代码不能直接更新余额。
 - 流水只追加，不修改、不删除；纠错用冲正分录。
 - 任何入账、追回、提现都要有唯一键保证幂等，重复执行结果不变。

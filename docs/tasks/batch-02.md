@@ -56,7 +56,7 @@
 
 **对应：** `plan.md` 第 4.1、4.2、4.10 节，阶段 2。**迁移编号：** V500～V599。
 
-**能改：** `union/adapter/` 的实现、`cps/attribution/`、新增 `MiniappConvertController` 和无主订单、PID 池的后台接口，`MiniappDtkController`、`MiniappJdController`、`MiniappPddController`、`MiniappTbkController`（只接入新逻辑），`ISysWechatUserService` 相关（只改邀请绑定），`tbk-miniapp/api/platform-api.js`、`tbk-miniapp/utils/request.js`（只改第 11 项），`tbk-miniapp/utils/auth.js`、`MiniappAuthController`（只改第 8 项首次授权传邀请码），`tbk-miniapp/pages/index/index.js`、`tbk-miniapp/pages/goods/detail/`（只改转发不带身份和第 9 项），`WebUtils`（只改第 10 项超时），`ruoyi-quartz` 新增到期处理和重试任务类。
+**能改：** `union/adapter/` 的实现、`cps/attribution/`、新增 `MiniappConvertController` 和无主订单、PID 池的后台接口，`MiniappDtkController`、`MiniappJdController`、`MiniappPddController`、`MiniappTbkController`（只接入新逻辑），`ISysWechatUserService` 相关（只改邀请绑定），`tbk-miniapp/api/platform-api.js`、`tbk-miniapp/utils/request.js`（只改第 11 项），`tbk-miniapp/utils/auth.js`、`MiniappAuthController`（只改第 8 项首次授权传邀请码），`tbk-miniapp/pages/index/index.js`、`tbk-miniapp/pages/goods/detail/`（只改转发不带身份和第 9 项），`WebUtils`（只改第 10 项超时），`ruoyi-quartz` 新增到期处理和重试任务类，`tbk-miniapp/app.js`（只改启动无感登录），`tbk-miniapp/pages/share/index.js`、`tbk-miniapp/pages/user/center/center.js`、`tbk-miniapp/pages/agent/apply/apply.js`、`tbk-miniapp/pages/goods/list/list.js`（只改转发的邀请码）。
 
 **要求：**
 

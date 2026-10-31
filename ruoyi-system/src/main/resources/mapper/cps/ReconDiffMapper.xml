@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.cps.mapper.ReconDiffMapper">
+  <insert id="insert">
+    INSERT INTO cps_recon_diff(batch_id,type,ref_id,amount,status,detail,created_at)
+    VALUES(#{batchId},#{type},#{refId},#{amount},'OPEN',#{detail},UTC_TIMESTAMP(3))
+  </insert>
+  <select id="selectByBatch" resultType="com.ruoyi.system.cps.recon.ReconDiff">
+    SELECT id,batch_id,type,ref_id,amount,status,resolved_by,detail,resolve_note FROM cps_recon_diff
+    WHERE batch_id=#{batchId} ORDER BY id
+  </select>
+  <select id="lockById" resultType="com.ruoyi.system.cps.recon.ReconDiff">
+    SELECT id,batch_id,type,ref_id,amount,status,resolved_by,detail,resolve_note FROM cps_recon_diff
+    WHERE id=#{id} FOR UPDATE
+  </select>
+  <update id="resolve">
+    UPDATE cps_recon_diff SET status='RESOLVED',resolved_by=#{operatorId},resolve_note=#{note},resolved_at=UTC_TIMESTAMP(3)
+    WHERE id=#{id} AND status='OPEN'
+  </update>
+</mapper>

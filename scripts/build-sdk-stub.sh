@@ -7,9 +7,9 @@ lib_dir="$repo_root/ruoyi-union-sdk/lib"
 mkdir -p -- "$lib_dir"
 
 artifacts=(
-  taobao-sdk-java-auto_1698396062491-20241216.jar
-  taobao-sdk-java-auto_1698396062491-20241216-source.jar
-  jd-api-sdk-java-20260331.jar
+  taobao-sdk-java-auto_1761200125504-20261031.jar
+  taobao-sdk-java-auto_1761200125504-20261031-source.jar
+  jd-api-sdk-java-20261031.jar
   pop-sdk-1.19.4-all.jar
   pop-sdk-1.19.4-all-sources.jar
 )
@@ -88,6 +88,4 @@ build_family() {
 }
 
 printf '%s\n' 'Building development-only SDK stubs. Real requests throw an explicit stub error.'
-build_family taobao "${artifacts[0]}" "${artifacts[1]}"
-build_family jd "${artifacts[2]}"
 build_family pdd "${artifacts[3]}" "${artifacts[4]}"

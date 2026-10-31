@@ -321,6 +321,26 @@ public class ProductionAcceptanceMatrixMySqlTest {
         audit(buyer);
     }
 
+
+    @Test public void unsupportedPenaltyDuringDisputeCannotReleaseAfterLaterRestoration() {
+        publish(Platform.TBK,false,List.of());
+        Instant paid=now(); long order=order(Platform.TBK);
+        settlements.onOrderEvent(event(order,"received",null,OrderStatus.RECEIVED,paid,"10",null,paid));
+        settlements.onOrderEvent(event(order,"disputed",OrderStatus.RECEIVED,OrderStatus.DISPUTED,paid,"10",null,paid.plusSeconds(1)));
+        var result=penalties.importStatement(request("matrix-disputed-penalty",
+            List.of(penalty(order,paid.plusSeconds(2),"5"))),buyer);
+        assertEquals("MANUAL_REVIEW",result.lines().getFirst().status());
+        assertEquals(1,count("SELECT COUNT(*) FROM cps_settlement_position WHERE order_line_id=? AND manual_hold=1",order));
+        var restoration=event(order,"restored",OrderStatus.DISPUTED,OrderStatus.RECEIVED,paid,"10",null,paid.plusSeconds(3));
+        settlements.onOrderEvent(new OrderEvent(restoration.eventKey(),restoration.orderLineId(),restoration.line(),
+            restoration.fromStatus(),restoration.toStatus(),OrderStatus.RECEIVED,null,restoration.source(),null,restoration.occurredAt()));
+        settlements.unfreezeDue(paid.plusSeconds(86400),1000);
+        money("0",balance(buyer)); money("4.50",account(buyer,"frozen_amount"));
+        money("0",item(order,"REBATE","recovered_amount"));
+        assertEquals(1,count("SELECT COUNT(*) FROM sys_commission_flow WHERE related_order_id=?",Long.toString(order)));
+        penalties.retry(result.importId()); audit(buyer);
+    }
+
     private void publish(Platform platform,boolean referral,List<RulePolicy.Incentive> extra) {
         var base=(RulePolicy)ReflectionTestUtils.invokeMethod(fixture,"policy","0.50",referral);
         var incentives=new java.util.ArrayList<>(base.incentives()); incentives.addAll(extra);

@@ -166,6 +166,12 @@ public class SettlementPenaltyImportService {
             Integer.class,order,event.eventKey());
         Integer receipt=jdbc.queryForObject("SELECT COUNT(*) FROM cps_settlement_receipt WHERE event_key=?",Integer.class,event.eventKey());
         if (manual!=null && manual>0 || receipt==null || receipt==0) {
+            Integer held=jdbc.queryForObject("SELECT COUNT(*) FROM cps_settlement_position WHERE order_line_id=? AND manual_hold=1",Integer.class,order);
+            if (held==null || held==0) {
+                List<String> reasons=jdbc.queryForList("SELECT reason FROM cps_settlement_manual WHERE order_line_id=? AND event_key=?",String.class,order,event.eventKey());
+                // Keep the original reconciliation reason instead of relabelling it.
+                hold(row,reasons.isEmpty() ? "SETTLEMENT_RECEIPT_MISSING_REQUIRES_MANUAL_REVIEW" : reasons.getFirst());
+            }
             mark(id,"MANUAL_REVIEW","SETTLEMENT_REQUIRES_MANUAL_REVIEW");
         } else mark(id,"APPLIED","CUMULATIVE_PENALTY_APPLIED");
     }

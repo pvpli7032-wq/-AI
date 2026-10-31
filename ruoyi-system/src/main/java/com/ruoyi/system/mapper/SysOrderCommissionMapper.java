@@ -1,6 +1,7 @@
 package com.ruoyi.system.mapper;
 
 import java.util.List;
+import org.apache.ibatis.annotations.Param;
 import com.ruoyi.system.domain.SysOrderCommission;
 
 /**
@@ -29,6 +30,10 @@ public interface SysOrderCommissionMapper
      * @return 订单佣金记录
      */
     public SysOrderCommission selectSysOrderCommissionByOrderIdAndPlatformType(String orderId, String platformType);
+
+    /** Select one order line by the complete platform/order/sub-order key. */
+    SysOrderCommission selectByOrderLineKey(@Param("orderId") String orderId,
+        @Param("platformType") String platformType, @Param("subOrderNo") String subOrderNo);
 
     /**
      * 查询订单佣金记录列表

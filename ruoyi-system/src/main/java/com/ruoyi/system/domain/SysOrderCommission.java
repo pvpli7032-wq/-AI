@@ -16,6 +16,15 @@ import com.ruoyi.common.core.domain.BaseEntity;
  */
 public class SysOrderCommission extends BaseEntity
 {
+
+    private String subOrderNo;
+    public String getSubOrderNo() { return subOrderNo; }
+    public void setSubOrderNo(String value) { this.subOrderNo = value; }
+
+    private java.util.Date receivedTime;
+    public java.util.Date getReceivedTime() { return receivedTime; }
+    public void setReceivedTime(java.util.Date value) { this.receivedTime = value; }
+
     private static final long serialVersionUID = 1L;
 
     /** 记录ID */

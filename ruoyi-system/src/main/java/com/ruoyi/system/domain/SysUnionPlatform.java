@@ -12,6 +12,11 @@ import org.apache.commons.lang3.builder.ToStringStyle;
  * @author ruoyi
  */
 public class SysUnionPlatform extends BaseEntity {
+
+    private String pidType;
+    public String getPidType() { return pidType; }
+    public void setPidType(String value) { this.pidType = value; }
+
     private static final long serialVersionUID = 1L;
 
     /** 联盟ID */

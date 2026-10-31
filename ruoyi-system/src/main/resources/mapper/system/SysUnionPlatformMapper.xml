@@ -5,6 +5,7 @@
 <mapper namespace="com.ruoyi.system.mapper.SysUnionPlatformMapper">
 
     <resultMap type="SysUnionPlatform" id="SysUnionPlatformResult">
+        <result property="pidType" column="pid_type" />
         <result property="id"           column="id"            />
         <result property="platformType" column="platform_type" />
         <result property="platformName" column="platform_name" />
@@ -22,7 +23,7 @@
     </resultMap>
 
     <sql id="selectSysUnionPlatformVo">
-        select id, platform_type, platform_name, app_key, app_secret, site_id, adzone_id, access_token,
+        select id, pid_type, platform_type, platform_name, app_key, app_secret, site_id, adzone_id, access_token,
                is_quote, create_by, create_time, update_by, update_time, remark
         from sys_union_platform
     </sql>
@@ -57,6 +58,7 @@
     <insert id="insertSysUnionPlatform" parameterType="SysUnionPlatform" useGeneratedKeys="true" keyProperty="id">
         insert into sys_union_platform
         <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="pidType != null">pid_type,</if>
             <if test="platformType != null and platformType != ''">platform_type,</if>
             <if test="platformName != null and platformName != ''">platform_name,</if>
             <if test="appKey != null and appKey != ''">app_key,</if>
@@ -71,6 +73,7 @@
             update_time
         </trim>
         <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="pidType != null">#{pidType},</if>
             <if test="platformType != null and platformType != ''">#{platformType},</if>
             <if test="platformName != null and platformName != ''">#{platformName},</if>
             <if test="appKey != null and appKey != ''">#{appKey},</if>
@@ -89,6 +92,7 @@
     <update id="updateSysUnionPlatform" parameterType="SysUnionPlatform">
         update sys_union_platform
         <trim prefix="SET" suffixOverrides=",">
+            <if test="pidType != null">pid_type = #{pidType},</if>
             <if test="platformType != null and platformType != ''">platform_type = #{platformType},</if>
             <if test="platformName != null and platformName != ''">platform_name = #{platformName},</if>
             <if test="appKey != null and appKey != ''">app_key = #{appKey},</if>

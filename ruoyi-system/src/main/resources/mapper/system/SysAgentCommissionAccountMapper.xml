@@ -5,6 +5,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 <mapper namespace="com.ruoyi.system.mapper.SysAgentCommissionAccountMapper">
     
     <resultMap type="com.ruoyi.system.domain.SysAgentCommissionAccount" id="SysAgentCommissionAccountResult">
+        <result property="withdrawingAmount" column="withdrawing_amount" />
+        <result property="version" column="version" />
         <result property="id"    column="id"    />
         <result property="userId"    column="user_id"    />
         <result property="totalEarned"    column="total_earned"    />
@@ -19,7 +21,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </resultMap>
 
     <sql id="selectSysAgentCommissionAccountVo">
-        select id, user_id, total_earned, self_earned, promotion_earned, 
+        select id, withdrawing_amount, version, user_id, total_earned, self_earned, promotion_earned,
                balance, withdrawn, frozen_amount, status, create_time, update_time
         from sys_agent_commission_account
     </sql>

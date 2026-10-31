@@ -14,6 +14,9 @@ public class AttributionSettings {
     public Duration leaseDuration() { return Duration.ofHours(requiredPositive("cps.attribution.lease.hours")); }
     public Duration unclaimedDuration() { return Duration.ofDays(requiredPositive("cps.attribution.unclaimed.days")); }
     public Duration claimDuration() { return Duration.ofHours(requiredPositive("cps.attribution.claim.hours")); }
+    public long claimRequestsPerMinute() { return requiredPositive("cps.attribution.claim.requests-per-minute"); }
+    public long claimMaxPending() { return requiredPositive("cps.attribution.claim.max-pending"); }
+    public long settlementMaxAttempts() { return requiredPositive("cps.attribution.settlement.max-attempts"); }
     public Duration matchDuration() {
         long hours=requiredPositive("cps.attribution.item.match.hours");
         if(hours>24) throw new ServiceException("商品匹配候选窗口不能超过24小时");

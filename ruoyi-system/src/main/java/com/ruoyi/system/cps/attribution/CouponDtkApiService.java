@@ -19,13 +19,13 @@ public class CouponDtkApiService implements IDtkApiService {
     @Override public JSONObject getBanners() { return catalogue.getBanners(); }
     @Override public JSONObject getCategories() { return catalogue.getCategories(); }
     @Override public JSONObject searchGoods(String keyword, Long categoryId, Integer page, Integer pageSize, String sort, String appKey, String appSecret) {
-        return catalogue.searchGoods(keyword, categoryId, page, pageSize, sort, appKey, appSecret);
+        return CouponPresentation.catalogue(catalogue.searchGoods(keyword, categoryId, page, pageSize, sort, appKey, appSecret));
     }
     @Override public JSONObject getGoodsDetail(String goodsId, String appKey, String appSecret) {
         return CouponPresentation.detail(catalogue.getGoodsDetail(goodsId, appKey, appSecret));
     }
     @Override public JSONObject getHotGoods(Integer page, Integer pageSize, String keyword, String appKey, String appSecret) {
-        return catalogue.getHotGoods(page, pageSize, keyword, appKey, appSecret);
+        return CouponPresentation.catalogue(catalogue.getHotGoods(page, pageSize, keyword, appKey, appSecret));
     }
     @Override public JSONObject getPrivilegeLink(String goodsId, String couponId, String pid, String goodsName, String appKey, String appSecret) {
         JSONObject link = CouponPresentation.link(conversion.convert(CouponRequestIdentity.optionalUserId(),

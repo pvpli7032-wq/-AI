@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -31,6 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Service
 public class OrderAttributionService implements AttributionService {
+    private static final Logger log = LoggerFactory.getLogger(OrderAttributionService.class);
     private final JdbcTemplate jdbc;
     private final PidPoolService pids;
     private final AttributionTokenService tokens;
@@ -40,7 +43,7 @@ public class OrderAttributionService implements AttributionService {
     private final TransactionTemplate transactions;
     private static final int TOKEN=40, CLAIM=30, LEASE=20, MANUAL=100, PLATFORM=90;
     private record Decision(long id, AttributionDecision value, int priority, String reason) {}
-    private record OrderRow(long id, UnionOrderLine line, Long buyer, String status, String legacyStatus) {}
+    private record OrderRow(long id, UnionOrderLine line, Long buyer, Long referrer, String status, String legacyStatus) {}
 
     public OrderAttributionService(JdbcTemplate jdbc, PidPoolService pids, AttributionTokenService tokens,
         AttributionSettings settings, InviteBindingService invitations, ObjectProvider<SettlementService> settlement, PlatformTransactionManager manager) {
@@ -63,21 +66,52 @@ public class OrderAttributionService implements AttributionService {
                 return unattributed(row,current,"BLOCKED_PID",now,"BLOCKED");
             if(invalid(row)) return unattributed(row,current,"INVALID_ORDER",now,"OPEN");
             List<Long> claimants=claimants(line.platform(),line.orderNo(),line.paidAt(),now);
-            if(claimants.size()>1) return conflict(row,current,"CLAIM_CONFLICT",null,now);
-            Long tokenUser=line.platform()==Platform.TBK ? null : tokens.resolve(line.platform(),line.itemId(),line.attributionToken(),line.paidAt());
-            if(tokenUser!=null) return accept(row,current,new AttributionDecision(tokenUser,AttributionMethod.ATTRIBUTION_TOKEN,AttributionConfidence.HIGH,null),TOKEN,"PLATFORM_TOKEN",now,false);
-            if(claimants.size()==1 && AttributionData.validUser(jdbc,claimants.get(0))) {
-                AttributionDecision result=accept(row,current,new AttributionDecision(claimants.get(0),AttributionMethod.CLAIM,AttributionConfidence.MEDIUM,claimants.get(0)),CLAIM,"PENDING_CLAIM",now,false);
-                if(Objects.equals(result.userId(),claimants.get(0))) jdbc.update("UPDATE cps_order_claim SET status='BOUND',reason='BOUND',updated_at=? WHERE platform=? AND order_no=? AND user_id=?",AttributionData.timestamp(now),line.platform().name(),line.orderNo(),claimants.get(0));
-                return result;
-            }
+            if (claimants.size()>1 && current!=null && current.value.userId()!=null)
+                return conflict(row,current,"CLAIM_CONFLICT",null,now);
+            Long evidenceUser=line.platform()==Platform.TBK ? null : tokens.resolve(line.platform(),line.itemId(),line.attributionToken(),line.paidAt());
+            AttributionMethod evidenceMethod=AttributionMethod.ATTRIBUTION_TOKEN;
+            int evidencePriority=TOKEN;
+            String evidenceReason="PLATFORM_TOKEN";
             if(line.platform()==Platform.TBK && pids.typeOf(line.platform(),line.pid())==PidType.TRACKING && line.paidAt()!=null && line.itemId()!=null) {
                 List<Long> users=jdbc.queryForList("SELECT DISTINCT user_id FROM cps_pid_lease WHERE platform=? AND BINARY pid=BINARY ? AND BINARY item_id=BINARY ? AND start_at<=? AND expire_at>?",Long.class,
                     line.platform().name(),line.pid(),line.itemId(),AttributionData.timestamp(line.paidAt()),AttributionData.timestamp(line.paidAt()));
                 if(users.size()>1) return conflict(row,current,"LEASE_CONFLICT",null,now);
-                if(users.size()==1 && AttributionData.validUser(jdbc,users.get(0)))
-                    return accept(row,current,new AttributionDecision(users.get(0),AttributionMethod.TRACKING_PID,AttributionConfidence.MEDIUM,null),LEASE,"TRACKING_PID",now,false);
+                if(users.size()==1 && AttributionData.validUser(jdbc,users.get(0))) evidenceUser=users.get(0);
+                evidenceMethod=AttributionMethod.TRACKING_PID;
+                evidencePriority=LEASE;
+                evidenceReason="TRACKING_PID";
             }
+            if (!claimants.isEmpty() && evidenceUser != null) {
+                AttributionDecision owner;
+                if (current != null && current.value.userId() != null && !Objects.equals(current.value.userId(), evidenceUser)) {
+                    owner = current.value;
+                } else {
+                    owner = accept(row,current,new AttributionDecision(evidenceUser,evidenceMethod,
+                        evidenceMethod==AttributionMethod.ATTRIBUTION_TOKEN?AttributionConfidence.HIGH:AttributionConfidence.MEDIUM,null),evidencePriority,evidenceReason,now,false);
+                }
+                if (claimants.size()>1 || !Objects.equals(owner.userId(), claimants.get(0))) {
+                    String reason=claimants.size()>1?"CLAIM_CONFLICT":posted(row.id)?"POSTED_REASSIGNMENT":"BOUND_OTHER";
+                    Long proposed=claimants.size()==1?claimants.get(0):null;
+                    review(row.id,proposed,reason,proposed,"PENDING_CLAIM",now);
+                    jdbc.update("UPDATE cps_order_claim SET status='CONFLICT',reason=?,updated_at=? WHERE platform=? AND order_no=? AND status IN ('PENDING','BOUND','CONFLICT')",reason,AttributionData.timestamp(now),line.platform().name(),line.orderNo());
+                } else {
+                    jdbc.update("UPDATE cps_order_claim SET status='BOUND',reason='BOUND',updated_at=? WHERE platform=? AND order_no=? AND user_id=?",AttributionData.timestamp(now),line.platform().name(),line.orderNo(),claimants.get(0));
+                }
+                return owner;
+            }
+            if(claimants.size()>1) return conflict(row,current,"CLAIM_CONFLICT",null,now);
+            if(claimants.size()==1 && AttributionData.validUser(jdbc,claimants.get(0))) {
+                if (current != null && current.value.userId() != null && !Objects.equals(current.value.userId(), claimants.get(0))) {
+                    review(row.id,claimants.get(0),"BOUND_OTHER",claimants.get(0),"PENDING_CLAIM",now);
+                    jdbc.update("UPDATE cps_order_claim SET status='CONFLICT',reason='BOUND_OTHER',updated_at=? WHERE platform=? AND order_no=? AND user_id=?",AttributionData.timestamp(now),line.platform().name(),line.orderNo(),claimants.get(0));
+                    return current.value;
+                }
+                AttributionDecision result=accept(row,current,new AttributionDecision(claimants.get(0),AttributionMethod.CLAIM,AttributionConfidence.MEDIUM,claimants.get(0)),CLAIM,"PENDING_CLAIM",now,false);
+                if(Objects.equals(result.userId(),claimants.get(0))) jdbc.update("UPDATE cps_order_claim SET status='BOUND',reason='BOUND',updated_at=? WHERE platform=? AND order_no=? AND user_id=?",AttributionData.timestamp(now),line.platform().name(),line.orderNo(),claimants.get(0));
+                return result;
+            }
+            if (evidenceUser != null) return accept(row,current,new AttributionDecision(evidenceUser,evidenceMethod,
+                evidenceMethod==AttributionMethod.ATTRIBUTION_TOKEN?AttributionConfidence.HIGH:AttributionConfidence.MEDIUM,null),evidencePriority,evidenceReason,now,false);
             String reason=pids.typeOf(line.platform(),line.pid())==PidType.DEFAULT ? "DEFAULT_PID" : "NO_EVIDENCE";
             if(line.itemId()!=null && line.paidAt()!=null) {
                 // The shared enum has no ITEM_MATCH value. Preserve a candidate reason,
@@ -87,6 +121,21 @@ public class OrderAttributionService implements AttributionService {
                 if(candidates>0 && !"DEFAULT_PID".equals(reason)) reason=candidates>1?"AMBIGUOUS_ITEM_CANDIDATES":"ITEM_MATCH_CONTRACT_PENDING";
             }
             return unattributed(row,current,reason,now,"OPEN");
+        });
+    }
+
+    /** The user-row lock makes the pending cap atomic across different order numbers. */
+    public ClaimResult claimFromClient(Long userId, Platform platform, String orderNo) {
+        AttributionData.requireUser(jdbc,userId);
+        Objects.requireNonNull(platform);
+        AttributionData.text(orderNo,100,"订单号");
+        return transactions.execute(tx -> {
+            jdbc.queryForObject("SELECT user_id FROM sys_user WHERE user_id=? FOR UPDATE",Long.class,userId);
+            Instant now = AttributionData.now(jdbc);
+            Long existing = jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_claim WHERE user_id=? AND platform=? AND order_no=? AND status IN ('PENDING','CONFLICT') AND expires_at>?",Long.class,userId,platform.name(),orderNo,AttributionData.timestamp(now));
+            Long pending = jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_claim WHERE user_id=? AND status IN ('PENDING','CONFLICT') AND expires_at>?",Long.class,userId,AttributionData.timestamp(now));
+            if (existing == 0 && pending >= settings.claimMaxPending()) throw new ServiceException("待核对订单数量已达上限");
+            return claim(userId,platform,orderNo);
         });
     }
 
@@ -113,6 +162,8 @@ public class OrderAttributionService implements AttributionService {
                 if(row.line.paidAt()==null) return rejectClaim(userId,platform,orderNo,"ORDER_TIME_MISSING","订单时间尚未同步，请稍后重试",now,window);
                 if(now.isAfter(row.line.paidAt().plus(window)) || platformOwned(row.id))
                     return rejectClaim(userId,platform,orderNo,"EXPIRED","已超过认领时间",now,window);
+                // Imported orders may not have run attribution yet; resolve existing evidence before claiming.
+                decide(row.id,row.line);
             }
             List<Long> others=jdbc.queryForList("SELECT DISTINCT user_id FROM cps_order_claim WHERE platform=? AND order_no=? AND user_id<>? AND (status='BOUND' OR (status IN ('PENDING','CONFLICT') AND expires_at>?)) FOR UPDATE",Long.class,platform.name(),orderNo,userId,AttributionData.timestamp(now));
             if(!others.isEmpty()) {
@@ -124,14 +175,13 @@ public class OrderAttributionService implements AttributionService {
             boolean allMine=true;
             for(OrderRow row:rows) {
                 Decision old=initialCurrent(row);
+                if(old!=null && old.value.userId()!=null && !Objects.equals(old.value.userId(),userId)) {
+                    for (OrderRow candidate : rows) review(candidate.id,userId,posted(candidate.id)?"POSTED_REASSIGNMENT":"BOUND_OTHER",userId,"LATE_CLAIM",now);
+                    recordClaim(userId,platform,orderNo,"CONFLICT","BOUND_OTHER",now,now.plus(window));
+                    return result("MANUAL_REVIEW","订单已提交人工核实",orderNo,ids);
+                }
                 if(old!=null && old.priority>=PLATFORM)
                     return rejectClaim(userId,platform,orderNo,"MANUAL_REVIEW","订单正在人工处理",now,window);
-                if(old!=null && old.value.userId()!=null && !Objects.equals(old.value.userId(),userId) && old.priority>=CLAIM)
-                    return rejectClaim(userId,platform,orderNo,"BOUND_OTHER","订单已绑定其他用户",now,window);
-                if(old!=null && old.value.userId()!=null && !Objects.equals(old.value.userId(),userId) && posted(row.id)) {
-                    review(row.id,userId,"POSTED_REASSIGNMENT",userId,"LATE_CLAIM",now);
-                    return rejectClaim(userId,platform,orderNo,"MANUAL_REVIEW","订单已入账，需人工账务复核",now,window);
-                }
                 if(old==null || !Objects.equals(old.value.userId(),userId)) allMine=false;
             }
             if(allMine) {
@@ -188,6 +238,7 @@ public class OrderAttributionService implements AttributionService {
         List<Long> ids=jdbc.queryForList("SELECT order_line_id FROM cps_unclaimed_order WHERE status='OPEN' AND expires_at<=? ORDER BY order_line_id LIMIT ?",Long.class,AttributionData.timestamp(AttributionData.now(jdbc)),bounded(limit));
         int changed=0;
         for(Long id:ids) {
+            try {
             Boolean done=transactions.execute(tx -> {
                 OrderRow row=lockOrder(id);
                 List<String> states=jdbc.queryForList("SELECT status FROM cps_unclaimed_order WHERE order_line_id=? AND expires_at<=? FOR UPDATE",String.class,id,AttributionData.timestamp(AttributionData.now(jdbc)));
@@ -200,6 +251,9 @@ public class OrderAttributionService implements AttributionService {
                 return true;
             });
             if(Boolean.TRUE.equals(done)) changed++;
+            } catch (RuntimeException failure) {
+                log.error("无主订单到期处理失败，订单行 {}", id, failure);
+            }
         }
         return changed;
     }
@@ -268,7 +322,8 @@ public class OrderAttributionService implements AttributionService {
     }
     private AttributionDecision conflict(OrderRow row,Decision old,String reason,Long actor,Instant now) {
         review(row.id,null,reason,actor,reason,now);
-        if(posted(row.id)) return old==null?new AttributionDecision(row.buyer,AttributionMethod.MANUAL,AttributionConfidence.UNKNOWN,actor):old.value;
+        if ((old != null && old.value.userId() != null) || posted(row.id))
+            return old==null?new AttributionDecision(row.buyer,AttributionMethod.MANUAL,AttributionConfidence.UNKNOWN,actor):old.value;
         Decision next=append(row,old,new AttributionDecision(null,AttributionMethod.MANUAL,AttributionConfidence.UNKNOWN,actor),MANUAL,reason,now);
         return next.value;
     }
@@ -285,8 +340,14 @@ public class OrderAttributionService implements AttributionService {
         long id=Objects.requireNonNull(key.getKey()).longValue();
         jdbc.update("INSERT INTO cps_attribution_current(order_line_id,attribution_id) VALUES (?,?) ON DUPLICATE KEY UPDATE attribution_id=VALUES(attribution_id)",row.id,id);
         Long inviter=invitations.resolveAt(value.userId(),row.line.paidAt());
-        jdbc.update("INSERT INTO cps_attribution_inviter_snapshot(attribution_id,user_id,inviter_user_id,paid_at) VALUES (?,?,?,?)",id,value.userId(),inviter,AttributionData.timestamp(row.line.paidAt()));
-        jdbc.update("UPDATE sys_order_commission SET buyer_user_id=?,agent_user_id=?,referrer_user_id=?,has_referrer=? WHERE id=?",value.userId(),value.userId()==null?0L:value.userId(),inviter,inviter==null?"0":"1",row.id);
+        boolean preserveLegacyReferrer = inviter == null && Objects.equals(row.buyer, value.userId());
+        Long snapshotInviter = preserveLegacyReferrer ? row.referrer : inviter;
+        jdbc.update("INSERT INTO cps_attribution_inviter_snapshot(attribution_id,user_id,inviter_user_id,paid_at) VALUES (?,?,?,?)",id,value.userId(),snapshotInviter,AttributionData.timestamp(row.line.paidAt()));
+        if (preserveLegacyReferrer) {
+            jdbc.update("UPDATE sys_order_commission SET buyer_user_id=?,agent_user_id=? WHERE id=?",value.userId(),value.userId()==null?0L:value.userId(),row.id);
+        } else {
+            jdbc.update("UPDATE sys_order_commission SET buyer_user_id=?,agent_user_id=?,referrer_user_id=?,has_referrer=? WHERE id=?",value.userId(),value.userId()==null?0L:value.userId(),inviter,inviter==null?"0":"1",row.id);
+        }
         return new Decision(id,value,priority,reason);
     }
     private Decision initialCurrent(OrderRow row) {
@@ -306,7 +367,7 @@ public class OrderAttributionService implements AttributionService {
     }
     private OrderRow mapOrder(ResultSet r,int index) throws SQLException {
         UnionOrderLine line=new UnionOrderLine(Platform.valueOf(r.getString("platform_type").toUpperCase(Locale.ROOT)),r.getString("order_id"),r.getString("sub_order_no"),r.getString("item_id"),r.getString("pid"),r.getString("attribution_token"),r.getBigDecimal("order_amount"),r.getBigDecimal("estimated_commission"),r.getBigDecimal("actual_commission"),r.getString("raw_status"),instant(r,"paid_time"),instant(r,"received_time"),instant(r,"settle_time"),null,null);
-        return new OrderRow(r.getLong("id"),line,(Long)r.getObject("buyer_user_id"),r.getString("line_status"),r.getString("order_status"));
+        return new OrderRow(r.getLong("id"),line,(Long)r.getObject("buyer_user_id"),(Long)r.getObject("referrer_user_id"),r.getString("line_status"),r.getString("order_status"));
     }
     private Instant instant(ResultSet r,String column) throws SQLException {Timestamp timestamp=r.getTimestamp(column);return timestamp==null?null:timestamp.toInstant();}
     private boolean invalid(OrderRow row) {return "cancelled".equals(row.legacyStatus) || "INVALID".equals(row.status) || "FULL_REFUND".equals(row.status);}
@@ -342,7 +403,13 @@ public class OrderAttributionService implements AttributionService {
     private void enqueue(long orderId,long attributionId,Instant now) {
         jdbc.update("INSERT IGNORE INTO cps_attribution_settlement_outbox(order_line_id,attribution_id,event_key,created_at) VALUES (?,?,?,?)",orderId,attributionId,"attribution:"+orderId+":"+attributionId,AttributionData.timestamp(now));
     }
-    private void pendingFailure(long id,String reason) {jdbc.update("UPDATE cps_attribution_settlement_outbox SET attempts=attempts+1,last_error=? WHERE id=? AND status='PENDING'",reason,id);}
+    private void pendingFailure(long id,String reason) {
+        long max = settings.settlementMaxAttempts();
+        jdbc.update("UPDATE cps_attribution_settlement_outbox SET status=IF(attempts+1>=?,'FAILED','PENDING'),completed_at=IF(attempts+1>=?, ?, NULL),last_error=?,attempts=attempts+1 WHERE id=? AND status='PENDING'",max,max,AttributionData.timestamp(AttributionData.now(jdbc)),reason,id);
+    }
+    public List<Map<String,Object>> failedSettlements(int limit) {
+        return jdbc.queryForList("SELECT id,order_line_id,attribution_id,attempts,last_error,created_at,completed_at FROM cps_attribution_settlement_outbox WHERE status='FAILED' ORDER BY id DESC LIMIT ?",bounded(limit));
+    }
     private void recordClaim(Long user,Platform platform,String orderNo,String status,String reason,Instant now,Instant expiry) {
         List<Long> ids=jdbc.queryForList("SELECT id FROM cps_order_claim WHERE platform=? AND order_no=? AND user_id=? ORDER BY id",Long.class,platform.name(),orderNo,user);
         if(ids.isEmpty()) jdbc.update("INSERT INTO cps_order_claim(user_id,platform,order_no,status,created_at,expires_at,updated_at,reason) VALUES (?,?,?,?,?,?,?,?)",user,platform.name(),orderNo,status,AttributionData.timestamp(now),AttributionData.timestamp(expiry),AttributionData.timestamp(now),reason);

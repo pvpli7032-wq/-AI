@@ -79,7 +79,8 @@ public class CouponCapacityRedisTest {
         assertThrows(UnionCouponException.class, () -> limits.check(null, "203.0.113.1", Platform.TBK));
         limits.check(null, "203.0.113.2", Platform.TBK);
         configured.put("cps.coupon.max-requests-global", "5");
-        assertThrows(UnionCouponException.class, () -> limits.check(99L, "new-address", Platform.JD));
+        limits.check(99L, "new-address", Platform.JD);
+        assertThrows(UnionCouponException.class, () -> limits.check(100L, "another-address", Platform.JD));
     }
     @Test public void failureLockAndSuccessResetAreAtomic() {
         limits.failed(7L, "a"); limits.succeeded(7L, "a"); limits.failed(7L, "a");

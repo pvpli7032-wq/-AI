@@ -107,6 +107,13 @@ public class InviteBindingMySqlTest {
         assertEquals(inviter.getUserId(), users.selectByUserId(child.getUserId()).getInviterUserId());
     }
 
+    @Test public void invalidInvitationStillCreatesUserWithoutInviter() {
+        SysWechatUser child = register("99999999999999999999");
+        assertNotNull(users.selectByOpenid(child.getOpenid()));
+        assertNull(users.selectByUserId(child.getUserId()).getInviterUserId());
+        assertEquals(Long.valueOf(1),jdbc.queryForObject("SELECT COUNT(*) FROM cps_invite_binding_audit WHERE user_id=? AND event_type='FIRST_AUTH'",Long.class,child.getUserId()));
+    }
+
     @Test public void simultaneousFirstAuthorizationsCannotReplaceInviter() throws Exception {
         SysWechatUser a = register(null), b = register(null);
         long childId = createSystemUser();
@@ -181,7 +188,7 @@ public class InviteBindingMySqlTest {
         long id = createSystemUser();
         jdbc.update("INSERT INTO sys_wechat_user(user_id,openid) VALUES (?,?)", id, "invite-test-" + id);
         String code = service.ensureInvitationCode(id);
-        assertTrue(code.matches("[0-9a-f]{32}"));
+        assertTrue(code.matches("[1-9][0-9]{3,}"));
         assertEquals(code, service.ensureInvitationCode(id));
         assertNull(users.selectByUserId(id).getInviterUserId());
         assertNull(service.resolveAt(id, Instant.now()));

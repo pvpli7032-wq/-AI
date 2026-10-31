@@ -40,6 +40,17 @@ public class SafeDtkCouponClientTest {
                 + "&nonce=" + parameters.get("nonce"), "test-secret"), parameters.get("signRan"));
     }
 
+    @Test public void configuredTimeoutsApplyOnlyToThisClientConnection() {
+        FakeConnection[] opened = new FakeConnection[1];
+        SafeDtkCouponClient client = new SafeDtkCouponClient("test-key", "test-secret", 1234, 5678, url -> {
+            opened[0] = new FakeConnection(url, 200, "{\"code\":0,\"data\":{\"skuId\":\"123\"}}");
+            return opened[0];
+        });
+        assertEquals("123", client.execute(request()).getData().getSkuId());
+        assertEquals(1234, opened[0].getConnectTimeout());
+        assertEquals(5678, opened[0].getReadTimeout());
+    }
+
     @Test public void rejectsRedirectWithoutReadingPotentiallySensitiveBody() {
         FakeConnection[] opened = new FakeConnection[1];
         SafeDtkCouponClient client = new SafeDtkCouponClient("test-key", "test-secret", url -> {

@@ -6,11 +6,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import com.ruoyi.union.adapter.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /** One path for new and legacy conversion endpoints. Identity is supplied by the login boundary. */
 @Service
 public class CouponConversionService {
+    private static final Logger log = LoggerFactory.getLogger(CouponConversionService.class);
     private final List<UnionAdapter> adapters;
     private final UnionAdapterConfiguration selection;
     private final CouponSettings settings;
@@ -35,6 +38,7 @@ public class CouponConversionService {
         String result = link ? "CONVERT_FAILED" : "PARSE_FAILED";
         String item = null, pid = null, value = null, mode = "UNATTRIBUTED";
         CommissionQuote quote = null;
+        PidConversionReservation reservation = null;
         String rawHash = CouponRateLimiter.hash(input == null ? "" : input);
         try {
             if (platform == null || input == null || input.isBlank() || input.length() > 4096) {
@@ -73,7 +77,8 @@ public class CouponConversionService {
             if (link) {
                 String attribution = null;
                 if (platform == Platform.TBK) {
-                    PidAllocation allocation = pids.allocate(platform, item, userId);
+                    reservation = pids.reserveForConversion(platform, item, userId);
+                    PidAllocation allocation = reservation.allocation();
                     pid = allocation.pid(); attribution = pid;
                     mode = allocation.tracking() ? "TRACKING_PID" : "UNATTRIBUTED";
                 } else if (userId != null) {
@@ -85,11 +90,17 @@ public class CouponConversionService {
                     throw new UnionCouponException("CONVERT_FAILED", "转链失败，请稍后重试");
                 }
                 value = converted.value();
+                if (reservation != null) {
+                    pids.finishConversion(reservation, true);
+                    reservation = null;
+                }
             }
             result = "SUCCESS";
             limiter.succeeded(userId, address);
-            return response(result, platform, item, quote, value, mode,
-                userId == null && link ? "未登录，订单暂不能自动绑定本人。" : "查询成功");
+            String message = userId == null && link ? "未登录，订单暂不能自动绑定本人。"
+                : link && platform == Platform.TBK && "UNATTRIBUTED".equals(mode)
+                    ? "订单不能自动绑定，请提交订单号核对。" : "查询成功";
+            return response(result, platform, item, quote, value, mode, message);
         } catch (UnionCouponException ex) {
             result = normalizedCode(ex.code());
             if (!"RATE_LIMITED".equals(result)) recordFailure(userId, address);
@@ -103,8 +114,14 @@ public class CouponConversionService {
             result = "SERVICE_UNAVAILABLE";
             return response(result, platform, item, quote, null, "UNATTRIBUTED", "服务暂不可用，请稍后重试。");
         } finally {
-            queryLog.append(new CouponQueryLog(userId, platform == null ? null : platform.name().toLowerCase(Locale.ROOT),
-                rawHash, item, result, quote == null ? null : quote.rate(), null, pid, Instant.now()));
+            if (reservation != null) {
+                try { pids.finishConversion(reservation, false); }
+                catch (RuntimeException failure) { log.error("无法回收失败的转链租约", failure); }
+            }
+            if (!"RATE_LIMITED".equals(result)) {
+                queryLog.append(new CouponQueryLog(userId, platform == null ? null : platform.name().toLowerCase(Locale.ROOT),
+                    rawHash, item, result, quote == null ? null : quote.rate(), null, pid, Instant.now()));
+            }
         }
     }
     private void recordFailure(Long userId, String address) {

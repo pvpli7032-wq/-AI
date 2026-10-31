@@ -64,9 +64,26 @@ public class MiniappFirstInvitationTest {
         mvc.perform(post("/miniapp/auth/login").param("code", "local-code").param("invitationCode", "replacement-code"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.wechatUser.inviterUserId").value(777));
+        mvc.perform(post("/miniapp/auth/login").param("code", "local-code").param("invitationCode", "another-code"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.wechatUser.inviterUserId").value(777));
         verify(wechat, never()).insertFirstAuthorizedUser(any(), any());
         verify(wechat, never()).insertSysWechatUser(any());
         verify(users, never()).insertUser(any());
+    }
+
+    @Test public void existingUserWithoutInviterIgnoresInvitation() throws Exception {
+        SysWechatUser existing = new SysWechatUser();
+        existing.setUserId(901L);
+        when(wechat.selectByOpenid("local-invitation-openid")).thenReturn(existing);
+        SysUser systemUser = new SysUser();
+        systemUser.setUserId(901L);
+        when(users.selectUserById(901L)).thenReturn(systemUser);
+        mvc.perform(post("/miniapp/auth/login").param("code", "local-code").param("invitationCode", "1234"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200));
+        org.junit.Assert.assertNull(existing.getInviterUserId());
+        verify(wechat, never()).insertFirstAuthorizedUser(any(), any());
+        verify(wechat, never()).insertSysWechatUser(any());
     }
 
     @Test public void noInvitationKeepsOriginalFirstLoginEntrance() throws Exception {

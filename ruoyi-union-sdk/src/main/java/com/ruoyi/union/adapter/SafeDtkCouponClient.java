@@ -43,7 +43,24 @@ public final class SafeDtkCouponClient implements DtkClient {
     }
 
     public SafeDtkCouponClient(String appKey, String appSecret) {
-        this(appKey, appSecret, url -> WebUtils.getConnection(url, "GET", "application/json;charset=UTF-8"));
+        this(appKey, appSecret, 3000, 10000);
+    }
+
+    public SafeDtkCouponClient(String appKey, String appSecret, int connectMillis, int readMillis) {
+        this(appKey, appSecret, connectMillis, readMillis,
+            url -> WebUtils.getConnection(url, "GET", "application/json;charset=UTF-8"));
+    }
+
+    public SafeDtkCouponClient(String appKey, String appSecret, int connectMillis, int readMillis, ConnectionFactory factory) {
+        this(appKey, appSecret, url -> {
+            if (connectMillis < 1 || readMillis < 1 || connectMillis > 120000 || readMillis > 120000) {
+                throw new IllegalArgumentException("HTTP timeouts out of range");
+            }
+            HttpURLConnection connection = factory.open(url);
+            connection.setConnectTimeout(connectMillis);
+            connection.setReadTimeout(readMillis);
+            return connection;
+        });
     }
 
     /** Transport seam for deterministic tests; request URLs still use the fixed DTK host. */

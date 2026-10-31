@@ -76,46 +76,8 @@ public class MiniappTbkController extends BaseController {
         apply.setUserId(user.getUserId());
         apply.setMiniAppId(miniAppId);
         
-        // 验证上级邀请码（如果填写了）
-        if (StringUtils.isNotEmpty(apply.getReferrerInvitationCode())) {
-            String referrerCode = apply.getReferrerInvitationCode().trim();
-            SysTbkAgentApply referrerApply = tbkAgentApplyService.selectByInvitationCode(referrerCode);
-            
-            // 检查邀请码是否存在
-            if (referrerApply == null) {
-                return AjaxResult.error("上级邀请码不存在，请检查后重新输入");
-            }
-            
-            // 检查上级代理是否已通过审核（status='1'表示已通过）
-            if (!"1".equals(referrerApply.getStatus())) {
-                return AjaxResult.error("该邀请码对应的代理尚未通过审核，暂时无法使用");
-            }
-            
-            // 不能填写自己的邀请码
-            if (referrerApply.getUserId().equals(user.getUserId())) {
-                return AjaxResult.error("不能填写自己的邀请码");
-            }
-            
-            // 两级代理控制：检查上级是否已有上级（系统只支持两级代理）
-            if (StringUtils.isNotEmpty(referrerApply.getReferrerInvitationCode())) {
-                return AjaxResult.error("系统仅支持两级代理，该代理已有上级，无法再发展下级");
-            }
-            
-            // 检查上级代理的下级数量是否已达上限
-            try {
-                boolean canAdd = tbkAgentApplyService.canAddSubordinate(referrerCode);
-                if (!canAdd) {
-                    // 获取上级的级别和限制信息
-                    Integer agentLevel = referrerApply.getAgentLevel() != null ? referrerApply.getAgentLevel() : 1;
-                    int limit = tbkAgentApplyService.getSubordinateLimitByLevel(agentLevel);
-                    return AjaxResult.error("该邀请码的下级代理数量已达上限(" + limit + "个)，无法继续添加");
-                }
-            } catch (Exception e) {
-                return AjaxResult.error(e.getMessage());
-            }
-            
-            apply.setReferrerInvitationCode(referrerCode);
-        }
+        // 邀请关系只在首次登录时确定；代理申请不能用旧代理码改绑。
+        apply.setReferrerInvitationCode(null);
         
         // 设置默认代理级别为1级
         apply.setAgentLevel(1);
@@ -411,8 +373,8 @@ public class MiniappTbkController extends BaseController {
         }
         JSONObject resultOb = tbkSdkService.dgMaterialOptionalUpgrade(params);
         
-        // 4、返回结果（前端会根据API返回的数据结构进行适配）
-        return success(resultOb);
+        // 4、返回前移除推广链接和佣金字段。
+        return success(com.ruoyi.system.cps.attribution.CouponPresentation.catalogue(resultOb));
     }
 
     /**
@@ -495,13 +457,8 @@ public class MiniappTbkController extends BaseController {
         
         // 6、如果找到了匹配的商品（含推广链接），返回该商品
         if (matchedItem != null) {
-            var converted = couponConversionService.convert(currentUserId(),
-                    com.ruoyi.system.cps.attribution.CouponRequestIdentity.remoteAddress(),
-                    com.ruoyi.union.adapter.Platform.TBK, id);
-            JSONObject display = com.ruoyi.system.cps.attribution.CouponPresentation.detail(matchedItem);
-            // CouponPresentation has recursively removed the catalogue's promotion links, including nested aliases.
-            if (converted.successful()) display.put("conversion", converted);
-            return AjaxResult.success(display);
+            // 浏览不分配追踪位；用户主动转链时才调用转链接口。
+            return AjaxResult.success(com.ruoyi.system.cps.attribution.CouponPresentation.detail(matchedItem));
         }
         
         // 7、如果没找到匹配的商品（可能是该商品不支持推广），返回基本信息
@@ -585,8 +542,8 @@ public class MiniappTbkController extends BaseController {
         }
         JSONObject resultOb = tbkSdkService.dgMaterialOptionalUpgrade(params);
         
-        // 4、返回结果（前端会根据API返回的数据结构进行适配）
-        return success(resultOb);
+        // 4、返回前移除推广链接和佣金字段。
+        return success(com.ruoyi.system.cps.attribution.CouponPresentation.catalogue(resultOb));
     }
 
     /**
@@ -643,8 +600,8 @@ public class MiniappTbkController extends BaseController {
             params.put("adzoneId", tbkConfig.getAdzoneId().toString());
         }
         JSONObject resultOb = tbkSdkService.dgMaterialOptionalUpgrade(params);
-        // 4、返回结果（后端返回结构不变，前端根据返回内容进行适配）
-        return success(resultOb);
+        // 4、保留返回结构，但不暴露推广链接和佣金字段。
+        return success(com.ruoyi.system.cps.attribution.CouponPresentation.catalogue(resultOb));
     }
 
     /**

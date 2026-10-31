@@ -87,8 +87,10 @@ public class CouponConversionServiceTest {
     @Test public void sameProductCacheDoesNotReuseAnotherUsersTaobaoLease() {
         Fixture f = new Fixture(Platform.TBK);
         f.quoted(new BigDecimal("0.20"));
-        when(f.pids.allocate(Platform.TBK, "123", 7L)).thenReturn(new PidAllocation("mm_1_2_7", true, Instant.now().plusSeconds(60)));
-        when(f.pids.allocate(Platform.TBK, "123", 8L)).thenReturn(new PidAllocation("mm_1_2_8", true, Instant.now().plusSeconds(60)));
+        PidConversionReservation firstLease = new PidConversionReservation(new PidAllocation("mm_1_2_7", true, Instant.now().plusSeconds(60)),Platform.TBK,"123",7L,"attempt7");
+        PidConversionReservation secondLease = new PidConversionReservation(new PidAllocation("mm_1_2_8", true, Instant.now().plusSeconds(60)),Platform.TBK,"123",8L,"attempt8");
+        when(f.pids.reserveForConversion(Platform.TBK, "123", 7L)).thenReturn(firstLease);
+        when(f.pids.reserveForConversion(Platform.TBK, "123", 8L)).thenReturn(secondLease);
         when(f.adapter.convert("123", "mm_1_2_7")).thenReturn(new ConvertedLink("￥七号口令￥"));
         when(f.adapter.convert("123", "mm_1_2_8")).thenReturn(new ConvertedLink("￥八号口令￥"));
         CouponResult first = f.service.convert(7L, "203.0.113.1", Platform.TBK, "123");
@@ -99,10 +101,23 @@ public class CouponConversionServiceTest {
         verify(f.adapter, times(1)).quote("123");
         verify(f.adapter).convert("123", "mm_1_2_7");
         verify(f.adapter).convert("123", "mm_1_2_8");
+        verify(f.pids).finishConversion(firstLease, true);
+        verify(f.pids).finishConversion(secondLease, true);
         ArgumentCaptor<CouponQueryLog> logs = ArgumentCaptor.forClass(CouponQueryLog.class);
         verify(f.logs, times(2)).append(logs.capture());
         assertEquals("mm_1_2_7", logs.getAllValues().get(0).pid());
         assertEquals("mm_1_2_8", logs.getAllValues().get(1).pid());
+    }
+
+    @Test public void failedConversionReleasesItsReservation() {
+        Fixture f = new Fixture(Platform.TBK);
+        f.quoted(new BigDecimal("0.20"));
+        PidConversionReservation lease = new PidConversionReservation(new PidAllocation("mm_1_2_7",true,Instant.now().plusSeconds(60)),Platform.TBK,"123",7L,"attempt7");
+        when(f.pids.reserveForConversion(Platform.TBK,"123",7L)).thenReturn(lease);
+        when(f.adapter.convert("123","mm_1_2_7")).thenThrow(new UnionCouponException("UPSTREAM_FAILURE","failed"));
+        assertEquals("UPSTREAM_FAILURE",f.service.convert(7L,"address",Platform.TBK,"123").result());
+        verify(f.pids).finishConversion(lease,false);
+        verify(f.pids,never()).finishConversion(lease,true);
     }
 
     @Test public void parseThenConvertReusesOnlyProductFacts() {
@@ -167,7 +182,7 @@ public class CouponConversionServiceTest {
         assertNull(sanitized.value());
     }
 
-    @Test public void rateLimitStopsAllUnionCallsButStillRecordsTheAttempt() {
+    @Test public void rateLimitStopsAllUnionCallsWithoutRecordingTheAttempt() {
         Fixture f = new Fixture(Platform.JD);
         doThrow(new UnionCouponException("RATE_LIMITED", "查询频繁")).when(f.limiter).check(7L, "203.0.113.1", Platform.JD);
         CouponResult result = f.service.parse(7L, "203.0.113.1", Platform.JD, "https://u.jd.com/test");
@@ -176,7 +191,7 @@ public class CouponConversionServiceTest {
         verify(f.adapter, never()).quote(anyString());
         verify(f.adapter, never()).convert(anyString(), any());
         verify(f.limiter, never()).failed(any(), any());
-        assertEquals("RATE_LIMITED", f.onlyLog().result());
+        verifyNoInteractions(f.logs);
     }
 
     @Test public void everySuccessfulQueryLeavesUserRebateUnsetUntilRuleContractExists() {

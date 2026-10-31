@@ -56,7 +56,8 @@ public class RewardLedgerMySqlTest {
         configuration.setMapUnderscoreToCamelCase(true);
         configuration.addMapper(RewardProgressMapper.class); // real production annotation SQL
         factory.setConfiguration(configuration);
-        factory.setMapperLocations(new ClassPathResource("mapper/system/SysAgentCommissionAccountMapper.xml"));
+        factory.setMapperLocations(new ClassPathResource("mapper/system/SysOrderCommissionMapper.xml"),
+                new ClassPathResource("mapper/system/SysAgentCommissionAccountMapper.xml"));
         var sessions = new SqlSessionTemplate(factory.getObject());
         var accounts = new CommissionCalculateServiceImpl();
         ReflectionTestUtils.setField(accounts, "accountMapper", sessions.getMapper(SysAgentCommissionAccountMapper.class));
@@ -93,7 +94,8 @@ public class RewardLedgerMySqlTest {
             Result result = rewards.qualify(order, evidence(true, false));
             assertFalse(result.manualReview());
             assertEquals(5, result.instructions().size());
-            assertEquals(Set.of(Type.values()), result.instructions().stream().map(Instruction::type)
+            assertEquals(Set.of(Type.INVITATION_RATIO, Type.INVITEE_FIRST_FIXED, Type.INVITEE_FIRST_N_FIXED,
+                Type.OWN_QUANTITY, Type.FIRST_N_SUBSIDY), result.instructions().stream().map(Instruction::type)
                 .collect(java.util.stream.Collectors.toSet()));
             apply(result.instructions());
         });

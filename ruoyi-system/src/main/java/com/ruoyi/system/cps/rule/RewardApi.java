@@ -28,7 +28,7 @@ public final class RewardApi {
             value = nonnegative(value); platforms = Set.copyOf(platforms);
             Objects.requireNonNull(from); Objects.requireNonNull(until);
             if (!from.isBefore(until)) throw new IllegalArgumentException("empty activity window");
-            if (mode == Mode.RATIO) ratio(value);
+            if (mode == Mode.RATIO) { ratio(value); value = value.stripTrailingZeros(); }
             if (type == Type.INVITATION_RATIO ? mode != Mode.RATIO :
                     type != Type.FIRST_N_SUBSIDY && mode != Mode.FIXED)
                 throw new IllegalArgumentException("unsupported reward mode");
@@ -50,7 +50,7 @@ public final class RewardApi {
             if (orderId <= 0 || buyerId <= 0 || inviterId != null && (inviterId <= 0 || inviterId == buyerId))
                 throw new IllegalArgumentException("invalid user/order identity");
             Objects.requireNonNull(order); Objects.requireNonNull(paidAt);
-            minimumPaid = nonnegative(minimumPaid); minimumCommission = nonnegative(minimumCommission);
+            minimumPaid = money(nonnegative(minimumPaid)); minimumCommission = money(nonnegative(minimumCommission));
             maximumReward = money(nonnegative(maximumReward)); configs = List.copyOf(configs);
             Set<Type> types = EnumSet.noneOf(Type.class);
             for (Config c : configs) if (!types.add(c.type())) throw new IllegalArgumentException("duplicate reward type");

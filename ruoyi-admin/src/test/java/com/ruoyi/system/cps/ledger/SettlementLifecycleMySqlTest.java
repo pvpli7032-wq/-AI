@@ -149,7 +149,7 @@ public class SettlementLifecycleMySqlTest {
         String column=table.equals("cps_reward_order_snapshot") ? "order_id" : "order_line_id";
         return jdbc.queryForObject("SELECT COUNT(*) FROM "+table+" WHERE "+column+"=?",Long.class,id);
     }
-    private long flows(long id) { return jdbc.queryForObject("SELECT COUNT(*) FROM sys_commission_flow WHERE order_commission_id=?",Long.class,id); }
+    private long flows(long id) { return jdbc.queryForObject("SELECT COUNT(*) FROM sys_commission_flow WHERE related_order_id=?",Long.class,id); }
     private BigDecimal item(long id,String type,String field) {
         assertTrue(Set.of("recovered_amount","final_amount","est_amount").contains(field));
         return jdbc.queryForObject("SELECT "+field+" FROM cps_settle_item WHERE order_line_id=? AND type=?",BigDecimal.class,id,type);

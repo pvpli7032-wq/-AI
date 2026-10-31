@@ -117,7 +117,7 @@ public class RewardFollowupTest {
         incentives.clear();
         Snapshot snapshot=RewardPolicyBridge.snapshot(1,new OrderKey("A","o","s"),20,null,T,false,policy);
         assertEquals(7,snapshot.configs().getFirst().version());assertEquals(d("10.00"),snapshot.configs().getFirst().value());
-        assertEquals(d("9.00"),snapshot.maximumReward());assertEquals(d("2"),snapshot.minimumCommission());
+        assertEquals(d("9.00"),snapshot.maximumReward());assertEquals(d("2.00"),snapshot.minimumCommission());
         assertThrows(UnsupportedOperationException.class,()->snapshot.configs().clear());
         assertThrows(IllegalArgumentException.class,()->new Config(Type.FORCED_FIRST,1,Mode.RATIO,1,d(".5"),Set.of("A"),T,T.plusSeconds(1)));
         assertThrows(IllegalArgumentException.class,()->config(Type.FORCED_FIRST,"10",2,1));

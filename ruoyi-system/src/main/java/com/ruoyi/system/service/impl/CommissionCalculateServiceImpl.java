@@ -202,6 +202,7 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
             throw new RuntimeException("订单佣金记录不存在");
         }
 
+        rejectEventManagedLegacyPosting(orderCommission);
         if (actualCommission == null || actualCommission.signum() < 0)
         {
             throw new ServiceException("实际佣金必须为非负金额");
@@ -289,6 +290,7 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
             throw new RuntimeException("订单佣金记录不存在");
         }
 
+        rejectEventManagedLegacyPosting(orderCommission);
         if ("refunded".equals(orderCommission.getOrderStatus()))
         {
             return true;
@@ -329,6 +331,14 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         }
 
         return true;
+    }
+
+    /** Legacy admin commands carry neither an alliance event key nor cumulative recovery.
+     * Never let them post a second time for orders owned by the event settlement engine. */
+    private void rejectEventManagedLegacyPosting(SysOrderCommission order)
+    {
+        if (order.getLineStatus() != null)
+            throw new ServiceException("事件管理订单必须经结算事件处理，旧结算/退款入口不可入账");
     }
 
     private BigDecimal refundableIncome(Long userId, String type, Long orderId, BigDecimal legacyAmount)

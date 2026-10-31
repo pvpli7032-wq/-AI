@@ -77,7 +77,7 @@ public class ProductionAcceptanceMatrixMySqlTest {
         exposure=proxy(new ExposureService(sessions.getMapper(ReconBatchMapper.class)),ExposureService.class);
         ISysConfigService configs=mock(ISysConfigService.class);
         when(configs.selectConfigByKey(anyString())).thenAnswer(call -> {
-            List<String> values=jdbc.queryForList("SELECT config_value FROM sys_config WHERE config_key=?",String.class,call.getArgument(0));
+            List<String> values=jdbc.queryForList("SELECT config_value FROM sys_config WHERE config_key=?",String.class,call.<String>getArgument(0));
             return values.isEmpty() ? "" : values.getFirst();
         });
         risk=proxy(new RiskService(jdbc,configs),RiskService.class);
@@ -114,7 +114,7 @@ public class ProductionAcceptanceMatrixMySqlTest {
         var invalid=event(order,"invalid-after-payout",OrderStatus.RECEIVED,OrderStatus.INVALID,paid,"10",null,paid.plusSeconds(4000));
         settlements.onOrderEvent(invalid); settlements.onOrderEvent(invalid);
         assertEquals("RECEIVED",jdbc.queryForObject("SELECT order_status FROM cps_settlement_position WHERE order_line_id=?",String.class,order));
-        assertEquals(1,count("SELECT COUNT(*) FROM cps_settlement_manual WHERE order_line_id=? AND reason='ILLEGAL_ORDER_TRANSITION_OR_DISPUTE_RESTORATION'",order));
+        assertEquals(1,count("SELECT COUNT(*) FROM cps_settlement_manual WHERE order_line_id=? AND reason='ILLEGAL_INVALID_TRANSITION_REQUIRES_MANUAL_REVIEW'",order));
         assertEquals(flows,count("SELECT COUNT(*) FROM sys_commission_flow"));
         money("0",balance(buyer)); money("4.50",account(buyer,"withdrawn"));
         audit(buyer);
@@ -282,6 +282,43 @@ public class ProductionAcceptanceMatrixMySqlTest {
             start.countDown(); pool.shutdownNow();
             assertTrue(pool.awaitTermination(10,java.util.concurrent.TimeUnit.SECONDS));
         }
+    }
+
+
+    @Test public void missingPenaltyTimeAndMissingPaymentSnapshotBothQuarantineKnownOrders() {
+        publish(Platform.TBK,false,List.of());
+        Instant paid=now(); long funded=order(Platform.TBK), notYetProcessed=order(Platform.TBK);
+        settlements.onOrderEvent(event(funded,"received",null,OrderStatus.RECEIVED,paid,"10",null,paid));
+        var request=request("matrix-incomplete-source",List.of(
+            penalty(funded,null,null),penalty(notYetProcessed,paid.plusSeconds(1),null)));
+        var result=penalties.importStatement(request,buyer);
+        assertEquals(List.of("MANUAL_REVIEW","MANUAL_REVIEW"),
+            result.lines().stream().map(SettlementPenaltyImportService.LineResult::status).toList());
+        assertEquals("MISSING_SOURCE_STATUS_TIME",result.lines().get(0).resultCode());
+        assertEquals("MISSING_SETTLEMENT_COMMISSION_OR_PAYMENT_EVIDENCE",result.lines().get(1).resultCode());
+        assertEquals(2,count("SELECT COUNT(*) FROM cps_settlement_position WHERE order_line_id IN (?,?) AND manual_hold=1",funded,notYetProcessed));
+        long flows=count("SELECT COUNT(*) FROM sys_commission_flow");
+        // Late genuine funding cannot erase the earlier unresolved penalty evidence.
+        settlements.onOrderEvent(event(notYetProcessed,"late-received",null,OrderStatus.RECEIVED,paid,"10",null,paid.plusSeconds(2)));
+        settlements.unfreezeDue(paid.plusSeconds(86400),1000);
+        assertEquals(flows,count("SELECT COUNT(*) FROM sys_commission_flow"));
+        money("4.50",account(buyer,"frozen_amount")); money("0",balance(buyer));
+        assertEquals(result.importId(),penalties.importStatement(request,buyer).importId());
+        penalties.retry(result.importId());
+        assertEquals(2,count("SELECT COUNT(*) FROM cps_settlement_hold_event WHERE event_key LIKE 'penalty:%'"));
+        audit(buyer);
+    }
+
+
+    @Test public void manualPenaltyKeepsEightDecimalAllianceEvidenceBeforeCentAllocation() {
+        publish(Platform.TBK,false,List.of());
+        Instant paid=now(); long order=order(Platform.TBK); receiveAndRelease(order,paid);
+        var result=penalties.importStatement(request("matrix-eight-decimal-penalty",
+            List.of(penalty(order,paid.plusSeconds(4000),"0.12345678"))),buyer);
+        assertEquals("APPLIED",result.lines().getFirst().status());
+        money("0.12345678",jdbc.queryForObject("SELECT recovered_commission FROM cps_settlement_position WHERE order_line_id=?",BigDecimal.class,order));
+        money("0.06",item(order,"REBATE","recovered_amount")); money("4.44",balance(buyer));
+        audit(buyer);
     }
 
     private void publish(Platform platform,boolean referral,List<RulePolicy.Incentive> extra) {

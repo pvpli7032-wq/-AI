@@ -72,9 +72,7 @@ public class SettlementPenaltyImportService {
                 transactions.executeWithoutResult(status -> apply(lineId));
             } catch (RuntimeException failure) {
                 // Do not store raw exception text: it can contain SQL, credentials or raw evidence.
-                transactions.executeWithoutResult(status -> jdbc.update(
-                    "UPDATE cps_settlement_penalty_line SET status='FAILED',result_code='PROCESSING_FAILED_RETRY_OR_RECONCILE',"
-                    + "processed_at=CURRENT_TIMESTAMP(3) WHERE id=? AND status IN ('PENDING','FAILED')",lineId));
+                transactions.executeWithoutResult(status -> preserveFailure(lineId));
             }
         }
         return result(importId);
@@ -136,7 +134,10 @@ public class SettlementPenaltyImportService {
         if (!String.valueOf(row.get("platform")).equalsIgnoreCase(String.valueOf(stored.get("platform_type")))) {
             mark(id,"MANUAL_REVIEW","PLATFORM_MISMATCH"); return;
         }
-        if (input.allianceStatusTime()==null) { mark(id,"MANUAL_REVIEW","MISSING_SOURCE_STATUS_TIME"); return; }
+        if (input.allianceStatusTime()==null) {
+            hold(row,"MISSING_SOURCE_STATUS_TIME");
+            mark(id,"MANUAL_REVIEW","MISSING_SOURCE_STATUS_TIME"); return;
+        }
         String eventJson=(String)row.get("event_json");
         OrderEvent event;
         if (eventJson!=null) event=JSON.parseObject(eventJson,OrderEvent.class);
@@ -144,6 +145,7 @@ public class SettlementPenaltyImportService {
             List<Map<String,Object>> positions=jdbc.queryForList("SELECT * FROM cps_settlement_position WHERE order_line_id=?",order);
             List<String> snapshots=jdbc.queryForList("SELECT payload FROM cps_reward_order_snapshot WHERE order_id=?",String.class,order);
             if (positions.isEmpty() || snapshots.isEmpty() || positions.getFirst().get("original_commission")==null) {
+                hold(row,"MISSING_SETTLEMENT_COMMISSION_OR_PAYMENT_EVIDENCE");
                 mark(id,"MANUAL_REVIEW","MISSING_SETTLEMENT_COMMISSION_OR_PAYMENT_EVIDENCE"); return;
             }
             Map<String,Object> position=positions.getFirst();
@@ -168,6 +170,25 @@ public class SettlementPenaltyImportService {
         } else mark(id,"APPLIED","CUMULATIVE_PENALTY_APPLIED");
     }
 
+    private void preserveFailure(long id) {
+        Map<String,Object> row=jdbc.queryForMap("SELECT l.*,i.platform FROM cps_settlement_penalty_line l "
+            + "JOIN cps_settlement_penalty_import i ON i.id=l.import_id WHERE l.id=? FOR UPDATE",id);
+        if (!List.of("PENDING","FAILED").contains(row.get("status"))) return;
+        long order=((Number)row.get("order_line_id")).longValue();
+        List<String> platforms=jdbc.queryForList("SELECT platform_type FROM sys_order_commission WHERE id=? FOR UPDATE",String.class,order);
+        if (platforms.size()==1 && platforms.getFirst().equalsIgnoreCase(String.valueOf(row.get("platform")))) {
+            hold(row,"PENALTY_PROCESSING_FAILED_REQUIRES_MANUAL_RECONCILIATION");
+            mark(id,"MANUAL_REVIEW","PENALTY_PROCESSING_FAILED_REQUIRES_MANUAL_RECONCILIATION");
+        } else mark(id,"FAILED","PROCESSING_FAILED_RETRY_OR_RECONCILE");
+    }
+
+    private void hold(Map<String,Object> row,String reason) {
+        // System observation time may pause a clock; it must never be substituted for
+        // an unknown alliance status time or used to manufacture an OrderEvent.
+        new SettlementRepository(jdbc).holdUnprocessableEvidence(
+            ((Number)row.get("order_line_id")).longValue(),(String)row.get("event_key"),reason,(String)row.get("input_json"));
+    }
+
     private void mark(long id,String status,String code) {
         jdbc.update("UPDATE cps_settlement_penalty_line SET status=?,result_code=?,processed_at=CURRENT_TIMESTAMP(3) WHERE id=?",status,code,id);
     }
@@ -182,7 +203,7 @@ public class SettlementPenaltyImportService {
             if (line==null || line.orderLineId()<=0 || !ids.add(line.orderLineId())) throw new IllegalArgumentException("Invalid or duplicate order line");
             text(line.rawEvidence(),65536);
             BigDecimal amount=line.cumulativeRecoveredCommission();
-            if (amount!=null && (amount.signum()<0 || amount.scale()>4 || amount.precision()>18))
+            if (amount!=null && (amount.signum()<0 || amount.scale()>8 || (long)amount.precision()-amount.scale()>12))
                 throw new IllegalArgumentException("Invalid cumulative alliance commission");
         }
     }

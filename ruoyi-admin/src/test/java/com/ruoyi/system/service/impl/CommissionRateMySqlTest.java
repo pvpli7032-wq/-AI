@@ -31,8 +31,6 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.system.domain.SysCommissionConfig;
 import com.ruoyi.system.mapper.SysCommissionConfigMapper;
 import com.ruoyi.system.mapper.SysOrderCommissionMapper;
-import com.ruoyi.system.mapper.SysTbkAgentApplyMapper;
-import com.ruoyi.system.domain.SysTbkAgentApply;
 import com.ruoyi.system.service.ISysCommissionConfigService;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
@@ -161,10 +159,12 @@ public class CommissionRateMySqlTest
         CommissionCalculateServiceImpl calculate = new CommissionCalculateServiceImpl();
         ReflectionTestUtils.setField(calculate, "commissionConfigMapper", mapper);
         SysOrderCommissionMapper orders = mock(SysOrderCommissionMapper.class);
-        SysTbkAgentApplyMapper agents = mock(SysTbkAgentApplyMapper.class);
-        when(agents.selectByUserId(1L)).thenReturn(new SysTbkAgentApply());
+        jdbc.update("INSERT INTO sys_user (user_id, user_name, nick_name, status, del_flag) "
+            + "VALUES (1, 'line7-synthetic-buyer', 'line7 synthetic buyer', '0', '0')");
+        jdbc.update("INSERT INTO sys_wechat_user (user_id, openid, invitation_code, inviter_user_id) "
+            + "VALUES (1, 'line7-synthetic-openid', 'line7-synthetic-invitation', NULL)");
         ReflectionTestUtils.setField(calculate, "orderCommissionMapper", orders);
-        ReflectionTestUtils.setField(calculate, "agentApplyMapper", agents);
+        ReflectionTestUtils.setField(calculate, "ledgerJdbc", jdbc);
         assertThrows(ServiceException.class, () -> calculate.calculateCommission("placeholder", "tbk", "item", "item",
             BigDecimal.TEN, BigDecimal.TEN, BigDecimal.ONE, 1L, "2026-01-01 00:00:00"));
         SysCommissionConfig config = new SysCommissionConfig();

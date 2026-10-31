@@ -341,6 +341,93 @@ public class ProductionAcceptanceMatrixMySqlTest {
         penalties.retry(result.importId()); audit(buyer);
     }
 
+
+    @Test public void case15ConfirmedPddComparisonCreatesConfiguredRecipientNoticeAndOutboxOnce() {
+        publish(Platform.PDD,false,List.of());
+        configure(SettlementPddNoticeService.PRICE_PREFIX+"message","合成测试文案：联盟明确比价且佣金为零，不计有效奖励。");
+        Instant paid=now(); long order=order(Platform.PDD);
+        String raw="{\"data\":[{\"order_sn\":\"production-settle-order-"+order+"\",\"price_compare_status\":1,\"promotion_amount\":0}]}";
+        var confirmed=withRaw(event(order,"pdd-proven-comparison",null,OrderStatus.SETTLED,paid,"0",null,paid),raw);
+        settlements.onOrderEvent(confirmed);
+        settlements.unfreezeDue(paid.plusSeconds(3600),1000);
+        SettlementPddNoticeService notice=notices();
+        assertEquals(1,notice.list(buyer,20).size());
+        var visible=notice.list(buyer,20).getFirst();
+        assertEquals(SettlementNotificationService.PDD_PRICE_COMPARE_ZERO,visible.reason());
+        assertEquals("合成测试文案：联盟明确比价且佣金为零，不计有效奖励。",visible.message());
+        assertEquals("PENDING",visible.deliveryStatus()); money("0",visible.lossAmount()); money("0",visible.balanceAfter());
+        assertTrue(notice.list(inviter,20).isEmpty());
+        assertEquals(raw,jdbc.queryForObject("SELECT source_evidence FROM cps_settlement_pdd_notice WHERE order_line_id=?",String.class,order));
+        assertEquals(1,count("SELECT COUNT(*) FROM cps_reward_order_state WHERE order_id=? AND valid=0 AND closed=1",order));
+        assertEquals(0,count("SELECT COUNT(*) FROM cps_reward_award WHERE order_id=?",order));
+        assertEquals(0,count("SELECT COUNT(*) FROM sys_commission_flow WHERE related_order_id=?",Long.toString(order)));
+        configure(SettlementPddNoticeService.PRICE_PREFIX+"message","合成的新文案只用于之后的通知");
+        settlements.onOrderEvent(confirmed);
+        settlements.onOrderEvent(withRaw(event(order,"pdd-proven-comparison-again",OrderStatus.SETTLED,OrderStatus.SETTLED,
+            paid,"0",null,paid.plusSeconds(1)),raw));
+        assertEquals(1,notice.list(buyer,20).size());
+        assertEquals(visible.message(),notice.list(buyer,20).getFirst().message());
+        assertEquals(1,count("SELECT COUNT(*) FROM cps_settlement_notification WHERE user_id=?",buyer));
+    }
+
+    @Test public void pddUnknownComparisonAndMismatchedRawOrderUseGenericReasonOnly() {
+        publish(Platform.PDD,false,List.of());
+        Instant paid=now(); long first=order(Platform.PDD),second=order(Platform.PDD);
+        settlements.onOrderEvent(withRaw(event(first,"pdd-other-order",null,OrderStatus.SETTLED,paid,"0",null,paid),
+            "{\"orderSN\":\"different-order\",\"priceCompareStatus\":1}"));
+        settlements.onOrderEvent(withRaw(event(second,"pdd-unknown-status",null,OrderStatus.SETTLED,paid,"0",null,paid),
+            "{\"orderSN\":\"production-settle-order-"+second+"\",\"priceCompareStatus\":2}"));
+        settlements.unfreezeDue(paid.plusSeconds(3600),1000);
+        assertEquals(2,notices().list(buyer,20).size());
+        assertTrue(notices().list(buyer,20).stream().allMatch(n->SettlementNotificationService.PDD_ZERO_COMMISSION.equals(n.reason())));
+        assertEquals(0,count("SELECT COUNT(*) FROM cps_settlement_pdd_notice WHERE reason='PDD_PRICE_COMPARE_ZERO'"));
+        assertEquals(0,count("SELECT COUNT(*) FROM cps_reward_award"));
+        assertEquals(0,count("SELECT COUNT(*) FROM sys_commission_flow"));
+    }
+
+    @Test public void pddConfiguredNoticeOffAndProvisionalZeroNeverCreateOutbox() {
+        publish(Platform.PDD,false,List.of());
+        configure(SettlementPddNoticeService.PRICE_PREFIX+"enabled","false");
+        Instant paid=now(); long finalOrder=order(Platform.PDD),provisional=order(Platform.PDD);
+        String firstRaw="{\"order_sn\":\"production-settle-order-"+finalOrder+"\",\"price_compare_status\":1}";
+        settlements.onOrderEvent(withRaw(event(finalOrder,"pdd-notice-disabled",null,OrderStatus.SETTLED,paid,"0",null,paid),firstRaw));
+        configure(SettlementPddNoticeService.PRICE_PREFIX+"enabled","true");
+        String nextRaw="{\"order_sn\":\"production-settle-order-"+provisional+"\",\"price_compare_status\":1}";
+        settlements.onOrderEvent(withRaw(event(provisional,"pdd-provisional-zero",null,OrderStatus.RECEIVED,paid,"0",null,paid),nextRaw));
+        settlements.unfreezeDue(paid.plusSeconds(3600),1000);
+        assertTrue(notices().list(buyer,20).isEmpty());
+        assertEquals(0,count("SELECT COUNT(*) FROM cps_settlement_notification"));
+        assertEquals(1,count("SELECT COUNT(*) FROM cps_reward_order_state WHERE order_id=? AND closed=1",finalOrder));
+        assertEquals(1,count("SELECT COUNT(*) FROM cps_reward_order_state WHERE order_id=? AND closed=0",provisional));
+    }
+
+
+    @Test public void comparisonMarkerCannotOverridePositiveActualCommissionOrCreateLoss() {
+        publish(Platform.PDD,false,List.of());
+        Instant paid=now(); long order=order(Platform.PDD);
+        String raw="{\"orderSN\":\"production-settle-order-"+order+"\",\"priceCompareStatus\":1}";
+        settlements.onOrderEvent(withRaw(event(order,"pdd-positive-actual",null,OrderStatus.SETTLED,paid,"10",null,paid),raw));
+        settlements.unfreezeDue(paid.plusSeconds(3600),1000);
+        money("4.50",balance(buyer));
+        assertTrue(notices().list(buyer,20).isEmpty());
+        assertEquals(1,count("SELECT COUNT(*) FROM cps_reward_order_state WHERE order_id=? AND valid=1 AND qualified=1",order));
+        assertEquals(0,count("SELECT COUNT(*) FROM cps_settlement_notification"));
+        audit(buyer);
+    }
+
+    private SettlementPddNoticeService notices() {
+        var channels=new StaticListableBeanFactory().getBeanProvider(SettlementNotificationChannel.class);
+        var notifications=proxy(new SettlementNotificationService(new SettlementNotificationRepository(jdbc),channels,manager),SettlementNotificationService.class);
+        return new SettlementPddNoticeService(jdbc,notifications);
+    }
+    private OrderEvent withRaw(OrderEvent event,String raw) {
+        var e=event.line();
+        var line=new UnionOrderLine(e.platform(),e.orderNo(),e.subOrderNo(),e.itemId(),e.pid(),e.attributionToken(),
+            e.paidAmount(),e.estimatedCommission(),e.actualCommission(),e.rawStatus(),e.paidAt(),e.receivedAt(),e.settledAt(),raw,e.allianceStatusTime());
+        return new OrderEvent(event.eventKey(),event.orderLineId(),line,event.fromStatus(),event.toStatus(),event.previousStatus(),
+            event.recoveredAmount(),event.source(),event.rawId(),event.occurredAt());
+    }
+
     private void publish(Platform platform,boolean referral,List<RulePolicy.Incentive> extra) {
         var base=(RulePolicy)ReflectionTestUtils.invokeMethod(fixture,"policy","0.50",referral);
         var incentives=new java.util.ArrayList<>(base.incentives()); incentives.addAll(extra);

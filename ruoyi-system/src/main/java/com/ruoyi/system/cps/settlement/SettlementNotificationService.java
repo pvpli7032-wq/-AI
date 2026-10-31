@@ -24,7 +24,10 @@ public class SettlementNotificationService
     public static final String REBATE_INVALID = "REBATE_INVALID";
     public static final String REFUND = "REFUND";
     public static final String WHOLE_MONTH_PENALTY = "WHOLE_MONTH_PENALTY";
-    private static final Set<String> REASONS = Set.of(BINDING_FAILURE, REBATE_INVALID, REFUND, WHOLE_MONTH_PENALTY);
+    public static final String PDD_PRICE_COMPARE_ZERO = "PDD_PRICE_COMPARE_ZERO";
+    public static final String PDD_ZERO_COMMISSION = "PDD_ZERO_COMMISSION";
+    private static final Set<String> REASONS = Set.of(BINDING_FAILURE, REBATE_INVALID, REFUND, WHOLE_MONTH_PENALTY,
+        PDD_PRICE_COMPARE_ZERO, PDD_ZERO_COMMISSION);
     private static final BigDecimal LIMIT = new BigDecimal("9999999999999999.99");
     private final SettlementNotificationRepository repository;
     private final ObjectProvider<SettlementNotificationChannel> channels;

@@ -74,10 +74,27 @@ public class DefaultSettlementService implements SettlementService {
             repository.manual(e.orderLineId(),e.eventKey(),"LEGACY_ACCOUNTED_REQUIRES_MANUAL_MIGRATION"); return;
         }
         if (p == null) { p=new Position(); p.id=e.orderLineId(); }
+        // Unknown loss evidence is a committed safety decision, not a rolled-back exception.
+        // It must precede repricing, reward changes, funding and dispute restoration.
+        if ((e.toStatus()==OrderStatus.PARTIAL_REFUND || e.toStatus()==OrderStatus.PENALIZED)
+                && e.recoveredAmount()==null) {
+            holdForManualReview(p,e,fingerprint,"MISSING_CUMULATIVE_ALLIANCE_COMMISSION_RECOVERY");
+            return;
+        }
+        if (p.manualHold) {
+            holdForManualReview(p,e,fingerprint,"MANUAL_SETTLEMENT_HOLD_ACTIVE");
+            return;
+        }
         if (p.lastEventAt!=null && e.occurredAt().isBefore(p.lastEventAt)) {
             repository.manual(p.id,e.eventKey(),"STALE_ALLIANCE_EVENT_REQUIRES_RECONCILIATION"); return;
         }
         if (!legal(p,e)) {
+            if (e.toStatus()==OrderStatus.INVALID) {
+                // The shared contract does not permit RECEIVED/SETTLED -> INVALID.
+                // Preserve its state and quarantine future releases pending an authorized correction.
+                holdForManualReview(p,e,fingerprint,"ILLEGAL_INVALID_TRANSITION_REQUIRES_MANUAL_REVIEW");
+                return;
+            }
             // Quarantine disputed money even when the shared ORDER contract cannot express
             // this edge. Do not invent an ORDER transition or silently release the funds.
             if (e.toStatus()==OrderStatus.DISPUTED && p.terms!=null) {
@@ -154,7 +171,8 @@ public class DefaultSettlementService implements SettlementService {
             }
             p.previous=null;
         }
-        BigDecimal recovery=p.recovered;
+        BigDecimal recovery=e.toStatus()==OrderStatus.INVALID && p.commission!=null
+            ? p.commission : p.recovered;
         if (List.of(OrderStatus.PARTIAL_REFUND,OrderStatus.PENALIZED,OrderStatus.FULL_REFUND).contains(e.toStatus())) {
             if (e.recoveredAmount() == null) throw new IllegalArgumentException("Cumulative alliance commission recovery required");
             recovery=e.recoveredAmount();
@@ -206,6 +224,26 @@ public class DefaultSettlementService implements SettlementService {
         if (p.reportedCommission==null || p.reportedCommission.signum()<0)
             throw new IllegalArgumentException("Reported alliance commission required");
         repository.save(p); repository.order(p);
+        repository.receipt(e.eventKey(),p.id,fingerprint);
+        external.pddNotice(e,p.buyer,repository.jdbc);
+    }
+    private void holdForManualReview(Position p,OrderEvent e,String fingerprint,String reason) {
+        for (Item item:repository.items(p.id)) {
+            if (!"FROZEN".equals(item.phase) || item.paused!=null
+                    || item.status==RebateStatus.VOID || item.status==RebateStatus.FULLY_RECOVERED) continue;
+            Instant heldAt=item.clock!=null && e.occurredAt().isBefore(item.clock.anchor())
+                ? item.clock.anchor() : e.occurredAt();
+            item.paused=heldAt;
+            // Even an already-mature, not-yet-released balance stays quarantined.
+            if (item.clock!=null)
+                item.clock=new FreezeClock(item.clock.remainingAt(heldAt),heldAt,true);
+            item.status=RebateStatus.PAUSED;
+            repository.save(item);
+        }
+        p.manualHold=true;
+        repository.save(p);
+        repository.holdEvent(p.id,e.eventKey(),reason,JSON.toJSONString(e));
+        repository.manual(p.id,e.eventKey(),reason);
         repository.receipt(e.eventKey(),p.id,fingerprint);
     }
     private void reprice(Position p,List<Item> items,OrderEvent e,List<Transfer> transfers) {
@@ -342,7 +380,7 @@ public class DefaultSettlementService implements SettlementService {
     private void release(long id,Instant now) {
         repository.lockOrder(id);
         Position p=repository.load(id);
-        if (p==null || p.status==OrderStatus.DISPUTED) return;
+        if (p==null || p.manualHold || p.status==OrderStatus.DISPUTED) return;
         if (p.status==OrderStatus.INVALID || p.status==OrderStatus.FULL_REFUND && p.recovered.signum()==0) {
             rewards.excludeInvalid(p.id,new RewardApi.Qualification(now,now,true,false,
                 repository.paidAmount(p.id),BigDecimal.ZERO,BigDecimal.ZERO));

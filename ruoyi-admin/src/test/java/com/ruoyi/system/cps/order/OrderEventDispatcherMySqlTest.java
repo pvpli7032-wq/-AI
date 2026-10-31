@@ -142,7 +142,7 @@ public class OrderEventDispatcherMySqlTest
         assertTrue(new OrderEventDispatcher(service, attribution, settlement).dispatchNext(Duration.ofSeconds(30)));
         assertFalse(new OrderEventDispatcher(service, attribution, settlement).dispatchNext(Duration.ofSeconds(30)));
         assertEquals("DISPATCHED", jdbc.queryForObject("SELECT status FROM cps_order_event_outbox WHERE event_key=?", String.class, second.eventKey()));
-        verify(attribution, times(2)).decide(eq(first.orderLineId()), any(UnionOrderLine.class));
+        verify(attribution, times(3)).decide(eq(first.orderLineId()), any(UnionOrderLine.class));
         ArgumentCaptor<OrderEvent> captured = ArgumentCaptor.forClass(OrderEvent.class);
         verify(settlement, times(3)).onOrderEvent(captured.capture());
         var events = captured.getAllValues();

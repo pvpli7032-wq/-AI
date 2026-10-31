@@ -81,6 +81,7 @@ public final class DtkOrderPageClient {
 
     private static void validate(TimeWindow window, Duration limit) {
         if (window == null || window.from() == null || window.to() == null || !window.from().isBefore(window.to())
+            || window.from().getNano() != 0 || window.to().getNano() != 0
             || Duration.between(window.from(), window.to()).compareTo(limit) > 0) {
             throw new IllegalArgumentException("Invalid DTK order time window");
         }

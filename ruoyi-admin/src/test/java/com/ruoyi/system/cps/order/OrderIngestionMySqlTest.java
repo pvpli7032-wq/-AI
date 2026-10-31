@@ -8,6 +8,7 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.List;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.flywaydb.core.Flyway;
 import org.junit.AfterClass;
@@ -109,6 +110,41 @@ public class OrderIngestionMySqlTest
         assertEquals(2L, jdbc.queryForObject("SELECT COUNT(*) FROM sys_order_commission WHERE platform_type='tbk' AND order_id=?", Long.class, order).longValue());
         assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_event WHERE event_key=?", Long.class, applied.eventKey()).longValue());
         assertNull(jdbc.queryForObject("SELECT agent_user_id FROM sys_order_commission WHERE id=?", Long.class, applied.orderLineId()));
+    }
+
+    @Test
+    public void sameEventKeyRequiresMatchingBusinessDataButNotIdenticalPageJson()
+    {
+        String order = "line10-conflict-" + UUID.randomUUID();
+        Instant paidAt = TIME.plusNanos(123456789);
+        UnionOrderLine original = new UnionOrderLine(Platform.TBK, order, "a", "item-a", "pid-a", "token-a",
+            new BigDecimal("12.50"), new BigDecimal("1.2345"), null, "12", paidAt, null, null);
+        var first = service.ingest(new IncomingOrder("{\"page\":1}", TIME, TIME, original));
+        assertEquals(OrderIngestionService.Outcome.APPLIED, first.outcome());
+        UnionOrderLine equivalent = new UnionOrderLine(Platform.TBK, order, "a", "item-a", "pid-a", "token-a",
+            new BigDecimal("12.500"), new BigDecimal("1.23450"), null, "12", paidAt, null, null);
+        assertEquals(OrderIngestionService.Outcome.DUPLICATE,
+            service.ingest(new IncomingOrder("{\"page\":2}", TIME.plusSeconds(1), TIME, equivalent)).outcome());
+        List<UnionOrderLine> conflicts = List.of(
+            new UnionOrderLine(Platform.TBK, order, "a", "item-b", "pid-a", "token-a", new BigDecimal("12.50"), new BigDecimal("1.2345"), null, "12", paidAt, null, null),
+            new UnionOrderLine(Platform.TBK, order, "a", "item-a", "pid-b", "token-a", new BigDecimal("12.50"), new BigDecimal("1.2345"), null, "12", paidAt, null, null),
+            new UnionOrderLine(Platform.TBK, order, "a", "item-a", "pid-a", "token-b", new BigDecimal("12.50"), new BigDecimal("1.2345"), null, "12", paidAt, null, null),
+            new UnionOrderLine(Platform.TBK, order, "a", "item-a", "pid-a", "token-a", new BigDecimal("12.51"), new BigDecimal("1.2345"), null, "12", paidAt, null, null),
+            new UnionOrderLine(Platform.TBK, order, "a", "item-a", "pid-a", "token-a", new BigDecimal("12.50"), new BigDecimal("1.2346"), null, "12", paidAt, null, null),
+            new UnionOrderLine(Platform.TBK, order, "a", "item-a", "pid-a", "token-a", new BigDecimal("12.50"), new BigDecimal("1.2345"), new BigDecimal("0.0001"), "12", paidAt, null, null),
+            new UnionOrderLine(Platform.TBK, order, "a", "item-a", "pid-a", "token-a", new BigDecimal("12.50"), new BigDecimal("1.2345"), null, "12", paidAt.plusNanos(1), null, null),
+            new UnionOrderLine(Platform.TBK, order, "a", "item-a", "pid-a", "token-a", new BigDecimal("12.50"), new BigDecimal("1.2345"), null, "12", paidAt, TIME.plusSeconds(1), null),
+            new UnionOrderLine(Platform.TBK, order, "a", "item-a", "pid-a", "token-a", new BigDecimal("12.50"), new BigDecimal("1.2345"), null, "12", paidAt, null, TIME.plusSeconds(1)));
+        for (UnionOrderLine conflict : conflicts)
+        {
+            var rejected = service.ingest(new IncomingOrder("{\"page\":3}", TIME.plusSeconds(2), TIME, conflict));
+            assertEquals(OrderIngestionService.Outcome.REJECTED, rejected.outcome());
+            assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_ingest_exception WHERE raw_id=?", Long.class, rejected.rawId()).longValue());
+        }
+        assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM cps_order_event WHERE event_key=?", Long.class, first.eventKey()).longValue());
+        assertEquals("item-a", jdbc.queryForObject("SELECT item_id FROM sys_order_commission WHERE id=?", String.class, first.orderLineId()));
+        assertEquals("pid-a", jdbc.queryForObject("SELECT pid FROM sys_order_commission WHERE id=?", String.class, first.orderLineId()));
+        assertEquals(0, new BigDecimal("12.50").compareTo(jdbc.queryForObject("SELECT order_amount FROM sys_order_commission WHERE id=?", BigDecimal.class, first.orderLineId())));
     }
 
     @Test

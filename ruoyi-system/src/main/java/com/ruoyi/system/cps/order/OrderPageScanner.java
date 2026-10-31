@@ -19,7 +19,7 @@ public final class OrderPageScanner
     @FunctionalInterface
     public interface FailureSink
     {
-        /** Implementations must persist the window and cursor for later retry. */
+        /** Persist window and cursor for retry; do not log exception messages or credentials. */
         void record(TimeWindow window, String cursor, RuntimeException failure);
     }
 

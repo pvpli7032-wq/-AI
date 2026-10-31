@@ -42,7 +42,9 @@ public final class OrderEventDispatcher
             OrderStatus from = status(row.get("from_status"));
             if (!flag(row.get("attribution_done")))
             {
-                if (from == null && attribution.decide(orderId, line) == null)
+                // A later alliance event may add a platform attribution token or PID.
+                // The attribution boundary must make repeated decisions idempotent.
+                if (attribution.decide(orderId, line) == null)
                     throw new IllegalStateException("归因服务未返回决策");
                 if (!inbox.markAttributionDone(claim.id(), claim.token()))
                     throw new IllegalStateException("归因完成状态保存失败或租约已过期");

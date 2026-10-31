@@ -12,6 +12,9 @@ public interface OrderEventMapper
     @Select("SELECT COUNT(*) FROM cps_order_event WHERE event_key=#{key}")
     int countByKey(String key);
 
+    @Select("SELECT line_snapshot FROM cps_order_event_outbox WHERE event_key=#{key}")
+    String selectSnapshot(String key);
+
     @Insert("INSERT INTO cps_order_event(event_key,order_line_id,from_status,to_status,previous_status,source,raw_id,created_at) "
         + "VALUES(#{eventKey},#{orderLineId},#{fromStatus},#{toStatus},#{previous},'ALLIANCE',#{rawId},#{occurredAt})")
     @Options(useGeneratedKeys=true,keyProperty="eventId")

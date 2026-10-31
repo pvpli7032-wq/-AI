@@ -60,6 +60,16 @@ public class DtkOrderPageClientTest {
         assertThrows(IllegalArgumentException.class, () -> client.fetchTbk(WINDOW, 1, 2, null));
     }
 
+    @Test public void fractionalSecondWindowCannotBeTruncatedSilently() {
+        DtkClient api = mock(DtkClient.class);
+        DtkOrderPageClient client = new DtkOrderPageClient(api, ZoneOffset.UTC);
+        TimeWindow window = new TimeWindow(Instant.parse("2026-01-01T00:00:00.1Z"),
+            Instant.parse("2026-01-01T00:00:00.9Z"));
+        assertThrows(IllegalArgumentException.class, () -> client.fetchTbk(window, 1, 1, null));
+        assertThrows(IllegalArgumentException.class, () -> client.fetchJd(window, 1, "test-only-authorization"));
+        verifyNoInteractions(api);
+    }
+
     @Test public void jdRefusesKnownClientThatLogsAuthorizationKeys() {
         AbstractDtkApiClient api = mock(AbstractDtkApiClient.class);
         DtkOrderPageClient client = new DtkOrderPageClient(api, ZoneOffset.UTC);

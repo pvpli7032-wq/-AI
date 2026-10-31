@@ -15,6 +15,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Objects;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -102,7 +105,13 @@ public class OrderIngestionService
         orders.ensureLine(values);
         Map<String,Object> row = orders.lockLine(values);
         long orderId = ((Number) row.get("id")).longValue();
-        if (events.countByKey(eventKey) != 0) return new Result(rawId, orderId, eventKey, Outcome.DUPLICATE);
+        if (events.countByKey(eventKey) != 0)
+        {
+            String snapshot = events.selectSnapshot(eventKey);
+            if (snapshot == null || !sameLine(snapshot, line))
+                return rejected(rawId, orderId, eventKey, "相同事件键对应不同订单数据，需人工核对");
+            return new Result(rawId, orderId, eventKey, Outcome.DUPLICATE);
+        }
         OrderStatus target;
         try { target = statuses.map(line.platform(), line.rawStatus()); }
         catch (IllegalArgumentException unknown) { return rejected(rawId, orderId, eventKey, "未知或未确认的联盟状态"); }
@@ -192,6 +201,32 @@ public class OrderIngestionService
             : events.release(Map.of("id", id, "token", token))) == 1);
     }
     private static boolean empty(String s) { return s == null || s.isBlank(); }
+    private static boolean sameLine(String snapshot, UnionOrderLine line)
+    {
+        JSONObject data = JSON.parseObject(snapshot);
+        if (data == null) return false;
+        return Objects.equals(data.getString("platform"), line.platform().name().toLowerCase(Locale.ROOT))
+            && Objects.equals(data.getString("orderNo"), line.orderNo())
+            && Objects.equals(data.getString("subOrderNo"), line.subOrderNo())
+            && Objects.equals(data.getString("itemId"), line.itemId())
+            && Objects.equals(data.getString("pid"), line.pid())
+            && Objects.equals(data.getString("attributionToken"), line.attributionToken())
+            && Objects.equals(data.getString("rawStatus"), line.rawStatus())
+            && equalMoney(data.getBigDecimal("paidAmount"), line.paidAmount())
+            && equalMoney(data.getBigDecimal("estimatedCommission"), line.estimatedCommission())
+            && equalMoney(data.getBigDecimal("actualCommission"), line.actualCommission())
+            && equalInstant(data.getString("paidAt"), line.paidAt())
+            && equalInstant(data.getString("receivedAt"), line.receivedAt())
+            && equalInstant(data.getString("settledAt"), line.settledAt());
+    }
+    private static boolean equalMoney(BigDecimal a, BigDecimal b)
+    {
+        return a == null || b == null ? a == b : a.compareTo(b) == 0;
+    }
+    private static boolean equalInstant(String a, Instant b)
+    {
+        return a == null || b == null ? a == null && b == null : Instant.parse(a).equals(b);
+    }
     private static boolean tooLong(String s, int max) { return s != null && s.length() > max; }
     private static Instant instantFromRow(Map<String,Object> row, String secondKey, String nanoKey)
     {

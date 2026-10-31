@@ -3,13 +3,18 @@ package com.ruoyi.system.cps.ledger;
 import static org.junit.Assert.*;
 
 import java.math.BigDecimal;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -21,6 +26,7 @@ import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
@@ -61,8 +67,9 @@ public class ProductionSettlementMySqlTest {
 
     @Before public void wireProductionServices() throws Exception {
         WithdrawalMySqlTest.migrateFreshRealMySqlDatabase();
-        jdbc = (JdbcTemplate) ReflectionTestUtils.getField(WithdrawalMySqlTest.class, "jdbc");
-        manager = (DataSourceTransactionManager) ReflectionTestUtils.getField(WithdrawalMySqlTest.class, "manager");
+        var migratedJdbc = (JdbcTemplate) ReflectionTestUtils.getField(WithdrawalMySqlTest.class, "jdbc");
+        jdbc = fixtureJdbc((DriverManagerDataSource) migratedJdbc.getDataSource());
+        manager = new DataSourceTransactionManager(jdbc.getDataSource());
         buyer = IDS.incrementAndGet(); inviter = IDS.incrementAndGet(); currentInviter = IDS.incrementAndGet();
         user(buyer); user(inviter); user(currentInviter);
         // Present-day graph deliberately contradicts the authenticated payment-time evidence.
@@ -288,8 +295,32 @@ public class ProductionSettlementMySqlTest {
         return new OrderEvent(id + ":" + key, id, line, from, to, null, recovered == null ? null : bd(recovered),
             "PRODUCTION_SETTLEMENT_MYSQL_TEST", id, at);
     }
+    private JdbcTemplate fixtureJdbc(DriverManagerDataSource migrated) {
+        // serverTimezone alone tells Connector/J how to interpret timestamps; it does NOT
+        // set MySQL's session time_zone. A UTC URL with a +08:00 server session
+        // makes CURRENT_TIMESTAMP appear eight hours in the future to RuleEngine.
+        // Use a numeric JVM-local offset for BOTH ends (also matching DATETIME conversion),
+        // on EVERY connection; this needs no MySQL named-zone tables or global/server change.
+        String url = migrated.getUrl();
+        int question = url.indexOf('?');
+        String base = question < 0 ? url : url.substring(0, question);
+        String options = question < 0 ? "" : Arrays.stream(url.substring(question + 1).split("&"))
+            .filter(option -> !option.matches("(?i)(serverTimezone|connectionTimeZone|forceConnectionTimeZoneToSession)=.*"))
+            .filter(option -> !option.isEmpty()).collect(Collectors.joining("&"));
+        String offset = Instant.now().atZone(ZoneId.systemDefault()).getOffset().getId();
+        if (offset.equals("Z")) offset = "+00:00";
+        String fixtureUrl = base + "?" + (options.isEmpty() ? "" : options + "&")
+            + "connectionTimeZone=" + URLEncoder.encode(offset, StandardCharsets.UTF_8)
+            + "&forceConnectionTimeZoneToSession=true";
+        // Same UUID schema and credentials, but only this test's services use these options.
+        return new JdbcTemplate(new DriverManagerDataSource(fixtureUrl, migrated.getUsername(), migrated.getPassword()));
+    }
     private Instant databaseNow() {
-        return jdbc.queryForObject("SELECT CURRENT_TIMESTAMP(3)", Timestamp.class).toInstant();
+        Instant paid = jdbc.queryForObject("SELECT CURRENT_TIMESTAMP(3)", Timestamp.class).toInstant();
+        assertFalse("fixture database paidAt must not be future: " + paid, paid.isAfter(Instant.now()));
+        assertNotNull("fixture payment must follow real rule publication", versions.asOf("TBK", paid));
+        assertNotNull("fixture payment must follow real finance publication", configuration.atPayment(paid));
+        return paid;
     }
     private String termsJson(long id) {
         return jdbc.queryForObject("SELECT terms_json FROM cps_settlement_position WHERE order_line_id=?", String.class, id);

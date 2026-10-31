@@ -1,6 +1,6 @@
 # 第二批任务：业务主线
 
-原则同第一批：在基座现有代码上增加，不删除、不重写现有模块、接口、页面。业务依据是 `docs/plan.md`，本文件只定每条线做什么、能改什么、怎么验收。开工前读 `AGENTS.md`。
+原则：默认在基座现有代码上增加。替换或删除旧模块的条件见 `AGENTS.md`，没写进任务单的一律不删。业务依据是 `docs/plan.md`，本文件只定每条线做什么、能改什么、怎么验收。开工前读 `AGENTS.md`。
 
 ## 开工条件和顺序
 
@@ -56,7 +56,7 @@
 
 **对应：** `plan.md` 第 4.1、4.2、4.10 节，阶段 2。**迁移编号：** V500～V599。
 
-**能改：** `union/adapter/` 的实现、`cps/attribution/`、新增 `MiniappConvertController` 和无主订单、PID 池的后台接口，`MiniappDtkController`、`MiniappJdController`、`MiniappPddController`、`MiniappTbkController`（只接入新逻辑），`ISysWechatUserService` 相关（只改邀请绑定），`tbk-miniapp/api/platform-api.js`、`tbk-miniapp/utils/request.js`（只改第 11 项），`tbk-miniapp/utils/auth.js`、`MiniappAuthController`（只改第 8 项首次授权传邀请码），`tbk-miniapp/pages/index/index.js`、`tbk-miniapp/pages/goods/detail/`（只改转发不带身份和第 9 项），`WebUtils`（只改第 10 项超时），`ruoyi-quartz` 新增到期处理和重试任务类。
+**能改：** `union/adapter/` 的实现、`cps/attribution/`、新增 `MiniappConvertController` 和无主订单、PID 池的后台接口，`MiniappDtkController`、`MiniappJdController`、`MiniappPddController`、`MiniappTbkController`（只接入新逻辑），`ISysWechatUserService` 相关（只改邀请绑定），`tbk-miniapp/api/platform-api.js`、`tbk-miniapp/utils/request.js`（只改第 11 项），`tbk-miniapp/utils/auth.js`、`MiniappAuthController`（只改第 8 项首次授权传邀请码），`tbk-miniapp/pages/index/index.js`、`tbk-miniapp/pages/goods/detail/`（只改转发不带身份和第 9 项），`WebUtils`（只改第 10 项超时），`ruoyi-quartz` 新增到期处理和重试任务类，`tbk-miniapp/app.js`（只改启动无感登录），`tbk-miniapp/pages/share/index.js`、`tbk-miniapp/pages/user/center/center.js`、`tbk-miniapp/pages/agent/apply/apply.js`、`tbk-miniapp/pages/goods/list/list.js`（只改转发的邀请码）。
 
 **要求：**
 
@@ -200,6 +200,16 @@
 cd ruoyi-ui && npm install && npm run build:prod
 ```
 小程序在开发者工具编译通过。PR 里列出每个新页面逐页检查结果。开发者工具跑不了时写明。
+
+## 线 15 删除代理申请模块
+
+**前置：** 线 9、10、11 合并，且线 11 的佣金计算不再依赖 `sys_tbk_agent_apply`。线 13 排在本线之后。开工前在 `.github/pr-scope.conf` 登记范围，迁移用 V1100～V1199。
+
+**删除：** `SysTbkAgentApply` 的实体、Mapper、Service、后台控制器，小程序 `pages/agent/apply/`，以及各控制器和页面里的代理申请、`isAgent`、`agentInfo` 分支。
+
+**保留：** `sys_agent_commission_account`（全体用户账户）、`sys_agent_commission_config`。`sys_agent_union_relation` 和 `sys_tbk_agent_apply` 表先保留，删表只写脚本，由用户确认后执行。
+
+**验收：** `./mvnw -B test`；普通用户查券、转链、下单、返利、提现、邀请全流程不受影响；全仓库搜不到已删除类的引用。
 
 ## 线 14 收尾加固
 

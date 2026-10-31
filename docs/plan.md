@@ -80,7 +80,7 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 
 第 13 节列全部 19 条资金风险和其他发现。
 
-**处理原则：** 在基座现有代码上增加功能和逻辑。现有模块、表、接口、页面都保留，不删除、不重写；对不上的地方补字段、修路径；缺的功能新增。
+**处理原则：** 默认在基座现有代码上增加功能和逻辑；对不上的地方补字段、修路径；缺的功能新增。能让项目规划更好时，允许替换或删除旧模块，条件见 `AGENTS.md`。
 
 ---
 
@@ -477,7 +477,7 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 | 表 | 用途 | 要补的内容 |
 |---|---|---|
 | `sys_user`、`sys_wechat_user` | 小程序用户 | 加手机号、风险等级字段；`sys_wechat_user` 加 `invitation_code`（唯一）和邀请人字段 |
-| `sys_tbk_agent_apply` | 邀请码和上级关系 | 原写「新用户自动生成一条已生效记录」**不可行**：`uk_mini_app_id` 配全局 appid，只能有一条，且姓名、手机、微信都是必填。普通用户不进此表（第 9.1 节第 2 项），代理申请功能保留 |
+| `sys_tbk_agent_apply` | 邀请码和上级关系 | 原写「新用户自动生成一条已生效记录」**不可行**：`uk_mini_app_id` 配全局 appid，只能有一条，且姓名、手机、微信都是必填。普通用户不进此表（第 9.1 节第 2 项）。2026-10-31 用户决定删除代理申请模块，由线 15 执行 |
 | `sys_order_commission` | 订单主表 | 加 `buyer_user_id`（与 `agent_user_id` 同写）、`sub_order_no`、预估和实际佣金、状态和时间字段；唯一键改为平台 + 订单号 + 子订单号；订单行按子订单存，改完后按订单号的单行查询会报 TooManyResults，要同步改；`settle_status` 用 `VARCHAR(20)`，金额列 `DECIMAL(14,4)` |
 | `sys_commission_flow` | 资金流水 | 补代码用到的字段，加业务唯一键防重复 |
 | `sys_agent_commission_account` | 用户账户 | 加版本号；`balance` 允许为负 |
@@ -658,7 +658,7 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 | # | 问题 | 决定 |
 |---|---|---|
 | 1 | 后台直接改钱的接口 | 改成写冲正分录，不直接改余额。删账户、改 `user_id` 没法用冲正表达，不开放 |
-| 2 | `uk_mini_app_id` 和普通用户账户模型 | 普通用户不进申请表：`sys_wechat_user` 加 `invitation_code`（唯一）和邀请人字段，账户沿用 `sys_agent_commission_account`，`calculateCommission` 放宽为没有代理记录也能走。`uk_mini_app_id` 和代理申请原样保留 |
+| 2 | `uk_mini_app_id` 和普通用户账户模型 | 普通用户不进申请表：`sys_wechat_user` 加 `invitation_code`（唯一）和邀请人字段，账户沿用 `sys_agent_commission_account`，`calculateCommission` 放宽为没有代理记录也能走。代理申请模块由线 15 删除，`sys_agent_commission_account` 是全体用户的账户，保留 |
 | 3 | 返利比例 | 按单笔佣金分档，档位后台可配 |
 | 4 | 冻结 | 按金额分档，档位后台可配。默认值用截图 5/10/30/50/500 → 7/10/30/30/50 天；低于首档按首档天数（【建议】，同行资料未写） |
 | 5 | 提成由谁出 | 公司 |

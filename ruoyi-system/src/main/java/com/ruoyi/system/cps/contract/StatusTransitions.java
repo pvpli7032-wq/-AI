@@ -15,5 +15,5 @@ public final class StatusTransitions {
         RebateStatus.FROZEN, Set.of(RebateStatus.CREDITED, RebateStatus.PAUSED, RebateStatus.PARTIALLY_RECOVERED, RebateStatus.FULLY_RECOVERED),
         RebateStatus.PAUSED, Set.of(RebateStatus.FROZEN),
         RebateStatus.CREDITED, Set.of(RebateStatus.PARTIALLY_RECOVERED, RebateStatus.FULLY_RECOVERED),
-        RebateStatus.PARTIALLY_RECOVERED, Set.of(RebateStatus.FULLY_RECOVERED));
+        RebateStatus.PARTIALLY_RECOVERED, Set.of(RebateStatus.PARTIALLY_RECOVERED, RebateStatus.FULLY_RECOVERED));
 }

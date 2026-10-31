@@ -68,4 +68,20 @@ public class CpsContractMySqlTest {
         assertThrows(org.springframework.dao.DuplicateKeyException.class, () -> jdbc.update("INSERT INTO sys_commission_flow(user_id,flow_type,amount,business_type,business_id,account,idempotency_key) VALUES (1,'withdraw',10,'WITHDRAW','withdraw-2','USER_AVAILABLE','withdraw-request-1')"));
     }
 
+
+    @Test public void flowKeysAndPartialRecoveriesRemainCompatible() {
+        jdbc.update("INSERT INTO sys_commission_flow(user_id,flow_type,amount,order_commission_id) VALUES (901,'income_self',1,9001)");
+        assertThrows(org.springframework.dao.DuplicateKeyException.class, () -> jdbc.update("INSERT INTO sys_commission_flow(user_id,flow_type,amount,order_commission_id) VALUES (901,'income_self',1,9001)"));
+        jdbc.update("INSERT INTO sys_commission_flow(user_id,flow_type,amount,idempotency_key,original_flow_id) VALUES (902,'reversal',-1,'line8-v91',9002)");
+        assertThrows(org.springframework.dao.DuplicateKeyException.class, () -> jdbc.update("INSERT INTO sys_commission_flow(user_id,flow_type,amount,idempotency_key) VALUES (903,'reversal',-1,'line8-v91')"));
+        assertThrows(org.springframework.dao.DuplicateKeyException.class, () -> jdbc.update("INSERT INTO sys_commission_flow(user_id,flow_type,amount,original_flow_id) VALUES (903,'reversal',-1,9002)"));
+        String[] partial = {"'RECOVERY',NULL,NULL", "NULL,'id',NULL", "NULL,NULL,'USER_AVAILABLE'", "'RECOVERY','id',NULL", "'RECOVERY',NULL,'USER_AVAILABLE'", "NULL,'id','USER_AVAILABLE'"};
+        for (String values : partial) {
+            org.springframework.dao.DataAccessException error = assertThrows(org.springframework.dao.DataAccessException.class, () -> jdbc.execute("INSERT INTO sys_commission_flow(user_id,flow_type,amount,business_type,business_id,account) VALUES (904,'reversal',-1," + values + ")"));
+            assertTrue(error.getRootCause() instanceof java.sql.SQLException);
+            assertEquals(3819, ((java.sql.SQLException) error.getRootCause()).getErrorCode());
+        }
+        jdbc.update("INSERT INTO sys_commission_flow(user_id,flow_type,amount,business_type,business_id,account,related_order_id,idempotency_key) VALUES (905,'reversal',-1,'RECOVERY','order-7:event-1','USER_AVAILABLE','7','partial-1'), (905,'reversal',-1,'RECOVERY','order-7:event-2','USER_AVAILABLE','7','partial-2'), (905,'reversal',-1,'OTHER','order-7:event-1','USER_AVAILABLE','7','partial-3')");
+        assertEquals(Long.valueOf(3), jdbc.queryForObject("SELECT COUNT(*) FROM sys_commission_flow WHERE user_id=905", Long.class));
+    }
 }

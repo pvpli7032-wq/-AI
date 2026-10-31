@@ -184,13 +184,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         update sys_order_commission
         <trim prefix="SET" suffixOverrides=",">
             <if test="orderId != null and orderId != ''">order_id = #{orderId},</if>
-            <if test="subOrderNo != null">sub_order_no = #{subOrderNo},</if>
-            <if test="rawStatus != null">raw_status = #{rawStatus},</if>
-            <if test="pid != null">pid = #{pid},</if>
-            <if test="attributionToken != null">attribution_token = #{attributionToken},</if>
-            <if test="paidTime != null">paid_time = #{paidTime},</if>
-            <if test="lineStatus != null">line_status = #{lineStatus},</if>
-            <if test="receivedTime != null">received_time = #{receivedTime},</if>
             <if test="platformType != null and platformType != ''">platform_type = #{platformType},</if>
             <if test="itemId != null and itemId != ''">item_id = #{itemId},</if>
             <if test="itemTitle != null">item_title = #{itemTitle},</if>

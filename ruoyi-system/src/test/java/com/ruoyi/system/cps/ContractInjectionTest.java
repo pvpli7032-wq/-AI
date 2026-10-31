@@ -4,6 +4,7 @@ import static org.junit.Assert.*;
 import java.util.List;
 import org.junit.Test;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.mock.env.MockEnvironment;
 import com.ruoyi.system.cps.attribution.AttributionService;
 import com.ruoyi.system.cps.ledger.LedgerService;
@@ -89,5 +90,14 @@ public class ContractInjectionTest {
         assertTrue(StatusTransitions.REBATE.get(RebateStatus.PAUSED).contains(RebateStatus.FROZEN));
         assertFalse(StatusTransitions.REBATE.containsKey(RebateStatus.VOID));
         assertTrue(StatusTransitions.REBATE.get(RebateStatus.PARTIALLY_RECOVERED).contains(RebateStatus.FULLY_RECOVERED));
+        assertTrue(StatusTransitions.REBATE.get(RebateStatus.PARTIALLY_RECOVERED).contains(RebateStatus.PARTIALLY_RECOVERED));
+    }
+    @Test public void scannedAdapterConfigurationFailsStartupWhenImplementationMissing() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.getEnvironment().setActiveProfiles("prod");
+            context.scan("com.ruoyi.union.adapter");
+            assertThrows(IllegalStateException.class, context::refresh);
+            assertTrue(context.containsBeanDefinition("unionAdapterConfiguration"));
+        }
     }
 }

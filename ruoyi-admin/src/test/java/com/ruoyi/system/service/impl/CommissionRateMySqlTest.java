@@ -30,8 +30,12 @@ import org.springframework.transaction.interceptor.TransactionInterceptor;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.system.domain.SysCommissionConfig;
 import com.ruoyi.system.mapper.SysCommissionConfigMapper;
+import com.ruoyi.system.mapper.SysOrderCommissionMapper;
+import com.ruoyi.system.mapper.SysTbkAgentApplyMapper;
+import com.ruoyi.system.domain.SysTbkAgentApply;
 import com.ruoyi.system.service.ISysCommissionConfigService;
 import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
 /** Real MySQL and actual Flyway migrations; uses a dedicated temporary database. */
 public class CommissionRateMySqlTest
@@ -40,7 +44,9 @@ public class CommissionRateMySqlTest
     private static DriverManagerDataSource dataSource;
     private static JdbcTemplate jdbc;
     private static ISysCommissionConfigService service;
+    private static SysCommissionConfigMapper mapper;
     private static long initialSeedCount;
+    private static long initialDisabledCount;
     private static BigDecimal initialSeedSum;
 
     @BeforeClass
@@ -67,13 +73,14 @@ public class CommissionRateMySqlTest
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").outOfOrder(true).load().migrate();
         jdbc = new JdbcTemplate(dataSource);
         initialSeedCount = jdbc.queryForObject("SELECT COUNT(*) FROM sys_commission_config WHERE config_key IN ('self_rate','promotion_rate')", Long.class);
+        initialDisabledCount = jdbc.queryForObject("SELECT COUNT(*) FROM sys_commission_config WHERE config_key IN ('self_rate','promotion_rate') AND status = '1'", Long.class);
         initialSeedSum = jdbc.queryForObject("SELECT SUM(config_value) FROM sys_commission_config WHERE config_key IN ('self_rate','promotion_rate')", BigDecimal.class);
         SqlSessionFactoryBean factoryBean = new SqlSessionFactoryBean();
         factoryBean.setDataSource(dataSource);
         factoryBean.setMapperLocations(new ClassPathResource("mapper/system/SysCommissionConfigMapper.xml"));
         SqlSessionFactory factory = factoryBean.getObject();
         assertNotNull(factory);
-        SysCommissionConfigMapper mapper = new SqlSessionTemplate(factory).getMapper(SysCommissionConfigMapper.class);
+        mapper = new SqlSessionTemplate(factory).getMapper(SysCommissionConfigMapper.class);
         SysCommissionConfigServiceImpl target = new SysCommissionConfigServiceImpl();
         ReflectionTestUtils.setField(target, "sysCommissionConfigMapper", mapper);
         TransactionInterceptor interceptor = new TransactionInterceptor();
@@ -110,6 +117,7 @@ public class CommissionRateMySqlTest
     {
         assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE version = '90' AND success = 1", Long.class).longValue());
         assertEquals(2L, initialSeedCount);
+        assertEquals(2L, initialDisabledCount);
         assertNotNull(initialSeedSum);
         assertEquals(0, BigDecimal.ZERO.compareTo(initialSeedSum));
         jdbc.update("UPDATE sys_commission_config SET config_value = 37 WHERE config_key = 'self_rate'");
@@ -144,6 +152,58 @@ public class CommissionRateMySqlTest
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(20, TimeUnit.SECONDS));
         }
+    }
+
+    @Test
+    public void placeholdersPreventCalculationUntilBothZeroRatesAreSaved()
+    {
+        jdbc.update("UPDATE sys_commission_config SET status = '1', config_value = 0 WHERE config_key IN ('self_rate','promotion_rate')");
+        CommissionCalculateServiceImpl calculate = new CommissionCalculateServiceImpl();
+        ReflectionTestUtils.setField(calculate, "commissionConfigMapper", mapper);
+        SysOrderCommissionMapper orders = mock(SysOrderCommissionMapper.class);
+        SysTbkAgentApplyMapper agents = mock(SysTbkAgentApplyMapper.class);
+        when(agents.selectByUserId(1L)).thenReturn(new SysTbkAgentApply());
+        ReflectionTestUtils.setField(calculate, "orderCommissionMapper", orders);
+        ReflectionTestUtils.setField(calculate, "agentApplyMapper", agents);
+        assertThrows(ServiceException.class, () -> calculate.calculateCommission("placeholder", "tbk", "item", "item",
+            BigDecimal.TEN, BigDecimal.TEN, BigDecimal.ONE, 1L, "2026-01-01 00:00:00"));
+        SysCommissionConfig config = new SysCommissionConfig();
+        config.setConfigKey("self_rate");
+        config.setConfigValue(BigDecimal.ZERO);
+        assertEquals(1, service.updateSysCommissionConfig(config));
+        assertThrows(ServiceException.class, calculate::getSelfCommissionRate);
+        config.setConfigKey("promotion_rate");
+        assertEquals(1, service.updateSysCommissionConfig(config));
+        assertEquals(2L, jdbc.queryForObject("SELECT COUNT(*) FROM sys_commission_config WHERE config_key IN ('self_rate','promotion_rate') AND status = '0'", Long.class).longValue());
+        assertEquals(0, BigDecimal.ZERO.compareTo(calculate.calculateCommission("enabled", "tbk", "item", "item",
+            BigDecimal.TEN, BigDecimal.TEN, BigDecimal.ONE, 1L, "2026-01-01 00:00:00").getSelfCommissionAmount()));
+    }
+
+    @Test
+    public void migrationLeavesOperatorEditedRemarksAndValuesUntouched() throws Exception
+    {
+        jdbc.update("UPDATE sys_commission_config SET status = '0', config_value = 37, remark = '运营配置' WHERE config_key = 'self_rate'");
+        jdbc.update("UPDATE sys_commission_config SET status = '0', config_value = 0, update_time = NULL, update_by = '', remark = '占位配置，上线前设置推广比例' WHERE config_key = 'promotion_rate'");
+        try (Connection connection = dataSource.getConnection())
+        {
+            ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/migration/V92__disable_placeholder_commission_rates.sql"));
+        }
+        assertEquals("0", jdbc.queryForObject("SELECT status FROM sys_commission_config WHERE config_key = 'self_rate'", String.class));
+        assertEquals(0, new BigDecimal("37").compareTo(jdbc.queryForObject("SELECT config_value FROM sys_commission_config WHERE config_key = 'self_rate'", BigDecimal.class)));
+        assertEquals("1", jdbc.queryForObject("SELECT status FROM sys_commission_config WHERE config_key = 'promotion_rate'", String.class));
+    }
+
+    @Test
+    public void migrationPreservesChangedValueWithOriginalRemark() throws Exception
+    {
+        jdbc.update("UPDATE sys_commission_config SET status = '0', config_value = 37, update_time = NULL, update_by = '', remark = '占位配置，上线前设置自购比例' WHERE config_key = 'self_rate'");
+        jdbc.update("UPDATE sys_commission_config SET status = '0', config_value = 0, update_time = NOW(), update_by = '', remark = '占位配置，上线前设置推广比例' WHERE config_key = 'promotion_rate'");
+        try (Connection connection = dataSource.getConnection())
+        {
+            ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/migration/V92__disable_placeholder_commission_rates.sql"));
+        }
+        assertEquals("0", jdbc.queryForObject("SELECT status FROM sys_commission_config WHERE config_key = 'self_rate'", String.class));
+        assertEquals("1", jdbc.queryForObject("SELECT status FROM sys_commission_config WHERE config_key = 'promotion_rate'", String.class));
     }
 
     private static boolean update(CountDownLatch start, String key) throws Exception

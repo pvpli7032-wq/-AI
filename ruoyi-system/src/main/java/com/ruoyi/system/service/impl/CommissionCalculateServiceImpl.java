@@ -3,6 +3,7 @@ package com.ruoyi.system.service.impl;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Date;
+import java.util.List;
 import java.util.TreeSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
@@ -294,7 +295,8 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         lockPostingAccounts(orderCommission);
 
         // 自购与推广分别追加退款流水并回退对应统计；余额不足仍记录负余额。
-        BigDecimal selfAmount = orderCommission.getSelfCommissionAmount();
+        BigDecimal selfAmount = refundableIncome(orderCommission.getBuyerUserId(), "income_self",
+            orderCommissionId, orderCommission.getSelfCommissionAmount());
         if (selfAmount != null && selfAmount.signum() > 0)
         {
             updateUserAccount(orderCommission.getBuyerUserId(), selfAmount.negate(), "refund_self",
@@ -302,7 +304,8 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         }
         if ("1".equals(orderCommission.getHasReferrer()) && orderCommission.getReferrerUserId() != null)
         {
-            BigDecimal promotionAmount = orderCommission.getPromotionCommissionAmount();
+            BigDecimal promotionAmount = refundableIncome(orderCommission.getReferrerUserId(), "income_promotion",
+                orderCommissionId, orderCommission.getPromotionCommissionAmount());
             if (promotionAmount != null && promotionAmount.signum() > 0)
             {
                 updateUserAccount(orderCommission.getReferrerUserId(), promotionAmount.negate(), "refund_promotion",
@@ -319,6 +322,25 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         }
 
         return true;
+    }
+
+    private BigDecimal refundableIncome(Long userId, String type, Long orderId, BigDecimal legacyAmount)
+    {
+        List<SysCommissionFlow> incomes = flowMapper.selectIncomeForOrder(userId, type, orderId);
+        if (incomes.isEmpty())
+        {
+            // 兼容结算时尚未记录收入流水的历史订单。
+            return legacyAmount;
+        }
+        BigDecimal remaining = BigDecimal.ZERO;
+        for (SysCommissionFlow income : incomes)
+        {
+            if (flowMapper.selectReversalByOriginal(income.getId()) == null)
+            {
+                remaining = remaining.add(income.getAmount());
+            }
+        }
+        return remaining;
     }
 
     /**
@@ -342,11 +364,38 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
             throw new ServiceException("原流水不存在或缺少必要数据");
         }
         String type = original.getFlowType();
-        if (!("income_self".equals(type) || "income_promotion".equals(type)
-            || "refund_self".equals(type) || "refund_promotion".equals(type)
-            || "refund".equals(type) || "withdraw".equals(type)))
+        if (!("income_self".equals(type) || "income_promotion".equals(type) || "withdraw".equals(type)))
         {
             throw new ServiceException("此类型流水不支持冲正");
+        }
+        if ("income_self".equals(type) || "income_promotion".equals(type))
+        {
+            Long orderId = original.getOrderCommissionId();
+            if (orderId == null)
+            {
+                try
+                {
+                    orderId = Long.valueOf(original.getRelatedOrderId());
+                }
+                catch (NumberFormatException | NullPointerException invalidOrder)
+                {
+                    throw new ServiceException("收入流水缺少有效订单");
+                }
+            }
+            SysOrderCommission order = accountMapper.selectOrderCommissionForUpdate(orderId);
+            if (order == null)
+            {
+                throw new ServiceException("收入流水对应订单不存在");
+            }
+            if ("refunded".equals(order.getOrderStatus()) || "cancelled".equals(order.getOrderStatus()))
+            {
+                SysCommissionFlow existing = flowMapper.selectReversalByOriginal(originalFlowId);
+                if (existing != null && idempotencyKey.equals(existing.getIdempotencyKey()))
+                {
+                    return existing;
+                }
+                throw new ServiceException("已退款或取消的订单不能冲正收入流水");
+            }
         }
         original.setIdempotencyKey(idempotencyKey);
         original.setOperatorId(operatorId);
@@ -587,13 +636,13 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
 
     private BigDecimal requireRate(SysCommissionConfig config, String key)
     {
-        if (config == null || config.getConfigValue() == null)
+        if (config == null || config.getConfigValue() == null || !"0".equals(config.getStatus()))
         {
             throw new ServiceException("缺少佣金比例配置: " + key);
         }
         String otherKey = "self_rate".equals(key) ? "promotion_rate" : "self_rate";
         SysCommissionConfig other = commissionConfigMapper.selectSysCommissionConfigByKey(otherKey);
-        if (other == null || other.getConfigValue() == null)
+        if (other == null || other.getConfigValue() == null || !"0".equals(other.getStatus()))
         {
             throw new ServiceException("缺少佣金比例配置: " + otherKey);
         }

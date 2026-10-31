@@ -157,7 +157,7 @@ public class SysUnionPlatformController extends BaseController {
      * 新增联盟信息
      */
     @PreAuthorize("@ss.hasPermi('system:unionPlatform:add')")
-    @Log(title = "联盟信息", businessType = BusinessType.INSERT)
+    @Log(title = "联盟信息", businessType = BusinessType.INSERT, excludeParamNames = { "appSecret", "accessToken" })
     @PostMapping
     public AjaxResult add(@RequestBody SysUnionPlatform sysUnionPlatform) {
         return toAjax(unionPlatformService.insertSysUnionPlatform(sysUnionPlatform));
@@ -167,7 +167,7 @@ public class SysUnionPlatformController extends BaseController {
      * 修改联盟信息
      */
     @PreAuthorize("@ss.hasPermi('system:unionPlatform:edit')")
-    @Log(title = "联盟信息", businessType = BusinessType.UPDATE)
+    @Log(title = "联盟信息", businessType = BusinessType.UPDATE, excludeParamNames = { "appSecret", "accessToken" })
     @PutMapping
     public AjaxResult edit(@RequestBody SysUnionPlatform sysUnionPlatform) {
         return toAjax(unionPlatformService.updateSysUnionPlatform(sysUnionPlatform));

@@ -1,6 +1,6 @@
 # 第二批任务：业务主线
 
-原则同第一批：在基座现有代码上增加，不删除、不重写现有模块、接口、页面。业务依据是 `docs/plan.md`，本文件只定每条线做什么、能改什么、怎么验收。开工前读 `AGENTS.md`。
+原则：默认在基座现有代码上增加。替换或删除旧模块的条件见 `AGENTS.md`，没写进任务单的一律不删。业务依据是 `docs/plan.md`，本文件只定每条线做什么、能改什么、怎么验收。开工前读 `AGENTS.md`。
 
 ## 开工条件和顺序
 
@@ -200,6 +200,16 @@
 cd ruoyi-ui && npm install && npm run build:prod
 ```
 小程序在开发者工具编译通过。PR 里列出每个新页面逐页检查结果。开发者工具跑不了时写明。
+
+## 线 15 删除代理申请模块
+
+**前置：** 线 9、10、11 合并，且线 11 的佣金计算不再依赖 `sys_tbk_agent_apply`。线 13 排在本线之后。开工前在 `.github/pr-scope.conf` 登记范围，迁移用 V1100～V1199。
+
+**删除：** `SysTbkAgentApply` 的实体、Mapper、Service、后台控制器，小程序 `pages/agent/apply/`，以及各控制器和页面里的代理申请、`isAgent`、`agentInfo` 分支。
+
+**保留：** `sys_agent_commission_account`（全体用户账户）、`sys_agent_commission_config`。`sys_agent_union_relation` 和 `sys_tbk_agent_apply` 表先保留，删表只写脚本，由用户确认后执行。
+
+**验收：** `./mvnw -B test`；普通用户查券、转链、下单、返利、提现、邀请全流程不受影响；全仓库搜不到已删除类的引用。
 
 ## 线 14 收尾加固
 

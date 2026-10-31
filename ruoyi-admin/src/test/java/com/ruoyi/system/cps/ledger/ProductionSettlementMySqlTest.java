@@ -101,7 +101,8 @@ public class ProductionSettlementMySqlTest {
             provider(RulePorts.PublicationSafety.class, new RuleSafetyConfiguration(drafts))), RuleEngine.class);
         configuration = transactional(new SettlementConfigurationService(jdbc), SettlementConfigurationService.class);
         var bridge = new RuleSettlementTermsBridge(rules, configuration);
-        var rewards = transactional(new RewardService(sessions.getMapper(RewardProgressMapper.class)), RewardService.class);
+        var rewards = transactional(new RewardService(sessions.getMapper(RewardProgressMapper.class),
+            new RewardRepricingJdbcStore(jdbc)), RewardService.class);
         var accounts = new CommissionCalculateServiceImpl();
         ReflectionTestUtils.setField(accounts, "orderCommissionMapper", sessions.getMapper(SysOrderCommissionMapper.class));
         ReflectionTestUtils.setField(accounts, "flowMapper", sessions.getMapper(SysCommissionFlowMapper.class));
@@ -254,6 +255,96 @@ public class ProductionSettlementMySqlTest {
         posted(id, inviter, "USER_FROZEN", "USER_AVAILABLE", "4.50");
         money("9", balance(buyer, "balance")); money("4.50", balance(inviter, "balance"));
         assertEquals(4, flows(id)); evidenceReadOnce(); noCurrentInviterMoney(); audit(buyer); audit(inviter);
+    }
+
+    @Test public void releasedRatioSubsidyRepricesWithOrdinaryRebateAndRefundsRevisedEntitlement() {
+        // Same synthetic financial fixtures; line 9 evidence remains the explicit pending stub.
+        var base = policy("0.50", false);
+        var subsidy = new RulePolicy.Incentive("first-n-ratio", RulePolicy.IncentiveKind.FIRST_N_SUBSIDY,
+            bd("0"), bd("0.50"), 1, 0, null, null);
+        var policy = new RulePolicy(base.platform(), base.serviceRate(), base.jdNonSelfRate(),
+            base.maximumCommission(), base.minimumMargin(), base.payoutCostRate(), base.minimumRebate(),
+            base.targetedWithTier(), base.proportions(), List.of(subsidy));
+        var draft = rules.create(policy, buyer);
+        var published = rules.publish(draft.id(), draft.revision(), buyer);
+        configureFreeze(3600);
+        Instant paid = databaseNow(); long id = order();
+        var received = event(id, "received", null, OrderStatus.RECEIVED, paid, "20", null, paid);
+        settlements.onOrderEvent(received);
+        String originalTerms = termsJson(id), originalRule = versions.snapshot(id);
+        var originalReward = rewardSnapshot(id);
+        assertEquals(published.id(), frozen(id).rule().versionId());
+        assertEquals("ordinary", frozen(id).rule().decision().proportionKey());
+        assertFalse(originalReward.historicalUnknown());
+        assertEquals(1, originalReward.configs().size());
+        assertEquals(RewardApi.Type.FIRST_N_SUBSIDY, originalReward.configs().getFirst().type());
+        assertEquals(RewardApi.Mode.RATIO, originalReward.configs().getFirst().mode());
+        money("0.50", originalReward.configs().getFirst().value());
+        // 20 * .90 * .50 = 9 ordinary; subsidy is .50 OF REBATE = 4.50.
+        money("9", item(id, "REBATE", "final_amount"));
+        money("9", balance(buyer, "frozen_amount")); money("0", balance(buyer, "balance"));
+        assertEquals(0, count("SELECT COUNT(*) FROM cps_reward_award WHERE order_id=?", id));
+        assertEquals(1, flows(id));
+        forbidEvidenceRead = true;
+        settlements.unfreezeDue(paid.plusSeconds(3599), 1000); assertEquals(1, flows(id));
+        settlements.unfreezeDue(paid.plusSeconds(3600), 1000);
+        money("0", balance(buyer, "frozen_amount")); money("13.50", balance(buyer, "balance"));
+        posted(id, buyer, "REBATE_COST", "USER_FROZEN", "9");
+        posted(id, buyer, "REWARD_COST", "USER_FROZEN", "4.50");
+        posted(id, buyer, "USER_FROZEN", "USER_AVAILABLE", "13.50");
+        assertEquals(4, flows(id));
+        assertEquals(1, count("SELECT COUNT(*) FROM cps_reward_award WHERE order_id=?", id));
+        String award = jdbc.queryForObject("SELECT id FROM cps_reward_award WHERE order_id=?", String.class, id);
+        money("4.50", jdbc.queryForObject("SELECT amount FROM cps_reward_award WHERE id=?", BigDecimal.class, award));
+        audit(buyer);
+
+        // A real post-release commission change, not forecast-to-first-funding recalculation.
+        var repriced = event(id, "reprice", OrderStatus.RECEIVED, OrderStatus.RECEIVED,
+            paid, "10", null, paid.plusSeconds(3601));
+        settlements.onOrderEvent(repriced);
+        money("4.50", item(id, "REBATE", "final_amount"));
+        money("6.75", balance(buyer, "balance")); money("0", balance(buyer, "frozen_amount"));
+        // Exact NEW SQL debits: ordinary -4.50 AND reward -2.25, in one production transaction.
+        posted(id, buyer, "USER_AVAILABLE", "REBATE_COST", "4.50");
+        posted(id, buyer, "USER_AVAILABLE", "REWARD_COST", "2.25");
+        assertEquals(6, flows(id));
+        assertEquals(1, count("SELECT COUNT(*) FROM cps_reward_basis_revision WHERE award_id=?", award));
+        money("2.25", jdbc.queryForObject("SELECT entitlement FROM cps_reward_entitlement WHERE award_id=?", BigDecimal.class, award));
+        money("0", jdbc.queryForObject("SELECT refund_recovered FROM cps_reward_entitlement WHERE award_id=?", BigDecimal.class, award));
+        // Original grant and payment-time publications are append-only, not overwritten.
+        money("4.50", jdbc.queryForObject("SELECT amount FROM cps_reward_award WHERE id=?", BigDecimal.class, award));
+        assertEquals(originalTerms, termsJson(id)); assertEquals(originalRule, versions.snapshot(id));
+        assertEquals(originalReward, rewardSnapshot(id));
+        assertEquals(2, count("SELECT COUNT(*) FROM cps_reward_instruction WHERE cause_order_id=?", id));
+        audit(buyer);
+        settlements.onOrderEvent(repriced);
+        settlements.onOrderEvent(event(id, "reprice-same-evidence", OrderStatus.RECEIVED, OrderStatus.RECEIVED,
+            paid, "10", null, paid.plusSeconds(3602)));
+        settlements.unfreezeDue(paid.plusSeconds(3602), 1000);
+        assertEquals(6, flows(id)); money("6.75", balance(buyer, "balance"));
+        assertEquals(1, count("SELECT COUNT(*) FROM cps_reward_basis_revision WHERE award_id=?", award));
+        assertEquals(2, count("SELECT COUNT(*) FROM cps_reward_instruction WHERE cause_order_id=?", id));
+
+        var refund = event(id, "refund-half", OrderStatus.RECEIVED, OrderStatus.PARTIAL_REFUND,
+            paid, "10", "5", paid.plusSeconds(3603));
+        settlements.onOrderEvent(refund);
+        // Half of REVISED 2.25 is 1.13, NOT half of original 4.50 (2.25).
+        money("2.25", item(id, "REBATE", "recovered_amount"));
+        money("1.13", jdbc.queryForObject("SELECT refund_recovered FROM cps_reward_entitlement WHERE award_id=?", BigDecimal.class, award));
+        money("2.25", jdbc.queryForObject("SELECT entitlement FROM cps_reward_entitlement WHERE award_id=?", BigDecimal.class, award));
+        posted(id, buyer, "USER_AVAILABLE", "REBATE_COST", "6.75"); // 4.50 reprice + 2.25 refund
+        posted(id, buyer, "USER_AVAILABLE", "REWARD_COST", "3.38"); // 2.25 reprice + 1.13 refund
+        money("3.37", balance(buyer, "balance")); money("0", balance(buyer, "frozen_amount"));
+        assertEquals(8, flows(id));
+        assertEquals(3, count("SELECT COUNT(*) FROM cps_reward_instruction WHERE cause_order_id=?", id));
+        settlements.onOrderEvent(refund);
+        settlements.onOrderEvent(event(id, "refund-same-evidence", OrderStatus.PARTIAL_REFUND, OrderStatus.PARTIAL_REFUND,
+            paid, "10", "5", paid.plusSeconds(3604)));
+        assertEquals(8, flows(id)); money("3.37", balance(buyer, "balance"));
+        assertEquals(3, count("SELECT COUNT(*) FROM cps_reward_instruction WHERE cause_order_id=?", id));
+        assertEquals(0, count("SELECT COUNT(*) FROM cps_settlement_manual WHERE order_line_id=?", id));
+        evidenceReadOnce(); noCurrentInviterMoney(); audit(buyer);
+        assertEquals(0, count("SELECT COUNT(*) FROM sys_commission_flow WHERE user_id=?", inviter));
     }
 
     private RulePolicy policy(String ordinary, boolean referral) {

@@ -241,18 +241,7 @@ public class MiniappJdController extends BaseController {
         // 构建请求参数
         Map<String, String> params = new HashMap<>();
         params.put("materialId", itemId);
-        
-        if (positionId != null && !positionId.isEmpty()) {
-            params.put("positionId", positionId);
-        }
-        
-        if (sceneId != null && !sceneId.isEmpty()) {
-            params.put("promotionCodeReq.sceneId", sceneId);
-        }
-        
-        if (siteId != null && !siteId.isEmpty()) {
-            params.put("promotionCodeReq.siteId", siteId);
-        }
+        // 兼容接收旧参数，推广位和场景由服务端配置。
         
         // 调用京东联盟SDK
         JSONObject result = jdSdkService.getPromotionLink(params);

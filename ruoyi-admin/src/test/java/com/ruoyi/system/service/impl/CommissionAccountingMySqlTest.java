@@ -590,6 +590,103 @@ public class CommissionAccountingMySqlTest
         assertLedger(userId, "1.91", 1);
     }
 
+    @Test
+    public void partiallyReversedIncomeRefundsOnlyTheRemainingIncome()
+    {
+        long buyer = nextId(), referrer = nextId();
+        long order = insertOrder(buyer, "60.00", referrer, "10.00");
+        assertTrue(commissions.settleOrder(order, money("10.00")));
+        long income = flowId(buyer, order, "income_self");
+        String key = "partial-" + order;
+        Long reversal = commissions.reverseCommissionFlow(income, "冲正自购", key, 42L).getId();
+        assertEquals(reversal, commissions.reverseCommissionFlow(income, "冲正自购", key, 42L).getId());
+        assertTrue(commissions.refundOrder(order));
+        assertTrue(commissions.refundOrder(order));
+        assertEquals(reversal, commissions.reverseCommissionFlow(income, "冲正自购", key, 42L).getId());
+        assertLedger(buyer, "0.00", 2);
+        assertLedger(referrer, "0.00", 2);
+        assertAccountTotals(buyer, "0.00", "0.00", "0.00");
+        assertAccountTotals(referrer, "0.00", "0.00", "0.00");
+        assertEquals(0L, count("SELECT COUNT(*) FROM sys_commission_flow WHERE order_commission_id = ? AND flow_type = 'refund_self'", order));
+        assertFlow(referrer, order, "refund_promotion", "-1.00");
+        assertEquals("refunded", jdbc.queryForObject("SELECT order_status FROM sys_order_commission WHERE id = ?", String.class, order));
+    }
+
+    @Test
+    public void fullyReversedIncomeRefundsWithoutNewFlows()
+    {
+        long buyer = nextId(), referrer = nextId();
+        long order = insertOrder(buyer, "60.00", referrer, "10.00");
+        assertTrue(commissions.settleOrder(order, money("10.00")));
+        commissions.reverseCommissionFlow(flowId(buyer, order, "income_self"), "冲正自购", "full-self-" + order, 42L);
+        commissions.reverseCommissionFlow(flowId(referrer, order, "income_promotion"), "冲正推广", "full-promo-" + order, 42L);
+        long before = count("SELECT COUNT(*) FROM sys_commission_flow WHERE user_id IN (?, ?)", buyer, referrer);
+        assertTrue(commissions.refundOrder(order));
+        assertTrue(commissions.refundOrder(order));
+        assertEquals(before, count("SELECT COUNT(*) FROM sys_commission_flow WHERE user_id IN (?, ?)", buyer, referrer));
+        assertEquals("refunded", jdbc.queryForObject("SELECT order_status FROM sys_order_commission WHERE id = ?", String.class, order));
+        assertLedger(buyer, "0.00", 2);
+        assertLedger(referrer, "0.00", 2);
+        assertAccountTotals(buyer, "0.00", "0.00", "0.00");
+        assertAccountTotals(referrer, "0.00", "0.00", "0.00");
+    }
+
+    @Test
+    public void concurrentRefundAndReversalDebitIncomeOnlyOnce() throws Exception
+    {
+        long buyer = nextId();
+        long order = insertOrder(buyer, "100.00", null, "0.00");
+        assertTrue(commissions.settleOrder(order, money("10.00")));
+        long income = flowId(buyer, order, "income_self");
+        concurrently(2, index -> {
+            if (index == 0)
+            {
+                try
+                {
+                    commissions.reverseCommissionFlow(income, "并发冲正", "race-" + order, 42L);
+                }
+                catch (com.ruoyi.common.exception.ServiceException expected)
+                {
+                    assertTrue(expected.getMessage().contains("退款"));
+                }
+            }
+            else
+            {
+                assertTrue(commissions.refundOrder(order));
+            }
+        });
+        assertEquals("refunded", jdbc.queryForObject("SELECT order_status FROM sys_order_commission WHERE id = ?", String.class, order));
+        assertLedger(buyer, "0.00", 2);
+        assertAccountTotals(buyer, "0.00", "0.00", "0.00");
+    }
+
+    @Test
+    public void refundedIncomeAndRefundFlowsCannotBeReversedButWithdrawalsCan()
+    {
+        long buyer = nextId(), referrer = nextId();
+        long order = insertOrder(buyer, "60.00", referrer, "10.00");
+        assertTrue(commissions.settleOrder(order, money("10.00")));
+        assertTrue(commissions.refundOrder(order));
+        assertThrows(RuntimeException.class, () -> commissions.reverseCommissionFlow(flowId(buyer, order, "income_self"), "退款后", "after-refund-" + order, 42L));
+        assertThrows(RuntimeException.class, () -> commissions.reverseCommissionFlow(flowId(referrer, order, "income_promotion"), "退款后", "after-promo-" + order, 42L));
+        assertThrows(RuntimeException.class, () -> commissions.reverseCommissionFlow(flowId(buyer, order, "refund_self"), "退款流水", "refund-self-" + order, 42L));
+        assertThrows(RuntimeException.class, () -> commissions.reverseCommissionFlow(flowId(referrer, order, "refund_promotion"), "退款流水", "refund-promo-" + order, 42L));
+        long legacyOrder = nextId();
+        jdbc.update("INSERT INTO sys_commission_flow (user_id, flow_type, amount, balance_before, balance_after, order_commission_id) VALUES (?, 'refund', 0.00, 0.00, 0.00, ?)", buyer, legacyOrder);
+        assertThrows(RuntimeException.class, () -> commissions.reverseCommissionFlow(flowId(buyer, legacyOrder, "refund"), "旧退款流水", "legacy-" + order, 42L));
+        long withdrawalOrder = nextId();
+        post(buyer, "-1.00", "withdraw", withdrawalOrder);
+        SysCommissionFlow reversal = commissions.reverseCommissionFlow(flowId(buyer, withdrawalOrder, "withdraw"), "撤销提现", "withdraw-" + order, 42L);
+        assertThrows(RuntimeException.class, () -> commissions.reverseCommissionFlow(reversal.getId(), "冲正流水", "reverse-reversal-" + order, 42L));
+        assertLedger(buyer, "0.00", 5);
+        assertLedger(referrer, "0.00", 2);
+    }
+
+    private static long flowId(long userId, long orderId, String type)
+    {
+        return jdbc.queryForObject("SELECT id FROM sys_commission_flow WHERE user_id = ? AND order_commission_id = ? AND flow_type = ?", Long.class, userId, orderId, type);
+    }
+
     private static String invitation(long userId)
     {
         return "test-" + userId;
@@ -606,9 +703,9 @@ public class CommissionAccountingMySqlTest
     private static void configureLifecycleRates()
     {
         jdbc.update("INSERT INTO sys_commission_config (config_key, config_value) VALUES ('self_rate', 50.00) "
-            + "ON DUPLICATE KEY UPDATE config_value = 50.00");
+            + "ON DUPLICATE KEY UPDATE config_value = 50.00, status = '0'");
         jdbc.update("INSERT INTO sys_commission_config (config_key, config_value) VALUES ('promotion_rate', 10.00) "
-            + "ON DUPLICATE KEY UPDATE config_value = 10.00");
+            + "ON DUPLICATE KEY UPDATE config_value = 10.00, status = '0'");
     }
 
     private static void assertAccountTotals(long userId, String total, String self, String promotion)

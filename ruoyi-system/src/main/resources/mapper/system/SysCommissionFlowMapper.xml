@@ -52,6 +52,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <include refid="selectSysCommissionFlowVo"/> where original_flow_id = #{originalFlowId} for update
     </select>
 
+    <select id="selectIncomeForOrder" resultMap="SysCommissionFlowResult" useCache="false" flushCache="true">
+        <include refid="selectSysCommissionFlowVo"/>
+        where user_id = #{userId} and flow_type = #{flowType}
+          and (order_commission_id = #{orderCommissionId}
+               or (order_commission_id is null and related_order_id = cast(#{orderCommissionId} as char)))
+        for update
+    </select>
+
     <select id="selectByBusinessKey" resultMap="SysCommissionFlowResult" useCache="false" flushCache="true">
         <include refid="selectSysCommissionFlowVo"/>
         where user_id = #{userId} and flow_type = #{flowType}

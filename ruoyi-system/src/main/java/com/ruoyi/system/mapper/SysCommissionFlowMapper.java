@@ -14,6 +14,9 @@ public interface SysCommissionFlowMapper
 {
     SysCommissionFlow selectReversalByOriginal(@Param("originalFlowId") Long originalFlowId);
 
+    List<SysCommissionFlow> selectIncomeForOrder(@Param("userId") Long userId,
+        @Param("flowType") String flowType, @Param("orderCommissionId") Long orderCommissionId);
+
     /** 使用当前读，避免可重复读事务里的旧快照漏掉已提交的入账。 */
     SysCommissionFlow selectByBusinessKey(@Param("userId") Long userId,
         @Param("flowType") String flowType, @Param("orderCommissionId") Long orderCommissionId);

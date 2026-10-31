@@ -85,6 +85,7 @@ public class SysCommissionConfigServiceImpl implements ISysCommissionConfigServi
         {
             throw new ServiceException("佣金比例必须在0到100之间");
         }
+        config.setStatus("0");
         String otherKey = "self_rate".equals(key) ? "promotion_rate" : "self_rate";
         for (SysCommissionConfig existing : sysCommissionConfigMapper.selectRatesForUpdate())
         {

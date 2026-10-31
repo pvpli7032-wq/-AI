@@ -7,12 +7,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <resultMap type="com.ruoyi.system.domain.SysCommissionConfig" id="SysCommissionConfigResult">
         <result property="configKey"    column="config_key"    />
         <result property="configValue"    column="config_value"    />
+        <result property="status"    column="status"    />
         <result property="createTime"    column="create_time"    />
         <result property="updateTime"    column="update_time"    />
     </resultMap>
 
     <sql id="selectSysCommissionConfigVo">
-        select config_key, config_value, create_time, update_time
+        select config_key, config_value, status, create_time, update_time
         from sys_commission_config
     </sql>
 
@@ -39,12 +40,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <trim prefix="(" suffix=")" suffixOverrides=",">
             <if test="configKey != null and configKey != ''">config_key,</if>
             <if test="configValue != null">config_value,</if>
+            <if test="status != null">status,</if>
             <if test="createTime != null">create_time,</if>
             <if test="updateTime != null">update_time,</if>
          </trim>
         <trim prefix="values (" suffix=")" suffixOverrides=",">
             <if test="configKey != null and configKey != ''">#{configKey},</if>
             <if test="configValue != null">#{configValue},</if>
+            <if test="status != null">#{status},</if>
             <if test="createTime != null">#{createTime},</if>
             <if test="updateTime != null">#{updateTime},</if>
          </trim>
@@ -54,6 +57,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         update sys_commission_config
         <trim prefix="SET" suffixOverrides=",">
             <if test="configValue != null">config_value = #{configValue},</if>
+            <if test="status != null">status = #{status},</if>
             <if test="updateTime != null">update_time = #{updateTime},</if>
         </trim>
         where config_key = #{configKey}

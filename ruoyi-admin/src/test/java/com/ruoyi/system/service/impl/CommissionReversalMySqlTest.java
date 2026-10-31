@@ -253,7 +253,7 @@ public class CommissionReversalMySqlTest
     }
 
     @Test
-    public void reversesRefundTypesAndWithdrawalStatistics()
+    public void rejectsRefundTypesAndReversesWithdrawalStatistics()
     {
         long userId = IDS.incrementAndGet();
         post(userId, "10.00", "income_self");
@@ -261,20 +261,20 @@ public class CommissionReversalMySqlTest
         long selfRefund = post(userId, "-2.00", "refund_self");
         long promotionRefund = post(userId, "-1.00", "refund_promotion");
         long withdrawal = post(userId, "-3.00", "withdraw");
-        service.reverseCommissionFlow(selfRefund, "撤销自购退款", "line7-refund-self-" + userId, 42L);
-        service.reverseCommissionFlow(promotionRefund, "撤销推广退款", "line7-refund-promo-" + userId, 42L);
+        assertThrows(RuntimeException.class, () -> service.reverseCommissionFlow(selfRefund, "撤销自购退款", "line7-refund-self-" + userId, 42L));
+        assertThrows(RuntimeException.class, () -> service.reverseCommissionFlow(promotionRefund, "撤销推广退款", "line7-refund-promo-" + userId, 42L));
         service.reverseCommissionFlow(withdrawal, "撤销提现", "line7-withdraw-" + userId, 42L);
         SysAgentCommissionAccount account = accounts.selectByUserId(userId);
-        assertMoney("15.00", account.getBalance());
-        assertMoney("15.00", account.getTotalEarned());
-        assertMoney("10.00", account.getSelfEarned());
-        assertMoney("5.00", account.getPromotionEarned());
+        assertMoney("12.00", account.getBalance());
+        assertMoney("12.00", account.getTotalEarned());
+        assertMoney("8.00", account.getSelfEarned());
+        assertMoney("4.00", account.getPromotionEarned());
         assertMoney("0.00", account.getWithdrawn());
-        assertEquals(8L, countFlows(userId));
+        assertEquals(6L, countFlows(userId));
     }
 
     @Test
-    public void legacyRefundWithoutOrderIdRestoresOnlyBalanceAndTotal()
+    public void legacyRefundWithoutOrderIdCannotBeReversed()
     {
         long userId = IDS.incrementAndGet();
         post(userId, "10.00", "income_self");
@@ -283,20 +283,22 @@ public class CommissionReversalMySqlTest
         jdbc.update("UPDATE sys_agent_commission_account SET balance=13.00, total_earned=13.00 WHERE user_id=?", userId);
         jdbc.update("INSERT INTO sys_commission_flow (user_id, flow_type, amount, balance_before, balance_after, order_commission_id) VALUES (?, 'refund', -2.00, 15.00, 13.00, NULL)", userId);
         long originalId = jdbc.queryForObject("SELECT id FROM sys_commission_flow WHERE user_id=? AND flow_type='refund'", Long.class, userId);
-        SysCommissionFlow reversal = service.reverseCommissionFlow(originalId, "历史退款冲正", "line7-legacy-" + userId, 42L);
-        assertNotNull(reversal.getId());
-        assertEquals(Long.valueOf(originalId), jdbc.queryForObject("SELECT original_flow_id FROM sys_commission_flow WHERE id=?", Long.class, reversal.getId()));
+        assertThrows(RuntimeException.class, () -> service.reverseCommissionFlow(originalId, "历史退款冲正", "line7-legacy-" + userId, 42L));
         SysAgentCommissionAccount account = accounts.selectByUserId(userId);
-        assertMoney("15.00", account.getBalance());
-        assertMoney("15.00", account.getTotalEarned());
+        assertMoney("13.00", account.getBalance());
+        assertMoney("13.00", account.getTotalEarned());
         assertMoney("10.00", account.getSelfEarned());
         assertMoney("5.00", account.getPromotionEarned());
-        assertEquals(4L, countFlows(userId));
+        assertEquals(3L, countFlows(userId));
     }
 
     private static long post(long userId, String amount, String type)
     {
         long businessId = IDS.incrementAndGet();
+        if (type.startsWith("income_"))
+        {
+            jdbc.update("INSERT INTO sys_order_commission (id, order_id, platform_type, agent_user_id, order_status) VALUES (?, ?, 'tbk', ?, 'confirmed')", businessId, "line7-" + businessId, userId);
+        }
         transactions.executeWithoutResult(status -> ReflectionTestUtils.invokeMethod(target,
             "updateUserAccount", userId, new BigDecimal(amount), type, businessId, "line7 synthetic posting"));
         return jdbc.queryForObject("SELECT id FROM sys_commission_flow WHERE user_id = ? AND flow_type = ? AND order_commission_id = ?", Long.class, userId, type, businessId);

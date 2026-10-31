@@ -28,6 +28,18 @@ import java.util.Map;
 @RequestMapping("/miniapp/hdk")
 public class MiniappHdkController extends BaseController {
 
+    // Public browsing remains available without a login; request parameters are not identity.
+    private Long currentUserId() {
+        org.springframework.security.core.Authentication authentication =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.isAuthenticated()
+                && authentication.getPrincipal() instanceof com.ruoyi.common.core.domain.model.LoginUser loginUser) {
+            return loginUser.getUserId();
+        }
+        return null;
+    }
+
+
     @Autowired
     private ISysTbkAgentApplyService tbkAgentApplyService;
 
@@ -64,7 +76,7 @@ public class MiniappHdkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
         
-        // 1、根据邀请码或用户ID查询代理申请信息
+        // 根据登录态查询已审核的代理信息。
         SysTbkAgentApply agentApply = getAgentApply(invitationCode, userId);
 
         // 2、验证代理用户是否绑定了好单库平台，并获取代理的ApiKey
@@ -105,7 +117,7 @@ public class MiniappHdkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
         
-        // 1、根据邀请码或用户ID查询代理信息
+        // 根据登录态查询已审核的代理信息。
         SysTbkAgentApply agentApply = getAgentApply(invitationCode, userId);
         
         // 2、验证代理用户是否绑定了好单库平台，并获取代理的ApiKey
@@ -140,7 +152,7 @@ public class MiniappHdkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
 
-        // 1、根据邀请码或用户ID查询代理申请信息
+        // 根据登录态查询已审核的代理信息。
         SysTbkAgentApply agentApply = getAgentApply(invitationCode, userId);
 
         // 2、验证代理用户是否绑定了好单库平台，并获取代理的ApiKey
@@ -175,7 +187,7 @@ public class MiniappHdkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
 
-        // 1、根据邀请码或用户ID查询代理申请信息
+        // 根据登录态查询已审核的代理信息。
         SysTbkAgentApply agentApply = getAgentApply(invitationCode, userId);
 
         // 2、验证代理用户是否绑定了好单库平台，并获取代理的ApiKey
@@ -216,25 +228,16 @@ public class MiniappHdkController extends BaseController {
     }
 
     /**
-     * 根据邀请码或用户ID获取代理申请信息
+     * 根据登录态获取代理申请信息
      *
-     * @param invitationCode 邀请码
-     * @param userId 用户ID
+     * @param invitationCode 兼容参数，不用于身份识别
+     * @param userId 兼容参数，不用于身份识别
      * @return 代理申请信息，如果未找到或状态不为已审核则返回null
      */
     private SysTbkAgentApply getAgentApply(String invitationCode, Long userId) {
-        if (invitationCode != null && !invitationCode.trim().isEmpty()) {
-            SysTbkAgentApply agentApply = tbkAgentApplyService.selectByInvitationCode(invitationCode);
-            if (agentApply != null && "1".equals(agentApply.getStatus())) {
-                return agentApply;
-            }
-        } else if (userId != null) {
-            SysTbkAgentApply userApply = tbkAgentApplyService.selectByUserId(userId);
-            if (userApply != null && "1".equals(userApply.getStatus())) {
-                return userApply;
-            }
-        }
-        return null;
+        Long currentUserId = currentUserId();
+        SysTbkAgentApply agentApply = currentUserId == null ? null : tbkAgentApplyService.selectByUserId(currentUserId);
+        return agentApply != null && "1".equals(agentApply.getStatus()) ? agentApply : null;
     }
 
     /**

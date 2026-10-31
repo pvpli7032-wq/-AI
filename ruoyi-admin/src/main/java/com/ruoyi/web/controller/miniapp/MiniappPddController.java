@@ -29,6 +29,18 @@ import java.util.Map;
 @RequestMapping("/miniapp/pdd")
 public class MiniappPddController extends BaseController {
 
+    // Public browsing remains available without a login; request parameters are not identity.
+    private Long currentUserId() {
+        org.springframework.security.core.Authentication authentication =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.isAuthenticated()
+                && authentication.getPrincipal() instanceof com.ruoyi.common.core.domain.model.LoginUser loginUser) {
+            return loginUser.getUserId();
+        }
+        return null;
+    }
+
+
     @Autowired
     private IPddApiService pddApiService;
 
@@ -42,19 +54,10 @@ public class MiniappPddController extends BaseController {
      * 获取代理的拼多多配置
      */
     private String[] getAgentPddConfig(String invitationCode, Long userId) {
-        SysTbkAgentApply agentApply = null;
-        
-        // 根据邀请码或用户ID查询代理信息
-        if (invitationCode != null && !invitationCode.trim().isEmpty()) {
-            agentApply = tbkAgentApplyService.selectByInvitationCode(invitationCode);
-            if (agentApply != null && !"1".equals(agentApply.getStatus())) {
-                agentApply = null;
-            }
-        } else if (userId != null) {
-            SysTbkAgentApply userApply = tbkAgentApplyService.selectByUserId(userId);
-            if (userApply != null && "1".equals(userApply.getStatus())) {
-                agentApply = userApply;
-            }
+        Long currentUserId = currentUserId();
+        SysTbkAgentApply agentApply = currentUserId == null ? null : tbkAgentApplyService.selectByUserId(currentUserId);
+        if (agentApply != null && !"1".equals(agentApply.getStatus())) {
+            agentApply = null;
         }
         
         if (agentApply == null) {
@@ -101,10 +104,10 @@ public class MiniappPddController extends BaseController {
         if (keyword == null || keyword.trim().isEmpty()) {
             keyword = "家电";
         }
-        result = pddApiService.searchGoods(keyword, page, pageSize, userId, config[0], config[1]);
+        result = pddApiService.searchGoods(keyword, page, pageSize, currentUserId(), config[0], config[1]);
 //        else {
 //            // 否则返回推荐商品
-//            result = pddApiService.getRecommendGoods(page, pageSize, userId, config[0], config[1]);
+//            result = pddApiService.getRecommendGoods(page, pageSize, currentUserId(), config[0], config[1]);
 //        }
         AjaxResult ajaxResult = success(result);
         logger.info("获取商品列表 getGoodsList >>>> " + ajaxResult.toString());
@@ -127,7 +130,7 @@ public class MiniappPddController extends BaseController {
         String[] config = getAgentPddConfig(invitationCode, userId);
         
         // 调用服务层
-        JSONObject result = pddApiService.searchGoods(keyword, page, pageSize, userId, config[0], config[1]);
+        JSONObject result = pddApiService.searchGoods(keyword, page, pageSize, currentUserId(), config[0], config[1]);
         
         return success(result);
     }
@@ -163,7 +166,7 @@ public class MiniappPddController extends BaseController {
         String[] config = getAgentPddConfig(invitationCode, userId);
         
         // 调用服务层
-        JSONObject result = pddApiService.getRecommendGoods(page, pageSize, userId, config[0], config[1]);
+        JSONObject result = pddApiService.getRecommendGoods(page, pageSize, currentUserId(), config[0], config[1]);
         
         return success(result);
     }
@@ -201,7 +204,7 @@ public class MiniappPddController extends BaseController {
         // 获取代理配置
         String[] config = getAgentPddConfig(invitationCode, userId);
         // 调用服务层
-        JSONObject result = pddApiService.generatePromotionUrl(goodsSign, userId, config[0], config[1]);
+        JSONObject result = pddApiService.generatePromotionUrl(goodsSign, currentUserId(), config[0], config[1]);
         logger.info("生成推广链接 generatePromotionUrl >>>> " +  result.toString());
         return success(result);
     }

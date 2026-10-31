@@ -117,6 +117,7 @@ jobs:
           DTK_APP_KEY: ci-placeholder
           DTK_APP_SECRET: ci-placeholder
           DTK_ADZONE_ID: "0"
+          HDK_API_KEY: ci-placeholder
           WX_MINIAPP_APPID: wx-ci-placeholder
           WX_MINIAPP_SECRET: ci-placeholder
           SPRING_DATASOURCE_DRUID_MASTER_URL: jdbc:mysql://127.0.0.1:3306/cps_test?useUnicode=true&characterEncoding=utf8&useSSL=true&serverTimezone=GMT%2B8

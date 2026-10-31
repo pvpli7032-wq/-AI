@@ -334,10 +334,14 @@ public class DtkApiServiceImpl implements IDtkApiService {
                     log.info("高效转链成功: goodsId={}", goodsId);
                 } else {
                     String errMsg = privilegeResponse != null ? privilegeResponse.getMsg() : "响应为空";
-                    log.warn("高效转链失败（将使用备选方案）: goodsId={}, error={}", goodsId, errMsg);
+                    log.warn("高效转链失败: goodsId={}, error={}", goodsId, errMsg);
+                    throw new ServiceException("高效转链失败");
                 }
+            } catch (ServiceException e) {
+                throw e;
             } catch (Exception e) {
-                log.warn("高效转链异常（将使用备选方案）: goodsId={}, error={}", goodsId, e.getMessage());
+                log.warn("高效转链异常: goodsId={}, error={}", goodsId, e.getMessage());
+                throw new ServiceException("高效转链失败");
             }
 
             // 如果高效转链失败或未返回淘口令，尝试备选方案
@@ -362,33 +366,6 @@ public class DtkApiServiceImpl implements IDtkApiService {
                             longTpwd = taokoulingResponse.getData().getLongTpwd();
                             log.info("使用转链URL生成淘口令成功: goodsId={}", goodsId);
                         }
-                    }
-                } 
-                // 备选方案2：如果高效转链完全失败，直接构造商品链接后生成淘口令
-                else {
-                    try {
-                        // 直接使用商品ID构造淘宝商品链接
-                        String goodsUrl = "https://item.taobao.com/item.htm?id=" + goodsId;
-                        
-                        // 生成淘口令
-                        DtkCreatTaokoulingRequest taokoulingRequest = new DtkCreatTaokoulingRequest();
-                        taokoulingRequest.setText("点击查看详情");
-                        taokoulingRequest.setUrl(goodsUrl);
-
-                        DtkApiResponse<DtkCreatTaokoulingResponse> taokoulingResponse = client.execute(taokoulingRequest);
-                        if (taokoulingResponse != null && taokoulingResponse.getCode() == 0
-                                && taokoulingResponse.getData() != null) {
-                            tpwd = taokoulingResponse.getData().getModel();
-                            longTpwd = taokoulingResponse.getData().getLongTpwd();
-                            
-                            // 使用基本信息填充linkData
-                            linkData = new DtkGetPrivilegeLinkResponse();
-                            linkData.setItemUrl(goodsUrl);
-                            
-                            log.info("使用商品链接生成淘口令成功: goodsId={}", goodsId);
-                        }
-                    } catch (Exception e) {
-                        log.error("备选方案失败: goodsId={}, error={}", goodsId, e.getMessage());
                     }
                 }
             }

@@ -36,6 +36,18 @@ import java.util.Map;
 @RequestMapping("/miniapp/tbk")
 public class MiniappTbkController extends BaseController {
 
+    // Public browsing remains available without a login; request parameters are not identity.
+    private Long currentUserId() {
+        org.springframework.security.core.Authentication authentication =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.isAuthenticated()
+                && authentication.getPrincipal() instanceof com.ruoyi.common.core.domain.model.LoginUser loginUser) {
+            return loginUser.getUserId();
+        }
+        return null;
+    }
+
+
     @Autowired
     private ISysTbkAgentApplyService tbkAgentApplyService;
 
@@ -212,7 +224,7 @@ public class MiniappTbkController extends BaseController {
     }
 
     /**
-     * 根据邀请码查询代理信息（公开接口，用于商品查询时确定佣金归属）
+     * 根据邀请码查询代理信息（公开接口）
      */
     @Operation(summary = "查询邀请码对应的代理信息")
     @GetMapping("/agent/{invitationCode}")
@@ -361,21 +373,11 @@ public class MiniappTbkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
 
-        // 1、根据邀请码查询具体的代理申请信息（必须是已审核通过的）
-        SysTbkAgentApply agentApply = null;
-        if (invitationCode != null && !invitationCode.trim().isEmpty()) {
-            agentApply = tbkAgentApplyService.selectByInvitationCode(invitationCode);
-            // 验证代理状态：只有审核通过（status=1）的代理才有效
-            if (agentApply != null && !"1".equals(agentApply.getStatus())) {
-                agentApply = null; // 未通过审核的代理视为无效
-            }
-        } else if (userId != null) {
-            // 1.1、如果没有邀请码，则根据微信小程序传入的用户ID查询代理申请信息（必须是已审核通过的）
-            SysTbkAgentApply userApply = tbkAgentApplyService.selectByUserId(userId);
-            // 验证代理状态：只有审核通过（status=1）的代理才有效
-            if (userApply != null && "1".equals(userApply.getStatus())) {
-                agentApply = userApply;
-            }
+        // 根据登录态查询已审核的代理信息。
+        Long currentUserId = currentUserId();
+        SysTbkAgentApply agentApply = currentUserId == null ? null : tbkAgentApplyService.selectByUserId(currentUserId);
+        if (agentApply != null && !"1".equals(agentApply.getStatus())) {
+            agentApply = null;
         }
         // 2、构建请求参数 - 获取热门商品（女装+男装分类，有优惠券，销量排序）
         Map<String, String> params = new HashMap<>();
@@ -420,20 +422,11 @@ public class MiniappTbkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
         
-        // 1、根据邀请码或用户ID查询代理信息
-        SysTbkAgentApply agentApply = null;
-        if (invitationCode != null && !invitationCode.trim().isEmpty()) {
-            agentApply = tbkAgentApplyService.selectByInvitationCode(invitationCode);
-            // 验证代理状态：只有审核通过（status=1）的代理才有效
-            if (agentApply != null && !"1".equals(agentApply.getStatus())) {
-                agentApply = null;
-            }
-        } else if (userId != null) {
-            SysTbkAgentApply userApply = tbkAgentApplyService.selectByUserId(userId);
-            // 验证代理状态：只有审核通过（status=1）的代理才有效
-            if (userApply != null && "1".equals(userApply.getStatus())) {
-                agentApply = userApply;
-            }
+        // 根据登录态查询已审核的代理信息。
+        Long currentUserId = currentUserId();
+        SysTbkAgentApply agentApply = currentUserId == null ? null : tbkAgentApplyService.selectByUserId(currentUserId);
+        if (agentApply != null && !"1".equals(agentApply.getStatus())) {
+            agentApply = null;
         }
         
         // 2、先调用getItemInfo获取商品基本信息（包括标题）
@@ -554,13 +547,11 @@ public class MiniappTbkController extends BaseController {
             @RequestParam(defaultValue = "20") Integer pageSize,
             @RequestParam(required = false) String invitationCode) {
         
-        // 1、根据邀请码查询代理信息
-        SysTbkAgentApply agentApply = null;
-        if (invitationCode != null && !invitationCode.trim().isEmpty()) {
-            agentApply = tbkAgentApplyService.selectByInvitationCode(invitationCode);
-            if (agentApply != null && !"1".equals(agentApply.getStatus())) {
-                agentApply = null;
-            }
+        // 根据登录态查询已审核的代理信息。
+        Long currentUserId = currentUserId();
+        SysTbkAgentApply agentApply = currentUserId == null ? null : tbkAgentApplyService.selectByUserId(currentUserId);
+        if (agentApply != null && !"1".equals(agentApply.getStatus())) {
+            agentApply = null;
         }
 
         // 2、构建请求参数 - 根据关键词搜索商品
@@ -602,21 +593,11 @@ public class MiniappTbkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId,
             @RequestParam(defaultValue = "total_sales_des") String sort) {
-        // 1、根据邀请码查询具体的代理申请信息（必须是已审核通过的）
-        SysTbkAgentApply agentApply = null;
-        if (invitationCode != null && !invitationCode.trim().isEmpty()) {
-            agentApply = tbkAgentApplyService.selectByInvitationCode(invitationCode);
-            // 验证代理状态：只有审核通过（status=1）的代理才有效
-            if (agentApply != null && !"1".equals(agentApply.getStatus())) {
-                agentApply = null; // 未通过审核的代理视为无效
-            }
-        } else if (userId != null) {
-            // 1.1、如果没有邀请码，则根据微信小程序传入的用户ID查询代理申请信息（必须是已审核通过的）
-            SysTbkAgentApply userApply = tbkAgentApplyService.selectByUserId(userId);
-            // 验证代理状态：只有审核通过（status=1）的代理才有效
-            if (userApply != null && "1".equals(userApply.getStatus())) {
-                agentApply = userApply;
-            }
+        // 根据登录态查询已审核的代理信息。
+        Long currentUserId = currentUserId();
+        SysTbkAgentApply agentApply = currentUserId == null ? null : tbkAgentApplyService.selectByUserId(currentUserId);
+        if (agentApply != null && !"1".equals(agentApply.getStatus())) {
+            agentApply = null;
         }
 
         // 2、构建请求参数
@@ -669,21 +650,11 @@ public class MiniappTbkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
 
-        // 1、根据邀请码查询具体的代理申请信息（必须是已审核通过的）
-        SysTbkAgentApply agentApply = null;
-        if (invitationCode != null && !invitationCode.trim().isEmpty()) {
-            agentApply = tbkAgentApplyService.selectByInvitationCode(invitationCode);
-            // 验证代理状态：只有审核通过（status=1）的代理才有效
-            if (agentApply != null && !"1".equals(agentApply.getStatus())) {
-                agentApply = null; // 未通过审核的代理视为无效
-            }
-        } else if (userId != null) {
-            // 1.1、如果没有邀请码，则根据微信小程序传入的用户ID查询代理申请信息（必须是已审核通过的）
-            SysTbkAgentApply userApply = tbkAgentApplyService.selectByUserId(userId);
-            // 验证代理状态：只有审核通过（status=1）的代理才有效
-            if (userApply != null && "1".equals(userApply.getStatus())) {
-                agentApply = userApply;
-            }
+        // 根据登录态查询已审核的代理信息。
+        Long currentUserId = currentUserId();
+        SysTbkAgentApply agentApply = currentUserId == null ? null : tbkAgentApplyService.selectByUserId(currentUserId);
+        if (agentApply != null && !"1".equals(agentApply.getStatus())) {
+            agentApply = null;
         }
         
         // 2、构建淘口令请求参数

@@ -28,6 +28,18 @@ import java.util.List;
 @RequestMapping("/miniapp/dtk")
 public class MiniappDtkController extends BaseController {
 
+    // Public browsing remains available without a login; request parameters are not identity.
+    private Long currentUserId() {
+        org.springframework.security.core.Authentication authentication =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.isAuthenticated()
+                && authentication.getPrincipal() instanceof com.ruoyi.common.core.domain.model.LoginUser loginUser) {
+            return loginUser.getUserId();
+        }
+        return null;
+    }
+
+
     @Autowired
     private ISysTbkAgentApplyService tbkAgentApplyService;
 
@@ -49,7 +61,7 @@ public class MiniappDtkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
         
-        // 1、根据邀请码或用户ID查询代理信息
+        // 根据登录态查询已审核的代理信息。
         SysTbkAgentApply agentApply = getAgentApply(invitationCode, userId);
         
         // 2、验证代理用户是否绑定了大淘客平台，并获取代理的AppKey和AppSecret
@@ -83,7 +95,7 @@ public class MiniappDtkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
         
-        // 1、根据邀请码或用户ID查询代理信息
+        // 根据登录态查询已审核的代理信息。
         SysTbkAgentApply agentApply = getAgentApply(invitationCode, userId);
         
         // 2、验证代理用户是否绑定了大淘客平台，并获取代理的AppKey和AppSecret
@@ -122,7 +134,7 @@ public class MiniappDtkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
         
-        // 1、根据邀请码或用户ID查询代理信息
+        // 根据登录态查询已审核的代理信息。
         SysTbkAgentApply agentApply = getAgentApply(invitationCode, userId);
         
         // 2、验证代理用户是否绑定了大淘客平台，并获取代理的AppKey和AppSecret
@@ -166,7 +178,7 @@ public class MiniappDtkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
         
-        // 1、根据邀请码或用户ID查询代理信息
+        // 根据登录态查询已审核的代理信息。
         SysTbkAgentApply agentApply = getAgentApply(invitationCode, userId);
         
         // 2、验证代理用户是否绑定了大淘客平台，并获取代理的AppKey和AppSecret
@@ -203,7 +215,7 @@ public class MiniappDtkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
 
-        // 1、根据邀请码或用户ID查询代理申请信息
+        // 根据登录态查询已审核的代理信息。
         SysTbkAgentApply agentApply = getAgentApply(invitationCode, userId);
 
         // 2、验证代理用户是否绑定了大淘客平台，并获取代理的AppKey和AppSecret
@@ -240,7 +252,7 @@ public class MiniappDtkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
         
-        // 1、根据邀请码或用户ID查询代理信息
+        // 根据登录态查询已审核的代理信息。
         SysTbkAgentApply agentApply = getAgentApply(invitationCode, userId);
 
         // 2、验证代理用户是否绑定了大淘客平台，并获取代理的AppKey和AppSecret
@@ -278,7 +290,7 @@ public class MiniappDtkController extends BaseController {
             @RequestParam(required = false) String invitationCode,
             @RequestParam(required = false) Long userId) {
         
-        // 1、根据邀请码或用户ID查询代理信息
+        // 根据登录态查询已审核的代理信息。
         SysTbkAgentApply agentApply = getAgentApply(invitationCode, userId);
 
         // 2、验证代理用户是否绑定了大淘客平台，并获取代理的AppKey、AppSecret和PID
@@ -295,10 +307,8 @@ public class MiniappDtkController extends BaseController {
             agentPid = dtkRelation.getUnionPlatform().getAdzoneId(); // 获取代理的推广位ID作为PID
         }
 
-        // 3、如果没有传入pid，使用代理的pid
-        if (pid == null || pid.trim().isEmpty()) {
-            pid = agentPid;
-        }
+        // Ignore the client-supplied pid and use only server-side configuration.
+        pid = agentPid;
 
         // 如果还是为空，则取系统默认
         if (pid == null || pid.trim().isEmpty()) {
@@ -316,31 +326,15 @@ public class MiniappDtkController extends BaseController {
     }
 
     /**
-     * 根据邀请码或用户ID获取代理申请信息
-     * @param invitationCode 邀请码
-     * @param userId 用户ID
+     * 根据登录态获取代理申请信息
+     * @param invitationCode 兼容参数，不用于身份识别
+     * @param userId 兼容参数，不用于身份识别
      * @return 代理申请信息，如果未找到或状态非审核通过则返回null
      */
     private SysTbkAgentApply getAgentApply(String invitationCode, Long userId) {
-        SysTbkAgentApply agentApply = null;
-        
-        // 优先使用邀请码查询
-        if (invitationCode != null && !invitationCode.trim().isEmpty()) {
-            agentApply = tbkAgentApplyService.selectByInvitationCode(invitationCode);
-            // 检查代理状态是否为审核通过（状态值为"1"）
-            if (agentApply != null && !"1".equals(agentApply.getStatus())) {
-                agentApply = null;
-            }
-        } 
-        // 其次使用用户ID查询
-        else if (userId != null) {
-            SysTbkAgentApply userApply = tbkAgentApplyService.selectByUserId(userId);
-            if (userApply != null && "1".equals(userApply.getStatus())) {
-                agentApply = userApply;
-            }
-        }
-        
-        return agentApply;
+        Long currentUserId = currentUserId();
+        SysTbkAgentApply agentApply = currentUserId == null ? null : tbkAgentApplyService.selectByUserId(currentUserId);
+        return agentApply != null && "1".equals(agentApply.getStatus()) ? agentApply : null;
     }
 
     /**

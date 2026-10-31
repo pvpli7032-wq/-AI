@@ -72,7 +72,7 @@ Page({
     if (agentInfo && agentInfo.invitationCode) {
       return {
         title: '淘宝客优惠商城 - 省钱又赚钱',
-        path: `/pages/index/index?inviteCode=${agentInfo.invitationCode}`,
+        path: `/pages/index/index?invitationCode=${agentInfo.invitationCode}`,
         imageUrl: '/images/share-bg.png'
       };
     }

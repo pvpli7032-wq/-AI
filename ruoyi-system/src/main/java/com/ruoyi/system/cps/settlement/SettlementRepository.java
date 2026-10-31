@@ -22,7 +22,7 @@ public class SettlementRepository {
         public OrderStatus status, previous;
         public BigDecimal commission, reportedCommission, recovered = BigDecimal.ZERO;
         public Instant lastEventAt, rewardRetryAt;
-        public boolean rewardPending;
+        public boolean rewardPending, manualHold;
         public SettlementTermsPort.Terms terms, actualTerms;
         public SettlementTermsPort.Terms effectiveTerms() { return actualTerms == null ? terms : actualTerms; }
         public boolean referralManual;
@@ -53,6 +53,7 @@ public class SettlementRepository {
             p.terms = JSON.parseObject(r.getString("terms_json"), SettlementTermsPort.Terms.class);
             p.actualTerms = JSON.parseObject(r.getString("actual_terms_json"), SettlementTermsPort.Terms.class);
             p.reportedCommission = r.getBigDecimal("reported_commission"); p.lastEventAt = instant(r.getTimestamp("last_event_at"));
+            p.manualHold = r.getBoolean("manual_hold");
             p.rewardPending = r.getBoolean("reward_pending"); p.rewardRetryAt = instant(r.getTimestamp("reward_retry_at"));
             p.referralManual = r.getBoolean("referral_manual"); p.evidence = r.getString("invitation_evidence"); return p;
         }, id);
@@ -60,16 +61,16 @@ public class SettlementRepository {
     }
     void save(Position p) {
         jdbc.update("INSERT INTO cps_settlement_position(order_line_id,buyer_user_id,order_status,previous_status,original_commission,"
-            + "recovered_commission,terms_json,referral_manual,invitation_evidence,actual_terms_json,reported_commission,last_event_at,reward_pending,reward_retry_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE "
+            + "recovered_commission,terms_json,referral_manual,invitation_evidence,actual_terms_json,reported_commission,last_event_at,reward_pending,reward_retry_at,manual_hold) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE "
             + "buyer_user_id=VALUES(buyer_user_id),order_status=VALUES(order_status),previous_status=VALUES(previous_status),"
             + "original_commission=VALUES(original_commission),recovered_commission=VALUES(recovered_commission),terms_json=VALUES(terms_json),"
             + "referral_manual=VALUES(referral_manual),invitation_evidence=VALUES(invitation_evidence),actual_terms_json=VALUES(actual_terms_json),"
             + "reported_commission=VALUES(reported_commission),last_event_at=VALUES(last_event_at),"
-            + "reward_pending=VALUES(reward_pending),reward_retry_at=VALUES(reward_retry_at)", p.id,p.buyer,
+            + "reward_pending=VALUES(reward_pending),reward_retry_at=VALUES(reward_retry_at),manual_hold=VALUES(manual_hold)", p.id,p.buyer,
             p.status == null ? null : p.status.name(),p.previous == null ? null : p.previous.name(),p.commission,p.recovered,
             p.terms == null ? null : JSON.toJSONString(p.terms),p.referralManual,p.evidence,
             p.actualTerms == null ? null : JSON.toJSONString(p.actualTerms),p.reportedCommission,time(p.lastEventAt),
-            p.rewardPending,time(p.rewardRetryAt));
+            p.rewardPending,time(p.rewardRetryAt),p.manualHold);
     }
     String receipt(String key) {
         List<String> rows = jdbc.queryForList("SELECT fingerprint FROM cps_settlement_receipt WHERE event_key=?", String.class,key);
@@ -80,6 +81,58 @@ public class SettlementRepository {
     }
     void manual(long id, String key, String reason) {
         jdbc.update("INSERT INTO cps_settlement_manual(order_line_id,event_key,reason) VALUES(?,?,?) ON DUPLICATE KEY UPDATE reason=VALUES(reason)",id,key,reason);
+    }
+    void holdEvent(long id,String key,String reason,String payload) {
+        jdbc.update("INSERT INTO cps_settlement_hold_event(event_key,order_line_id,reason,event_json) VALUES(?,?,?,?)",
+            key,id,reason,payload);
+    }
+    /**
+     * A permission-checked import may prove a risk without enough evidence for an OrderEvent.
+     * The processing observation below is only a safety-clock anchor, never alliance state time.
+     * The caller's line transaction owns the hold and its MANUAL_REVIEW projection together.
+     */
+    void holdUnprocessableEvidence(long id,String sourceKey,String reason,String rawEvidenceJson) {
+        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive())
+            throw new IllegalStateException("Manual evidence hold requires the import transaction");
+        if (id<=0 || sourceKey==null || sourceKey.isBlank() || sourceKey.length()>128
+                || reason==null || reason.isBlank() || reason.length()>255
+                || rawEvidenceJson==null || rawEvidenceJson.isBlank())
+            throw new IllegalArgumentException("Incomplete manual hold evidence");
+        lockOrder(id);
+        // Keep evidence-only identities separate from real OrderEvent receipt identities.
+        String key="manual-evidence:"+DefaultSettlementService.digest(sourceKey);
+        List<Map<String,Object>> prior=jdbc.queryForList(
+            "SELECT order_line_id,reason,JSON_UNQUOTE(JSON_EXTRACT(event_json,'$.sourceKey')) AS source_key,"
+            + "JSON_UNQUOTE(JSON_EXTRACT(event_json,'$.sourceEvidence')) AS source_evidence "
+            + "FROM cps_settlement_hold_event WHERE event_key=? FOR UPDATE",key);
+        if (!prior.isEmpty()) {
+            Map<String,Object> stored=prior.getFirst();
+            if (((Number)stored.get("order_line_id")).longValue()!=id
+                    || !sourceKey.equals(stored.get("source_key")) || !reason.equals(stored.get("reason"))
+                    || !rawEvidenceJson.equals(stored.get("source_evidence")))
+                throw new IllegalArgumentException("Manual hold key payload mismatch");
+            return;
+        }
+        Position p=load(id);
+        if (p==null) { p=new Position(); p.id=id; }
+        Instant observedAt=Instant.now();
+        for (Item item:items(id)) {
+            if (!"FROZEN".equals(item.phase) || item.paused!=null
+                    || item.status==RebateStatus.VOID || item.status==RebateStatus.FULLY_RECOVERED) continue;
+            Instant heldAt=item.clock!=null && observedAt.isBefore(item.clock.anchor())
+                ? item.clock.anchor() : observedAt;
+            item.paused=heldAt;
+            if (item.clock!=null)
+                item.clock=new FreezeClock(item.clock.remainingAt(heldAt),heldAt,true);
+            item.status=RebateStatus.PAUSED; save(item);
+        }
+        p.manualHold=true; save(p);
+        Map<String,Object> evidence=new java.util.LinkedHashMap<>();
+        evidence.put("kind","UNPROCESSABLE_PENALTY_EVIDENCE");
+        evidence.put("sourceKey",sourceKey); evidence.put("sourceEvidence",rawEvidenceJson);
+        evidence.put("observedAt",observedAt);
+        holdEvent(id,key,reason,JSON.toJSONString(evidence));
+        manual(id,sourceKey,reason);
     }
     boolean legacy(long id, Map<String,Object> order) {
         String status = String.valueOf(order.get("order_status"));
@@ -135,7 +188,9 @@ public class SettlementRepository {
             + "UNION ALL SELECT p.order_line_id,p.reward_retry_at AS ready_at FROM cps_settlement_position p "
             + "JOIN cps_reward_order_state r ON r.order_id=p.order_line_id "
             + "WHERE p.reward_pending=1 AND p.reward_retry_at<=? AND r.qualified=0 AND r.closed=0 "
-            + "AND p.order_status<>'DISPUTED') work GROUP BY order_line_id "
+            + "AND p.order_status<>'DISPUTED') work WHERE NOT EXISTS "
+            + "(SELECT 1 FROM cps_settlement_position held WHERE held.order_line_id=work.order_line_id AND held.manual_hold=1) "
+            + "GROUP BY order_line_id "
             + "ORDER BY MIN(ready_at),order_line_id LIMIT ?",Long.class,time(now),time(now),limit);
     }
     static Timestamp time(Instant v) { return v == null ? null : Timestamp.from(v); }

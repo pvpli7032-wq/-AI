@@ -171,6 +171,20 @@ public class DtkAdditionalOrderCollectionFeedTest {
         assertTrue(result.entries().get(1).incoming().restorePrevious());
         verify(ingestion).recordSourceException(anyLong(), contains("refund_status=14"));
     }
+    @Test public void sellerDeduction14And15AreDedicatedEvidenceOnlyAndNeverCommissionRecovery() {
+        storedTbk();
+        String waiting = cases(2, refund("14", "100")), success = cases(2, refund("15", "100"));
+        var result = feed(waiting, success).fetch(Platform.TBK, OrderCollectionRetryQueue.TaskType.REFUND, WINDOW, null);
+        assertFalse(result.completenessConfirmed()); assertTrue(result.entries().isEmpty());
+        verify(ingestion).retainRaw(Platform.TBK, waiting, NOW);
+        verify(ingestion).retainRaw(Platform.TBK, success, NOW);
+        verify(ingestion).recordSourceException(anyLong(), contains("卖家侧补扣等待"));
+        verify(ingestion).recordSourceException(anyLong(), contains("卖家侧补扣成功"));
+        verify(ingestion, never()).ingest(any());
+        verify(evidence, never()).appendAutomaticPenalty(anyMap());
+        assertNull(DtkOrderSemantics.tbkRefund("14", new BigDecimal("100"), new BigDecimal("100")));
+        assertNull(DtkOrderSemantics.tbkRefund("15", new BigDecimal("100"), new BigDecimal("100")));
+    }
     @Test public void missingStatusTimeIsNeverFilledWithCollectionTime() {
         String raw = jd("false", "16", "").replace(",\"modifyTime\":\"2026-01-01 00:20:00\"", "");
         var result = feed(raw).fetch(Platform.JD, OrderCollectionRetryQueue.TaskType.INCREMENTAL, WINDOW, null);

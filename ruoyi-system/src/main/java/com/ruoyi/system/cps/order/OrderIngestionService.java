@@ -139,7 +139,7 @@ public class OrderIngestionService
         if (events.countByKey(eventKey) != 0)
         {
             String snapshot = events.selectSnapshot(eventKey);
-            if (snapshot == null || !sameLine(snapshot, input))
+            if (snapshot == null || !sameLine(snapshot, line))
                 return rejected(rawId, orderId, eventKey, "相同事件键对应不同订单数据，需人工核对");
             return new Result(rawId, orderId, eventKey, Outcome.DUPLICATE);
         }
@@ -192,24 +192,19 @@ public class OrderIngestionService
             String firstRefund = events.selectFirstRefundSnapshot(orderId);
             // Never substitute a post-refund actualFee, gross refund, or estimate for the original commission.
             refundBasis = firstRefund == null
-                ? (row.get("actual_commission") == null ? null : new BigDecimal(row.get("actual_commission").toString()))
+                ? (current == null || row.get("actual_commission") == null ? null : new BigDecimal(row.get("actual_commission").toString()))
                 : JSON.parseObject(firstRefund).getBigDecimal("refundBasisAmount");
             if (target == OrderStatus.FULL_REFUND) {
                 recovered = refundBasis;
                 if (recovered == null)
                     rejected(rawId, orderId, eventKey, "全额退款缺原订单实际联盟佣金，recoveredAmount留空，线11暂停转人工");
-            } else if (input.cumulativeRecovery() != null && input.recoveryEvidence() != null
-                    && !input.recoveryEvidence().isBlank() && moneyFits(input.cumulativeRecovery(),14,4)
-                    && refundBasis != null && input.cumulativeRecovery().compareTo(refundBasis) <= 0) {
-                recovered = input.cumulativeRecovery();
             } else {
-                rejected(rawId, orderId, eventKey, "部分退款缺可证实的累计联盟佣金追回额或金额无效，recoveredAmount留空，线11暂停转人工");
+                // No currently confirmed DTK field proves cumulative affiliate commission recovery.
+                // Neither refund_fee nor tk_commission_fee_refund_pub is such evidence.
+                rejected(rawId, orderId, eventKey, "部分退款缺可证实的累计联盟佣金追回额，recoveredAmount留空，线11暂停转人工");
             }
-        } else if (input.cumulativeRecovery() != null || input.recoveryEvidence() != null) {
-            return rejected(rawId, orderId, eventKey, "非退款事件不得携带退款追回金额");
         }
         values.put("recovered", recovered); values.put("refundBasis", refundBasis);
-        values.put("cumulativeRecovery", input.cumulativeRecovery()); values.put("recoveryEvidence", input.recoveryEvidence());
         if (orders.updateStatus(values) != 1 || events.append(values) != 1 || events.enqueue(values) != 1)
             throw new IllegalStateException("订单事件保存失败");
         // Stored dispute state is meaningful only while currently disputed.
@@ -268,14 +263,11 @@ public class OrderIngestionService
             : events.release(Map.of("id", id, "token", token))) == 1);
     }
     private static boolean empty(String s) { return s == null || s.isBlank(); }
-    private static boolean sameLine(String snapshot, IncomingOrder input)
+    private static boolean sameLine(String snapshot, UnionOrderLine line)
     {
         JSONObject data = JSON.parseObject(snapshot);
-        UnionOrderLine line = input.line();
         if (data == null) return false;
-        return equalMoney(data.getBigDecimal("cumulativeRecovery"), input.cumulativeRecovery())
-            && Objects.equals(data.getString("recoveryEvidence"), input.recoveryEvidence())
-            && Objects.equals(data.getString("platform"), line.platform().name().toLowerCase(Locale.ROOT))
+        return Objects.equals(data.getString("platform"), line.platform().name().toLowerCase(Locale.ROOT))
             && Objects.equals(data.getString("orderNo"), line.orderNo())
             && Objects.equals(data.getString("subOrderNo"), line.subOrderNo())
             && Objects.equals(data.getString("itemId"), line.itemId())

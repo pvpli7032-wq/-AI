@@ -28,7 +28,7 @@ public interface OrderEventMapper
     @Insert("INSERT INTO cps_order_event_outbox(event_id,event_key,line_snapshot,occurred_second,occurred_nano,created_at) VALUES(#{eventId},#{eventKey}, "
         + "JSON_OBJECT('platform',#{platform},'orderNo',#{orderNo},'subOrderNo',#{subOrderNo},'itemId',#{itemId}, "
         + "'pid',#{pid},'attributionToken',#{token},'paidAmount',#{paidAmount},'estimatedCommission',#{estimated}, "
-        + "'actualCommission',#{actual},'recoveredAmount',#{recovered},'refundBasisAmount',#{refundBasis},'cumulativeRecovery',#{cumulativeRecovery},'recoveryEvidence',#{recoveryEvidence},'rawStatus',#{rawStatus},'paidAt',#{paidAtText},'receivedAt',#{receivedAtText},'settledAt',#{settledAtText}),#{seconds},#{nanos},CURRENT_TIMESTAMP(3))")
+        + "'actualCommission',#{actual},'recoveredAmount',#{recovered},'refundBasisAmount',#{refundBasis},'rawStatus',#{rawStatus},'paidAt',#{paidAtText},'receivedAt',#{receivedAtText},'settledAt',#{settledAtText}),#{seconds},#{nanos},CURRENT_TIMESTAMP(3))")
     int enqueue(Map<String, Object> event);
 
     @Select("SELECT o.id,o.event_key,o.line_snapshot,o.attempt_count,o.attribution_done,o.settlement_done,o.occurred_second,o.occurred_nano,e.order_line_id,e.from_status,e.to_status,e.previous_status,e.source,e.raw_id,e.created_at,r.payload_text AS raw_response_json "

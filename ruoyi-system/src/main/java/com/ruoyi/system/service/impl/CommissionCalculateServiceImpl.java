@@ -59,6 +59,9 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
     @Autowired
     private org.springframework.jdbc.core.JdbcTemplate ledgerJdbc;
 
+    @Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.ruoyi.system.cps.settlement.PaymentInvitationSnapshotPort> paymentInvitationSnapshotPorts;
+
     /**
      * 计算订单佣金
      */
@@ -101,21 +104,19 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
             java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
             sdf.setLenient(false);
             orderCommission.setOrderTime(sdf.parse(orderTime));
-            orderCommission.setPaidTime(orderCommission.getOrderTime());
+            // Legacy orderTime is creation time, NOT trusted payment evidence.
         } catch (java.text.ParseException | NullPointerException e) {
-            throw new ServiceException("缺少有效的付款时间");
+            throw new ServiceException("缺少有效的下单时间");
         }
         orderCommission.setOrderStatus("pending"); // 待结算
         orderCommission.setSettleStatus("unsettled"); // 未结算
         orderCommission.setCreateTime(new Date());
 
-        // Snapshot the invitation on the order, never consult the retired agent application module.
-        // Subsequent settlement/refund must use this snapshot, not the user's current inviter.
-        List<Long> inviters = ledgerJdbc.query("SELECT inviter_user_id FROM sys_wechat_user WHERE user_id=? FOR UPDATE",
-            (rs, row) -> rs.getObject(1, Long.class), buyerUserId);
-        if (inviters.size() != 1) throw new ServiceException("购买用户不存在或邀请关系不唯一");
-        Long inviterId = inviters.getFirst();
-        if (buyerUserId.equals(inviterId)) throw new ServiceException("不能邀请自己");
+        // Existence only: the current invitation relationship is never payment-time evidence.
+        if (ledgerJdbc.queryForObject("SELECT COUNT(*) FROM sys_wechat_user WHERE user_id=?", Long.class, buyerUserId) != 1)
+            throw new ServiceException("购买用户不存在或不唯一");
+        // This legacy API has no trusted paidAt. Ordinary buyer rebate continues, referral is zero.
+        Long inviterId = null;
 
         // 获取佣金配置
         BigDecimal selfRate = getSelfCommissionRate();
@@ -182,6 +183,14 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
 
         // 保存订单佣金记录
         orderCommissionMapper.insertSysOrderCommission(orderCommission);
+        if (orderCommission.getId() == null) throw new ServiceException("Missing persisted order line ID");
+        var line = new com.ruoyi.union.adapter.UnionOrderLine(
+            com.ruoyi.union.adapter.Platform.valueOf(platformType.toUpperCase(java.util.Locale.ROOT)),
+            orderId, null, itemId, null, null, orderAmount, estimatedCommission, null,
+            "pending", null, null, null);
+        // Uses this method's transaction. Persist unknown/manual even without a line 9 port.
+        new com.ruoyi.system.cps.settlement.PaymentInvitationSnapshotService(ledgerJdbc, paymentInvitationSnapshotPorts)
+            .resolve(orderCommission.getId(), buyerUserId, line);
 
         return orderCommission;
     }

@@ -8,7 +8,6 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.math.RoundingMode;
 import com.ruoyi.system.cps.rule.RewardApi;
 import com.ruoyi.system.cps.rule.RewardCalculator;
 import com.ruoyi.system.cps.rule.RewardService;
@@ -79,6 +78,14 @@ public class DefaultSettlementService implements SettlementService {
             repository.manual(p.id,e.eventKey(),"STALE_ALLIANCE_EVENT_REQUIRES_RECONCILIATION"); return;
         }
         if (!legal(p,e)) {
+            // Quarantine disputed money even when the shared ORDER contract cannot express
+            // this edge. Do not invent an ORDER transition or silently release the funds.
+            if (e.toStatus()==OrderStatus.DISPUTED && p.terms!=null) {
+                for (Item item:repository.items(p.id)) if ("FROZEN".equals(item.phase) && item.paused==null) {
+                    item.paused=e.occurredAt(); item.clock=item.clock.pause(e.occurredAt());
+                    item.status=RebateStatus.PAUSED; repository.save(item);
+                }
+            }
             repository.manual(p.id,e.eventKey(),"ILLEGAL_ORDER_TRANSITION_OR_DISPUTE_RESTORATION"); return;
         }
         // Attribution is historical order ownership, never the current invitation graph.
@@ -180,8 +187,7 @@ public class DefaultSettlementService implements SettlementService {
             repository.save(i);
         }
         if (recovery.signum()>0) {
-            BigDecimal ratio=recovery.divide(p.commission,18,RoundingMode.HALF_UP);
-            RewardApi.Result result=rewards.refund(p.id,new RewardApi.Refund(ratio,
+            RewardApi.Result result=rewards.refund(p.id,RewardApi.Refund.fromCommissionRecovery(recovery,p.commission,
                 Objects.requireNonNull(e.line().paidAmount(),"Alliance paid amount required"),p.commission.subtract(recovery)));
             rewardTransfers(transfers,result.instructions(),
                 e.toStatus()==OrderStatus.PENALIZED ? "PENALTY_RECOVER" : "RECOVER");
@@ -213,6 +219,18 @@ public class DefaultSettlementService implements SettlementService {
                 || !p.terms.freezePolicy().equals(recalculated.freezePolicy())
                 || !p.terms.ruleSnapshotJson().equals(recalculated.ruleSnapshotJson()) || recalculated.benefits().size()!=items.size())
             throw new IllegalArgumentException("Actual recalculation changed locked terms");
+        if (p.commission!=null) {
+            BigDecimal rebate=recalculated.benefits().stream().filter(b -> b.type().equals("REBATE"))
+                .map(Benefit::amount).reduce(BigDecimal.ZERO,BigDecimal::add);
+            Instant freezeUntil=items.stream().map(i -> i.due).filter(Objects::nonNull).max(Instant::compareTo)
+                .orElse(e.occurredAt());
+            boolean released=items.stream().allMatch(i -> "AVAILABLE".equals(i.phase) || i.original.signum()==0);
+            // Propagate fail-closed award repricing in this transaction: ordinary money must
+            // never be adjusted while already-qualified variable awards retain their old basis.
+            rewards.reprice(p.id,new RewardApi.Qualification(e.occurredAt(),freezeUntil,released,
+                items.stream().anyMatch(i -> i.paused!=null),
+                Objects.requireNonNull(e.line().paidAmount(),"Alliance paid amount required"),actual,rebate));
+        }
         for (Item i:items) {
             Benefit b=benefit(recalculated,i);
             if (!Objects.equals(b.ruleVersionId(),i.version)) throw new IllegalArgumentException("Actual recalculation changed rule version");

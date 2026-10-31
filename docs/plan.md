@@ -59,10 +59,10 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 
 | 问题 | 位置 | 后果 |
 |---|---|---|
-| 新用户创建使用代码里写死的密码 | `MiniappAuthController.java:195` | C 端用户在后台用户表里，可能被用来登录后台 |
-| 转链时用户身份由请求参数传入 | `MiniappTbkController.java:665-670`，`goods/**` 无需登录 | 任何人可冒充别人 |
-| 大淘客转链时客户端传的 pid 能覆盖 | `MiniappDtkController.java:298-300` | 推广位可被篡改，佣金流失 |
-| 余额先读后写，无行锁、无版本号 | `CommissionCalculateServiceImpl.java:292-340` | 两个请求同时到会算错钱 |
+| 新用户创建使用代码里写死的密码 | 已由线 5 修复（PR #7） | — |
+| 转链时用户身份由请求参数传入 | 已由线 6 修复（PR #8）；小程序请求带 token 归线 9 | — |
+| 大淘客转链时客户端传的 pid 能覆盖 | 已由线 6 修复（PR #8） | — |
+| 余额先读后写，无行锁、无版本号 | 已由线 4 修复（PR #4） | — |
 | 表结构和代码对不上 | `SysOrderCommission`、`SysCommissionFlowMapper.xml` 的字段在建表 SQL 里不存在 | 运行时报错 |
 | `sys_tbk_agent_apply` 有两版定义 | `sql/wechat.sql` 与 `sql/cps-202604112202-mt.sql` | 建库结果不确定 |
 | 后台页面接口路径和后端不一致 | 已由线 2 修复（cc6a966） | — |

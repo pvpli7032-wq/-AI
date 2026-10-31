@@ -7,6 +7,7 @@ import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.system.mapper.SysWechatUserMapper;
 import com.ruoyi.system.domain.SysWechatUser;
 import com.ruoyi.system.service.ISysWechatUserService;
+import com.ruoyi.system.cps.attribution.InviteBindingService;
 
 /**
  * 微信用户关联Service业务层处理
@@ -19,6 +20,9 @@ public class SysWechatUserServiceImpl implements ISysWechatUserService
 {
     @Autowired
     private SysWechatUserMapper sysWechatUserMapper;
+
+    @Autowired
+    private InviteBindingService inviteBindingService;
 
     /**
      * 查询微信用户关联
@@ -77,8 +81,20 @@ public class SysWechatUserServiceImpl implements ISysWechatUserService
     @Override
     public int insertSysWechatUser(SysWechatUser sysWechatUser)
     {
-        sysWechatUser.setCreateTime(DateUtils.getNowDate());
-        return sysWechatUserMapper.insertSysWechatUser(sysWechatUser);
+        // Keep the existing creation entrance; it cannot accept a caller-supplied inviter ID.
+        return inviteBindingService.registerFirstAuthorization(sysWechatUser, null);
+    }
+
+    @Override
+    public int insertFirstAuthorizedUser(SysWechatUser sysWechatUser, String invitationCode)
+    {
+        return inviteBindingService.registerFirstAuthorization(sysWechatUser, invitationCode);
+    }
+
+    @Override
+    public String ensureInvitationCode(Long userId)
+    {
+        return inviteBindingService.ensureInvitationCode(userId);
     }
 
     /**
@@ -91,7 +107,17 @@ public class SysWechatUserServiceImpl implements ISysWechatUserService
     public int updateSysWechatUser(SysWechatUser sysWechatUser)
     {
         sysWechatUser.setUpdateTime(DateUtils.getNowDate());
-        return sysWechatUserMapper.updateSysWechatUser(sysWechatUser);
+        // Profile refreshes often carry an old copy of this record. Never overwrite an audited binding.
+        String code = sysWechatUser.getInvitationCode();
+        Long inviter = sysWechatUser.getInviterUserId();
+        sysWechatUser.setInvitationCode(null);
+        sysWechatUser.setInviterUserId(null);
+        try {
+            return sysWechatUserMapper.updateSysWechatUser(sysWechatUser);
+        } finally {
+            sysWechatUser.setInvitationCode(code);
+            sysWechatUser.setInviterUserId(inviter);
+        }
     }
 
     /**

@@ -51,6 +51,12 @@ public interface ISysWechatUserService
      */
     public int insertSysWechatUser(SysWechatUser sysWechatUser);
 
+    /** The only miniapp invitation-binding entrance: new user's first authorization. */
+    public int insertFirstAuthorizedUser(SysWechatUser sysWechatUser, String invitationCode);
+
+    /** Existing users may receive their own invitation code, but cannot bind a new inviter. */
+    public String ensureInvitationCode(Long userId);
+
     /**
      * 修改微信用户关联
      * 

@@ -2,7 +2,11 @@ package com.ruoyi.system.cps.contract;
 
 import java.util.Map;
 import java.util.Set;
-/** The allowed transition table; DISPUTED may restore only its recorded previous state. */
+/**
+ * Allowed status edges only; DISPUTED may restore only its recorded previous state.
+ * Settlement must validate the funding stage, remaining freeze clock and cumulative amounts;
+ * membership in this table does not prove that funds are frozen or already credited.
+ */
 public final class StatusTransitions {
     private StatusTransitions() {}
     public static final Map<OrderStatus, Set<OrderStatus>> ORDER = Map.of(

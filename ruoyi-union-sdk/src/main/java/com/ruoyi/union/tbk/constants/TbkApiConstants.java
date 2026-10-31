@@ -78,7 +78,8 @@ public class TbkApiConstants {
         //淘宝客-推广者-淘礼金创建
         REQUEST_MAP.put( API_METHOD_NAME_CREATE_DG_VEGAS_TLJ, TbkDgVegasTljCreateRequest.class );
         //淘宝客-推广者-处罚订单查询
-        REQUEST_MAP.put( API_METHOD_NAME_GET_DG_PUNISH_ORDER, TbkDgPunishOrderGetRequest.class );
+        // TODO 待淘宝 SDK 开通该接口后恢复
+        // REQUEST_MAP.put( API_METHOD_NAME_GET_DG_PUNISH_ORDER, TbkDgPunishOrderGetRequest.class );
         //淘宝客-推广者-查询红包发放个数
         REQUEST_MAP.put( API_METHOD_NAME_REPORT_DG_VEGAS_SEND, TbkDgVegasSendReportRequest.class );
         //淘宝客-推广者-官方活动转链
@@ -90,7 +91,8 @@ public class TbkApiConstants {
         //淘宝客-推广者-CPA活动执行明细
         REQUEST_MAP.put( API_METHOD_NAME_DETAIL_DG_CPA_ACTIVITY, TbkDgCpaActivityDetailRequest.class );
         //淘宝客-推广者-淘口令回流数据查询
-        REQUEST_MAP.put( API_METHOD_NAME_GET_DG_TPWD_REPORT, TbkDgTpwdReportGetRequest.class );
+        // TODO 待淘宝 SDK 开通该接口后恢复
+        // REQUEST_MAP.put( API_METHOD_NAME_GET_DG_TPWD_REPORT, TbkDgTpwdReportGetRequest.class );
         //淘宝客-推广者-任务奖励效果报表
         REQUEST_MAP.put( API_METHOD_NAME_REPORT_DG_CPA_ACTIVITY, TbkDgCpaActivityReportRequest.class );
         //淘宝客-推广者-淘礼金暂停发放
@@ -100,11 +102,14 @@ public class TbkApiConstants {
         //淘宝客-推广者-物料精选升级版
         REQUEST_MAP.put( API_METHOD_NAME_REPORT_DG_TPWD_RISK, TbkDgTpwdRiskReportRequest.class );
         //淘宝客-推广者-物料精选升级版
-        REQUEST_MAP.put( API_METHOD_NAME_RECOMMEND_DG_MATERIAL, TbkDgMaterialRecommendRequest.class );
+        // TODO 待淘宝 SDK 开通该接口后恢复
+        // REQUEST_MAP.put( API_METHOD_NAME_RECOMMEND_DG_MATERIAL, TbkDgMaterialRecommendRequest.class );
         //淘宝客-推广者-物料id列表查询
-        REQUEST_MAP.put( API_METHOD_NAME_GET_OPTIMUS_TOU_MATERIAL_IDS, TbkOptimusTouMaterialIdsGetRequest.class );
+        // TODO 待淘宝 SDK 开通该接口后恢复
+        // REQUEST_MAP.put( API_METHOD_NAME_GET_OPTIMUS_TOU_MATERIAL_IDS, TbkOptimusTouMaterialIdsGetRequest.class );
         //淘宝客-推广者-物料搜索升级版
-        REQUEST_MAP.put( API_METHOD_NAME_UPGRADE_DG_MATERIAL_OPTIONAL, TbkDgMaterialOptionalUpgradeRequest.class );
+        // TODO 待淘宝 SDK 开通该接口后恢复
+        // REQUEST_MAP.put( API_METHOD_NAME_UPGRADE_DG_MATERIAL_OPTIONAL, TbkDgMaterialOptionalUpgradeRequest.class );
     }
 
 }

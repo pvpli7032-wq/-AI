@@ -41,16 +41,16 @@
         <dependency>
             <groupId>com.taobao.sdk</groupId>
             <artifactId>taobao-sdk-java</artifactId>
-            <version>1698396062491-20241216</version>
+            <version>1761200125504-20261031</version>
             <scope>system</scope>
-            <systemPath>${project.basedir}/lib/taobao-sdk-java-auto_1698396062491-20241216.jar</systemPath>
+            <systemPath>${project.basedir}/lib/taobao-sdk-java-auto_1761200125504-20261031.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>com.taobao.sdk</groupId>
             <artifactId>taobao-sdk-java-source</artifactId>
-            <version>1698396062491-20241216</version>
+            <version>1761200125504-20261031</version>
             <scope>system</scope>
-            <systemPath>${project.basedir}/lib/taobao-sdk-java-auto_1698396062491-20241216-source.jar</systemPath>
+            <systemPath>${project.basedir}/lib/taobao-sdk-java-auto_1761200125504-20261031-source.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>jakarta.annotation</groupId>
@@ -71,7 +71,7 @@
             <artifactId>open-api-sdk</artifactId>
             <version>2.0</version>
             <scope>system</scope>
-            <systemPath>${project.basedir}/lib/jd-api-sdk-java-20260331.jar</systemPath>
+            <systemPath>${project.basedir}/lib/jd-api-sdk-java-20261031.jar</systemPath>
         </dependency>
 
         <dependency>

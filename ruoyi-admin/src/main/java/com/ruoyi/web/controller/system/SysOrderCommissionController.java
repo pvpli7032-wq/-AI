@@ -41,7 +41,7 @@ public class SysOrderCommissionController extends BaseController
     /**
      * 查询订单佣金列表
      */
-    @PreAuthorize("@ss.hasPermi('system:orderCommission:list')")
+    @PreAuthorize("@ss.hasPermi('system:commission:order:list')")
     @GetMapping("/list")
     public TableDataInfo list(SysOrderCommission sysOrderCommission)
     {
@@ -53,7 +53,7 @@ public class SysOrderCommissionController extends BaseController
     /**
      * 导出订单佣金列表
      */
-    @PreAuthorize("@ss.hasPermi('system:orderCommission:export')")
+    @PreAuthorize("@ss.hasPermi('system:commission:order:export')")
     @Log(title = "订单佣金", businessType = BusinessType.EXPORT)
     @PostMapping("/export")
     public void export(HttpServletResponse response, SysOrderCommission sysOrderCommission)
@@ -66,7 +66,7 @@ public class SysOrderCommissionController extends BaseController
     /**
      * 获取订单佣金详细信息
      */
-    @PreAuthorize("@ss.hasPermi('system:orderCommission:query')")
+    @PreAuthorize("@ss.hasPermi('system:commission:order:query')")
     @GetMapping(value = "/{id}")
     public AjaxResult getInfo(@PathVariable("id") Long id)
     {
@@ -76,7 +76,7 @@ public class SysOrderCommissionController extends BaseController
     /**
      * 新增订单佣金
      */
-    @PreAuthorize("@ss.hasPermi('system:orderCommission:add')")
+    @PreAuthorize("@ss.hasPermi('system:commission:order:add')")
     @Log(title = "订单佣金", businessType = BusinessType.INSERT)
     @PostMapping
     public AjaxResult add(@RequestBody SysOrderCommission sysOrderCommission)
@@ -87,7 +87,7 @@ public class SysOrderCommissionController extends BaseController
     /**
      * 修改订单佣金
      */
-    @PreAuthorize("@ss.hasPermi('system:orderCommission:edit')")
+    @PreAuthorize("@ss.hasPermi('system:commission:order:edit')")
     @Log(title = "订单佣金", businessType = BusinessType.UPDATE)
     @PutMapping
     public AjaxResult edit(@RequestBody SysOrderCommission sysOrderCommission)
@@ -98,7 +98,7 @@ public class SysOrderCommissionController extends BaseController
     /**
      * 删除订单佣金
      */
-    @PreAuthorize("@ss.hasPermi('system:orderCommission:remove')")
+    @PreAuthorize("@ss.hasPermi('system:commission:order:remove')")
     @Log(title = "订单佣金", businessType = BusinessType.DELETE)
 	@DeleteMapping("/{ids}")
     public AjaxResult remove(@PathVariable Long[] ids)
@@ -109,7 +109,7 @@ public class SysOrderCommissionController extends BaseController
     /**
      * 订单结算
      */
-    @PreAuthorize("@ss.hasPermi('system:orderCommission:settle')")
+    @PreAuthorize("@ss.hasPermi('system:commission:order:settle')")
     @Log(title = "订单结算", businessType = BusinessType.UPDATE)
     @PostMapping("/settle/{id}")
     public AjaxResult settle(@PathVariable Long id, @RequestBody SysOrderCommission orderCommission)
@@ -133,7 +133,7 @@ public class SysOrderCommissionController extends BaseController
     /**
      * 订单退款
      */
-    @PreAuthorize("@ss.hasPermi('system:orderCommission:refund')")
+    @PreAuthorize("@ss.hasPermi('system:commission:order:refund')")
     @Log(title = "订单退款", businessType = BusinessType.UPDATE)
     @PostMapping("/refund/{id}")
     public AjaxResult refund(@PathVariable Long id)

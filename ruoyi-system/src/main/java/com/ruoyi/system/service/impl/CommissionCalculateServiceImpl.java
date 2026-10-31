@@ -22,6 +22,7 @@ import com.ruoyi.system.mapper.SysCommissionFlowMapper;
 import com.ruoyi.system.mapper.SysOrderCommissionMapper;
 import com.ruoyi.system.mapper.SysWechatUserMapper;
 import com.ruoyi.system.service.ICommissionCalculateService;
+import com.ruoyi.system.service.ISysCommissionConfigService;
 
 /**
  * 佣金计算服务实现
@@ -33,6 +34,9 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
 {
     @Autowired
     private SysCommissionConfigMapper commissionConfigMapper;
+
+    @Autowired
+    private ISysCommissionConfigService commissionConfigService;
 
     @Autowired
     private SysOrderCommissionMapper orderCommissionMapper;
@@ -459,7 +463,7 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
     {
         SysCommissionConfig config = commissionConfigMapper
             .selectSysCommissionConfigByKey("self_rate");
-        return config != null ? config.getConfigValue() : new BigDecimal("40");
+        return requireRate(config, "self_rate");
     }
 
     /**
@@ -470,7 +474,7 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
     {
         SysCommissionConfig config = commissionConfigMapper
             .selectSysCommissionConfigByKey("promotion_rate");
-        return config != null ? config.getConfigValue() : new BigDecimal("5");
+        return requireRate(config, "promotion_rate");
     }
 
     /**
@@ -480,24 +484,40 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
     @Transactional
     public boolean updateCommissionConfig(String configKey, BigDecimal configValue)
     {
-        SysCommissionConfig config = commissionConfigMapper
-            .selectSysCommissionConfigByKey(configKey);
-        
+        SysCommissionConfig config = commissionConfigMapper.selectSysCommissionConfigByKey(configKey);
         if (config == null)
         {
-            // 创建新配置
             config = new SysCommissionConfig();
             config.setConfigKey(configKey);
             config.setConfigValue(configValue);
             config.setCreateTime(new Date());
-            return commissionConfigMapper.insertSysCommissionConfig(config) > 0;
+            return commissionConfigService.insertSysCommissionConfig(config) > 0;
         }
-        else
+        config.setConfigValue(configValue);
+        config.setUpdateTime(new Date());
+        return commissionConfigService.updateSysCommissionConfig(config) > 0;
+    }
+
+    private BigDecimal requireRate(SysCommissionConfig config, String key)
+    {
+        if (config == null || config.getConfigValue() == null)
         {
-            // 更新配置
-            config.setConfigValue(configValue);
-            config.setUpdateTime(new Date());
-            return commissionConfigMapper.updateSysCommissionConfig(config) > 0;
+            throw new ServiceException("缺少佣金比例配置: " + key);
         }
+        String otherKey = "self_rate".equals(key) ? "promotion_rate" : "self_rate";
+        SysCommissionConfig other = commissionConfigMapper.selectSysCommissionConfigByKey(otherKey);
+        if (other == null || other.getConfigValue() == null)
+        {
+            throw new ServiceException("缺少佣金比例配置: " + otherKey);
+        }
+        BigDecimal rate = config.getConfigValue();
+        BigDecimal otherRate = other.getConfigValue();
+        BigDecimal max = new BigDecimal("100");
+        if (rate.signum() < 0 || otherRate.signum() < 0 || rate.compareTo(max) > 0
+            || otherRate.compareTo(max) > 0 || rate.add(otherRate).compareTo(max) > 0)
+        {
+            throw new ServiceException("佣金比例配置无效：各比例须在0到100之间，合计不能超过100%");
+        }
+        return rate;
     }
 }

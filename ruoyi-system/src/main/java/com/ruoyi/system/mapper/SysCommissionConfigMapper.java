@@ -11,6 +11,9 @@ import com.ruoyi.system.domain.SysCommissionConfig;
  */
 public interface SysCommissionConfigMapper 
 {
+    /** 锁定两个比例配置，串行校验并发修改。 */
+    List<SysCommissionConfig> selectRatesForUpdate();
+
     /**
      * 查询佣金配置
      * 

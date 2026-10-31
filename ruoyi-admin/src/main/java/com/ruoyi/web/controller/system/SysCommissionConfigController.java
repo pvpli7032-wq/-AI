@@ -36,7 +36,7 @@ public class SysCommissionConfigController extends BaseController
     /**
      * 查询佣金配置列表
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionConfig:list')")
+    @PreAuthorize("@ss.hasPermi('system:commission:config:list')")
     @GetMapping("/list")
     public TableDataInfo list(SysCommissionConfig sysCommissionConfig)
     {
@@ -48,7 +48,7 @@ public class SysCommissionConfigController extends BaseController
     /**
      * 导出佣金配置列表
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionConfig:export')")
+    @PreAuthorize("@ss.hasPermi('system:commission:config:export')")
     @Log(title = "佣金配置", businessType = BusinessType.EXPORT)
     @PostMapping("/export")
     public void export(HttpServletResponse response, SysCommissionConfig sysCommissionConfig)
@@ -61,7 +61,7 @@ public class SysCommissionConfigController extends BaseController
     /**
      * 获取佣金配置详细信息
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionConfig:query')")
+    @PreAuthorize("@ss.hasPermi('system:commission:config:query')")
     @GetMapping(value = "/{configKey}")
     public AjaxResult getInfo(@PathVariable("configKey") String configKey)
     {
@@ -71,7 +71,7 @@ public class SysCommissionConfigController extends BaseController
     /**
      * 新增佣金配置
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionConfig:add')")
+    @PreAuthorize("@ss.hasPermi('system:commission:config:add')")
     @Log(title = "佣金配置", businessType = BusinessType.INSERT)
     @PostMapping
     public AjaxResult add(@RequestBody SysCommissionConfig sysCommissionConfig)
@@ -82,7 +82,7 @@ public class SysCommissionConfigController extends BaseController
     /**
      * 修改佣金配置
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionConfig:edit')")
+    @PreAuthorize("@ss.hasPermi('system:commission:config:edit')")
     @Log(title = "佣金配置", businessType = BusinessType.UPDATE)
     @PutMapping
     public AjaxResult edit(@RequestBody SysCommissionConfig sysCommissionConfig)
@@ -93,7 +93,7 @@ public class SysCommissionConfigController extends BaseController
     /**
      * 删除佣金配置
      */
-    @PreAuthorize("@ss.hasPermi('system:commissionConfig:remove')")
+    @PreAuthorize("@ss.hasPermi('system:commission:config:remove')")
     @Log(title = "佣金配置", businessType = BusinessType.DELETE)
 	@DeleteMapping("/{configKeys}")
     public AjaxResult remove(@PathVariable String[] configKeys)

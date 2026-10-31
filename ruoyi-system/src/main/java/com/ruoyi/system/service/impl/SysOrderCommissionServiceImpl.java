@@ -3,6 +3,7 @@ package com.ruoyi.system.service.impl;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.system.mapper.SysOrderCommissionMapper;
 import com.ruoyi.system.domain.SysOrderCommission;
 import com.ruoyi.system.service.ISysOrderCommissionService;
@@ -76,7 +77,7 @@ public class SysOrderCommissionServiceImpl implements ISysOrderCommissionService
     @Override
     public int updateSysOrderCommission(SysOrderCommission sysOrderCommission)
     {
-        return sysOrderCommissionMapper.updateSysOrderCommission(sysOrderCommission);
+        throw new ServiceException("直接修改订单佣金暂未开放，请使用账务冲正流程");
     }
 
     /**
@@ -88,7 +89,7 @@ public class SysOrderCommissionServiceImpl implements ISysOrderCommissionService
     @Override
     public int deleteSysOrderCommissionByIds(Long[] ids)
     {
-        return sysOrderCommissionMapper.deleteSysOrderCommissionByIds(ids);
+        throw new ServiceException("直接删除订单佣金暂未开放，请使用账务冲正流程");
     }
 
     /**
@@ -100,6 +101,6 @@ public class SysOrderCommissionServiceImpl implements ISysOrderCommissionService
     @Override
     public int deleteSysOrderCommissionById(Long id)
     {
-        return sysOrderCommissionMapper.deleteSysOrderCommissionById(id);
+        throw new ServiceException("直接删除订单佣金暂未开放，请使用账务冲正流程");
     }
 }

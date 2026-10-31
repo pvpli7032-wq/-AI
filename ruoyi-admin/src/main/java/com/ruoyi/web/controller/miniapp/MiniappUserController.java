@@ -89,17 +89,7 @@ public class MiniappUserController extends BaseController {
     @Operation(summary = "申请提现")
     @PostMapping("/withdraw/apply")
     public AjaxResult applyWithdraw(@RequestBody Map<String, Object> params) {
-        SysUser user = getLoginUser().getUser();
-        
-        BigDecimal amount = new BigDecimal(params.get("amount").toString());
-        String withdrawType = params.get("withdrawType").toString();  // wechat, alipay, bank
-        
-        // TODO: 实现提现申请逻辑
-        // 1. 验证提现金额是否足够
-        // 2. 创建提现申请记录
-        // 3. 扣减可提现佣金
-        
-        return AjaxResult.success("提现申请已提交，请等待审核");
+        return AjaxResult.error("提现申请暂未开放");
     }
 
     /**

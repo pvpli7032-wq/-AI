@@ -1,6 +1,7 @@
 package com.ruoyi.system.domain;
 
 import com.ruoyi.common.annotation.Excel;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.ruoyi.common.core.domain.BaseEntity;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
@@ -29,6 +30,7 @@ public class SysUnionPlatform extends BaseEntity {
     private String appKey;
 
     /** 应用密匙 */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String appSecret;
 
     /** 站点ID */
@@ -40,6 +42,7 @@ public class SysUnionPlatform extends BaseEntity {
     private String adzoneId;
 
     /** 访问令牌 */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String accessToken;
 
     /** 使用状态（0-未被应用，1-被使用，2-失效） */
@@ -110,6 +113,14 @@ public class SysUnionPlatform extends BaseEntity {
         this.accessToken = accessToken;
     }
 
+    public boolean isHasAppSecret() {
+        return appSecret != null && !appSecret.isEmpty();
+    }
+
+    public boolean isHasAccessToken() {
+        return accessToken != null && !accessToken.isEmpty();
+    }
+
     public String getIsQuote() {
         return isQuote;
     }
@@ -125,10 +136,8 @@ public class SysUnionPlatform extends BaseEntity {
                 .append("platformType", getPlatformType())
                 .append("platformName", getPlatformName())
                 .append("appKey", getAppKey())
-                .append("appSecret", getAppSecret())
                 .append("siteId", getSiteId())
                 .append("adzoneId", getAdzoneId())
-                .append("accessToken", getAccessToken())
                 .append("isQuote", getIsQuote())
                 .append("createBy", getCreateBy())
                 .append("createTime", getCreateTime())

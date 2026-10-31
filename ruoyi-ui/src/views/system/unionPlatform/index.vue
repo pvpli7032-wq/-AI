@@ -153,7 +153,7 @@
           <el-input v-model="form.appKey" placeholder="请输入App Key" />
         </el-form-item>
         <el-form-item label="App Secret" prop="appSecret">
-          <el-input v-model="form.appSecret" placeholder="请输入App Secret" show-password />
+          <el-input v-model="form.appSecret" :placeholder="form.hasAppSecret ? '已设置，留空保持不变' : '请输入App Secret'" show-password />
         </el-form-item>
         <el-form-item label="站点ID" prop="siteId">
           <el-input v-model="form.siteId" placeholder="请输入站点ID（京东联盟必填）" />
@@ -162,7 +162,7 @@
           <el-input v-model="form.adzoneId" placeholder="请输入推广位ID" />
         </el-form-item>
         <el-form-item label="访问令牌" prop="accessToken">
-          <el-input v-model="form.accessToken" placeholder="请输入访问令牌（如需）" />
+          <el-input v-model="form.accessToken" :placeholder="form.hasAccessToken ? '已设置，留空保持不变' : '请输入访问令牌（如需）'" show-password />
         </el-form-item>
         <el-form-item label="备注" prop="remark">
           <el-input v-model="form.remark" type="textarea" :rows="3" placeholder="请输入备注" />
@@ -187,6 +187,8 @@
         </el-descriptions-item>
         <el-descriptions-item label="联盟名称" :span="2">{{ detailData.platformName || '无' }}</el-descriptions-item>
         <el-descriptions-item label="App Key" :span="2">{{ detailData.appKey }}</el-descriptions-item>
+        <el-descriptions-item label="App Secret">{{ detailData.hasAppSecret ? '******' : '未设置' }}</el-descriptions-item>
+        <el-descriptions-item label="访问令牌">{{ detailData.hasAccessToken ? '******' : '未设置' }}</el-descriptions-item>
         <el-descriptions-item label="站点ID">{{ detailData.siteId || '无' }}</el-descriptions-item>
         <el-descriptions-item label="推广位ID">{{ detailData.adzoneId || '无' }}</el-descriptions-item>
         <el-descriptions-item label="使用状态">
@@ -263,7 +265,10 @@ export default {
           { required: true, message: "App Key不能为空", trigger: "blur" }
         ],
         appSecret: [
-          { required: true, message: "App Secret不能为空", trigger: "blur" }
+          { validator: (rule, value, callback) => {
+            if (!value && !this.form.hasAppSecret) return callback(new Error("App Secret不能为空"));
+            callback();
+          }, trigger: "blur" }
         ]
       }
     };
@@ -340,7 +345,10 @@ export default {
       this.$refs["form"].validate(valid => {
         if (valid) {
           if (this.form.id != null) {
-            updateUnionPlatform(this.form).then(response => {
+            const payload = { ...this.form };
+            if (!payload.appSecret) delete payload.appSecret;
+            if (!payload.accessToken) delete payload.accessToken;
+            updateUnionPlatform(payload).then(response => {
               this.$modal.msgSuccess("修改成功");
               this.open = false;
               this.getList();

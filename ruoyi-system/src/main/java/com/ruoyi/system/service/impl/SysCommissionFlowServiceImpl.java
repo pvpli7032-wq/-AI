@@ -3,6 +3,7 @@ package com.ruoyi.system.service.impl;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.system.mapper.SysCommissionFlowMapper;
 import com.ruoyi.system.domain.SysCommissionFlow;
 import com.ruoyi.system.service.ISysCommissionFlowService;
@@ -51,7 +52,7 @@ public class SysCommissionFlowServiceImpl implements ISysCommissionFlowService
     @Override
     public int insertSysCommissionFlow(SysCommissionFlow sysCommissionFlow)
     {
-        return sysCommissionFlowMapper.insertSysCommissionFlow(sysCommissionFlow);
+        throw new ServiceException("直接新增流水暂未开放，请使用账务冲正流程");
     }
 
     /**

@@ -16,6 +16,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         from sys_commission_config
     </sql>
 
+    <select id="selectRatesForUpdate" resultMap="SysCommissionConfigResult" useCache="false" flushCache="true">
+        <include refid="selectSysCommissionConfigVo"/>
+        where config_key in ('self_rate', 'promotion_rate') order by config_key for update
+    </select>
+
     <select id="selectSysCommissionConfigList" parameterType="com.ruoyi.system.domain.SysCommissionConfig" resultMap="SysCommissionConfigResult">
         <include refid="selectSysCommissionConfigVo"/>
         <where>  

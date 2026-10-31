@@ -19,7 +19,7 @@
       <el-form-item label="订单状态" prop="orderStatus">
         <el-select v-model="queryParams.orderStatus" placeholder="请选择状态" clearable>
           <el-option label="待结算" value="pending" />
-          <el-option label="已结算" value="settled" />
+          <el-option label="已结算" value="confirmed" />
           <el-option label="已退款" value="refunded" />
         </el-select>
       </el-form-item>
@@ -48,7 +48,7 @@
           icon="el-icon-download"
           size="mini"
           @click="handleExport"
-          v-hasPermi="['system:orderCommission:export']"
+          v-hasPermi="['system:commission:order:export']"
         >导出</el-button>
       </el-col>
       <right-toolbar :showSearch.sync="showSearch" @queryTable="getList"></right-toolbar>
@@ -90,7 +90,7 @@
       <el-table-column label="订单状态" align="center" prop="orderStatus" width="100">
         <template slot-scope="scope">
           <el-tag v-if="scope.row.orderStatus === 'pending'" type="info">待结算</el-tag>
-          <el-tag v-else-if="scope.row.orderStatus === 'settled'" type="success">已结算</el-tag>
+          <el-tag v-else-if="(scope.row.orderStatus === 'confirmed' || scope.row.orderStatus === 'settled')" type="success">已结算</el-tag>
           <el-tag v-else-if="scope.row.orderStatus === 'refunded'" type="danger">已退款</el-tag>
         </template>
       </el-table-column>
@@ -107,15 +107,15 @@
             type="text"
             icon="el-icon-check"
             @click="handleSettle(scope.row)"
-            v-hasPermi="['system:orderCommission:settle']"
+            v-hasPermi="['system:commission:order:settle']"
           >结算</el-button>
           <el-button
-            v-if="scope.row.orderStatus === 'settled'"
+            v-if="(scope.row.orderStatus === 'confirmed' || scope.row.orderStatus === 'settled')"
             size="mini"
             type="text"
             icon="el-icon-refresh-left"
             @click="handleRefund(scope.row)"
-            v-hasPermi="['system:orderCommission:refund']"
+            v-hasPermi="['system:commission:order:refund']"
           >退款</el-button>
           <el-button
             size="mini"
@@ -184,7 +184,7 @@
         <el-descriptions-item label="平台分成">¥{{ orderDetail.platformAmount }}</el-descriptions-item>
         <el-descriptions-item label="订单状态">
           <el-tag v-if="orderDetail.orderStatus === 'pending'" type="info">待结算</el-tag>
-          <el-tag v-else-if="orderDetail.orderStatus === 'settled'" type="success">已结算</el-tag>
+          <el-tag v-else-if="(orderDetail.orderStatus === 'confirmed' || orderDetail.orderStatus === 'settled')" type="success">已结算</el-tag>
           <el-tag v-else-if="orderDetail.orderStatus === 'refunded'" type="danger">已退款</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="下单用户ID">{{ orderDetail.buyerUserId }}</el-descriptions-item>

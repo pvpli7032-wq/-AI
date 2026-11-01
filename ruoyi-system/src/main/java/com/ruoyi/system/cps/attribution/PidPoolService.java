@@ -148,6 +148,18 @@ public class PidPoolService {
         });
     }
 
+    public record RegisteredPid(Platform platform, String pid, PidType type, boolean enabled) {}
+
+    /** Uses the same merged registry and legacy rules as allocation; never exposes credentials. */
+    public List<RegisteredPid> registered(Platform platform) {
+        Objects.requireNonNull(platform);
+        return transactions.execute(status -> {
+            lockPool(platform, false);
+            return slots(platform).stream()
+                .map(slot -> new RegisteredPid(platform, slot.pid, slot.type, slot.enabled)).toList();
+        });
+    }
+
     public List<PidOccupancy> occupancy(Platform platform, String itemId) {
         Objects.requireNonNull(platform);
         List<Slot> tracking = slots(platform).stream().filter(s -> s.enabled && s.type == PidType.TRACKING).toList();

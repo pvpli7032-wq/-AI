@@ -5,7 +5,6 @@ export function createRule(data) { return request({ url: '/cps/rules', method: '
 export function updateRule(id, data) { return request({ url: '/cps/rules/' + id, method: 'put', data }) }
 export function archiveRule(id, revision) { return request({ url: '/cps/rules/' + id, method: 'delete', params: { revision } }) }
 export function publishRule(id, revision) { return request({ url: '/cps/rules/' + id + '/publish', method: 'post', params: { revision } }) }
-export function ruleVersions(id) { return request({ url: '/cps/rules/' + id + '/versions', method: 'get' }) }
 export function settlementHistory() { return request({ url: '/cps/rules/settlement-configuration', method: 'get' }) }
 export function publishSettlement(data) { return request({ url: '/cps/rules/settlement-configuration', method: 'post', data }) }
 export function getCpsConfigList(params) { return request({ url: '/system/config/list', method: 'get', params }) }

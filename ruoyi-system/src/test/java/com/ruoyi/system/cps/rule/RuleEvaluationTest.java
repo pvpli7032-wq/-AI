@@ -20,7 +20,7 @@ public class RuleEvaluationTest {
         return new Proportion("base", Kind.BASE, Mode.FIXED, d(rate), any(), 0, 0, null, List.of());
     }
     static RulePolicy policy(List<Proportion> rows) {
-        return new RulePolicy(Platform.TBK, d("0.10"), d("0"), d("10.00"), d("-1.00"), d("0.08"), d("0"), false, rows, List.of());
+        return new RulePolicy(Platform.TBK, d("0.10"), d("0"), d("10.00"), d("0.08"), d("0"), false, rows, List.of());
     }
     static Evidence evidence() {
         return new Evidence(AT, "audit:test-only", 2L, d("10"), 5L, 9L, false,
@@ -72,7 +72,7 @@ public class RuleEvaluationTest {
         Proportion tier = new Proportion("tier", Kind.TIERED, Mode.CUMULATIVE_TIERS, d("0"), any(), 0, 0, null,
             List.of(new Tier(1, d("5"), d("0.2")), new Tier(3, d("10"), d("0.9"))));
         RulePolicy p = policy(List.of(base("0"), target, tier));
-        RulePolicy combined = new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), p.maximumCommission(), p.minimumMargin(),
+        RulePolicy combined = new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), p.maximumCommission(),
             p.payoutCostRate(), p.minimumRebate(), true, p.proportions(), List.of());
         assertEquals(d("0.1"), RuleEvaluation.choose(p, facts(evidence())).userRate());
         assertEquals(d("0.2"), RuleEvaluation.choose(combined, facts(evidence())).userRate());
@@ -94,15 +94,12 @@ public class RuleEvaluationTest {
         Proportion hidden = new Proportion("return", Kind.DORMANCY, Mode.FIXED, d("0.8"), any(), 2, 30, null, List.of());
         assertThrows(IllegalArgumentException.class, () -> RuleEvaluation.validate(policy(List.of(base("0.2"), hidden))));
     }
-    @Test public void roundedWorstMarginIncludesZeroMinimumAndPayoutCosts() {
-        RulePolicy p = policy(List.of(base("1")));
-        assertEquals(d("-0.72"), RuleEvaluation.worstMargin(p));
-        RulePolicy rejects = new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), d("0.05"),
-            d("0"), d("0.9"), d("0"), false, List.of(base("1")), List.of());
-        assertThrows(IllegalArgumentException.class, () -> RuleEvaluation.worstMargin(rejects));
-        RulePolicy minimum = new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), d("0.01"),
-            d("0"), d("0"), d("0.01"), false, List.of(base("0")), List.of());
-        assertThrows(IllegalArgumentException.class, () -> RuleEvaluation.worstMargin(minimum));
+    @Test public void negativeRoundedMarginIsCalculatedButDoesNotInvalidateRule() {
+        RulePolicy policy = policy(List.of(base("1")));
+        Snapshot frozen = snapshot(policy, evidence());
+        assertEquals(d("-0.72"), RuleEvaluation.calculate(frozen, d("10.00")).margin());
+        assertEquals(policy, frozen.policy());
+        RuleEvaluation.validate(policy);
     }
     @Test public void commissionCapAndCentsCannotBeBypassed() {
         Snapshot s = snapshot(policy(List.of(base("0.4"))), evidence());
@@ -114,18 +111,25 @@ public class RuleEvaluationTest {
         Snapshot s = snapshot(policy(List.of(base("0.4"))), evidence());
         assertEquals(s, JSON.parseObject(JSON.toJSONString(s), Snapshot.class));
     }
-    @Test public void rewardCostsCannotBeAssertedByClient() {
+    @Test public void rewardCostsAreFullyChargedAndCannotBeAssertedByClient() {
         RulePolicy p = policy(List.of(base("0.4")));
-        RulePolicy rewards = new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), p.maximumCommission(), p.minimumMargin(),
+        RulePolicy rewards = new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), p.maximumCommission(),
             p.payoutCostRate(), p.minimumRebate(), false, p.proportions(),
-            List.of(new Incentive("first", IncentiveKind.INVITATION_FIRST, d("1"), d("0"), 1, 5, null, null)));
-        assertThrows(IllegalArgumentException.class, () -> RuleEvaluation.worstMargin(rewards));
+            List.of(new Incentive("referral", IncentiveKind.INVITATION_COMMISSION, d("0"), d("0.5"), 0, 0, null, null)));
+        RuleEvaluation.validate(rewards);
+        // net 9.00, rebate 3.60, invitation award 1.80 on the rebate basis, payout cost on both.
+        Calculation c = RuleEvaluation.calculate(snapshot(rewards, evidence()), d("10"));
+        assertEquals(d("3.60"), c.rebate());
+        assertEquals(d("1.80"), c.rewards().getFirst().amount());
+        assertEquals(Long.valueOf(9), c.rewards().getFirst().recipientUserId());
+        assertEquals(d("0.43"), c.payoutCost());
+        assertEquals(d("3.17"), c.margin());
     }
     // PR regressions: fixture amounts below are not production defaults.
     private static RulePolicy incentives(Incentive... incentives) {
         RulePolicy p = policy(List.of(base("0.5")));
         return new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), p.maximumCommission(),
-            p.minimumMargin(), p.payoutCostRate(), p.minimumRebate(), false, p.proportions(), List.of(incentives));
+            p.payoutCostRate(), p.minimumRebate(), false, p.proportions(), List.of(incentives));
     }
     @Test public void countRewardThresholdsRejectOverflowButAcceptMaximumInt() {
         for (IncentiveKind kind : List.of(IncentiveKind.INVITATION_FIRST_N,
@@ -169,7 +173,7 @@ public class RuleEvaluationTest {
         assertEquals(d("4.14"), c.margin());
     }
     @Test public void jdFeeRequiresAuthoritativeOperationEvidence() {
-        RulePolicy p = new RulePolicy(Platform.JD, d("0.1"), d("0.2"), d("10"), d("-1"), d("0"), d("0"), false, List.of(base("0.5")), List.of());
+        RulePolicy p = new RulePolicy(Platform.JD, d("0.1"), d("0.2"), d("10"), d("0"), d("0"), false, List.of(base("0.5")), List.of());
         Snapshot unknown = new Snapshot(1, 7, Platform.JD, "o", "s", "sku", AT, 1, p, Evidence.unknown(AT),
             new RuleDecision("base", d("0.5"), List.of(), List.of()));
         assertThrows(IllegalStateException.class, () -> RuleEvaluation.calculate(unknown, d("10")));

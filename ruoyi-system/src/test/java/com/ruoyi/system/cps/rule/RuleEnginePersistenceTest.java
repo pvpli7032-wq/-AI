@@ -22,7 +22,7 @@ public class RuleEnginePersistenceTest {
     static class Drafts implements RuleMapper {
         Draft draft;
         List<RuleSafetyConfiguration.Entry> limits = List.of();
-        public List<RuleSafetyConfiguration.Entry> financialLimits(String max, String min) { return limits; }
+        public List<RuleSafetyConfiguration.Entry> financialLimits(String maximumKey) { return limits; }
         public int create(String platform, String config, long operator) {
             draft = new Draft(1, platform, 1, config, false); return 1;
         }
@@ -58,7 +58,7 @@ public class RuleEnginePersistenceTest {
             factory.getBeanProvider(RulePorts.PublicationSafety.class));
     }
     static RulePorts.PublicationSafety safe() {
-        return p -> new RulePorts.Limits(d("10"), d("-1"), true, "server-finance:test-only");
+        return p -> new RulePorts.Limits(d("10"), true, "server-finance:test-only");
     }
     static UnionOrderLine line() {
         return new UnionOrderLine(Platform.TBK, "o", "s", "sku", null, null, d("5"), d("2"), d("2"), "paid", AT, null, null);
@@ -89,9 +89,9 @@ public class RuleEnginePersistenceTest {
     @Test public void serverSafetyIsRequiredAndClientCannotEnlargeCommissionCap() {
         Drafts drafts = new Drafts(); Versions versions = new Versions();
         assertThrows(IllegalStateException.class, () -> engine(drafts, versions, null).create(policy(List.of(base("0.2"))), 3));
-        RuleEngine limited = engine(drafts, versions, p -> new RulePorts.Limits(d("1"), d("-1"), true, "server"));
+        RuleEngine limited = engine(drafts, versions, p -> new RulePorts.Limits(d("1"), true, "server"));
         assertThrows(IllegalArgumentException.class, () -> limited.create(policy(List.of(base("0.2"))), 3));
-        RuleEngine rewardEnabled = engine(drafts, versions, p -> new RulePorts.Limits(d("10"), d("-1"), false, "server"));
+        RuleEngine rewardEnabled = engine(drafts, versions, p -> new RulePorts.Limits(d("10"), false, "server"));
         assertNotNull(rewardEnabled.create(policy(List.of(base("0.2"))), 3));
     }
     @Test public void deletePreservesHistoryAndPreviouslyFrozenSnapshot() {

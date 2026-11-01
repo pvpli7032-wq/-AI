@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -14,8 +13,7 @@ import static com.ruoyi.system.cps.rule.RuleDecision.*;
 
 /** Pure matching/calculation. No database, user application, or current-version dependency. */
 public final class RuleEvaluation {
-    public static final long MAX_PROOF_CENTS = 1_000_000;
-    public static final long MAX_PROOF_WORK = 4_000_000;
+    public static final long MAX_ACTUAL_COMMISSION_CENTS = 1_000_000;
     private RuleEvaluation() { }
     public static BigDecimal money(BigDecimal value) { return value.setScale(2, RoundingMode.HALF_UP); }
     private static void nonNegative(BigDecimal value) {
@@ -29,9 +27,8 @@ public final class RuleEvaluation {
         Objects.requireNonNull(p.platform()); rate(p.serviceRate()); rate(p.jdNonSelfRate());
         if (p.proportions().size() > 128 || p.incentives().size() > 128
                 || p.proportions().stream().mapToLong(r -> r.tiers().size()).sum() > 1024)
-            throw new IllegalArgumentException("rule configuration exceeds bounded proof complexity");
+            throw new IllegalArgumentException("rule configuration exceeds bounded complexity");
         rate(p.payoutCostRate()); nonNegative(p.maximumCommission()); nonNegative(p.minimumRebate());
-        Objects.requireNonNull(p.minimumMargin());
         if (p.maximumCommission().stripTrailingZeros().scale() > 2 || p.maximumCommission().signum() == 0)
             throw new IllegalArgumentException("maximum commission must be positive cents");
         if (p.platform() != Platform.JD && p.jdNonSelfRate().signum() != 0)
@@ -259,10 +256,10 @@ public final class RuleEvaluation {
         if (incentives.size() != snapshot.decision().incentiveKeys().size())
             throw new IllegalArgumentException("unknown/duplicate selected incentive");
         return quote(p, actualCommission, snapshot.decision().userRate(), jd, incentives,
-            snapshot.buyerUserId(), snapshot.evidence().inviterUserId(), false);
+            snapshot.buyerUserId(), snapshot.evidence().inviterUserId());
     }
     private static Calculation quote(RulePolicy p, BigDecimal commission, BigDecimal userRate, BigDecimal jd,
-            List<Incentive> incentives, Long buyer, Long inviter, boolean conservative) {
+            List<Incentive> incentives, Long buyer, Long inviter) {
         rate(userRate);
         var q = CommissionCalculator.calculate(commission, p.maximumCommission(), p.serviceRate(), jd,
             userRate, BigDecimal.ZERO, BigDecimal.ZERO, p.payoutCostRate());
@@ -271,11 +268,11 @@ public final class RuleEvaluation {
         BigDecimal totalRewards = BigDecimal.ZERO;
         for (Incentive i : incentives) {
             BigDecimal amount = i.kind() == IncentiveKind.FORCED_FIRST
-                ? (conservative ? i.fixed() : i.fixed().subtract(rebate).max(BigDecimal.ZERO))
+                ? i.fixed().subtract(rebate).max(BigDecimal.ZERO)
                 : i.fixed().add(rebate.multiply(i.rate()));
             amount = money(amount);
             Long recipient = invitation(i.kind()) ? inviter : buyer;
-            if (!conservative && (recipient == null || recipient <= 0))
+            if (recipient == null || recipient <= 0)
                 throw new IllegalStateException("selected reward has no proven recipient");
             payments.add(new Payment(i.key(), i.kind(), recipient, amount, true));
             totalRewards = totalRewards.add(amount);
@@ -283,29 +280,5 @@ public final class RuleEvaluation {
         BigDecimal cost = money(rebate.add(totalRewards).multiply(p.payoutCostRate()));
         return new Calculation(q.netCommission(), rebate, payments, cost,
             money(q.netCommission().subtract(rebate).subtract(totalRewards).subtract(cost)));
-    }
-    /** Exhaustive cent-domain proof (including zero). No client maxCost is accepted.
-     * Worst possible rate is conservative even where targets/tiers cannot overlap.
-     * All incentive keys are conservatively simultaneous, even disjoint periods/qualifications.
-     * Forced guarantees are charged at full fixed value rather than their smaller actual top-up,
-     * preserving monotonicity in the maximum rebate rate. Zero covers the minimum-rebate discontinuity.
-     * Both JD fee paths are checked. At most 1,000,000 cents and 4,000,000 quote-incentive work units;
-     * two JD paths * (cents+1) * (incentive count+1). Exceeding either bound rejects publication. */
-    public static BigDecimal worstMargin(RulePolicy p) {
-        validate(p);
-        long cents = p.maximumCommission().movePointRight(2).longValueExact();
-        if (cents > MAX_PROOF_CENTS || (cents + 1) * 2 * (p.incentives().size() + 1L) > MAX_PROOF_WORK)
-            throw new IllegalArgumentException("publication proof exceeds 1000000 cents / 4000000 quote-incentive work units");
-        BigDecimal highest = p.proportions().stream().map(Proportion::rate).max(Comparator.naturalOrder()).orElseThrow();
-        for (Proportion r : p.proportions()) for (Tier t : r.tiers()) highest = highest.max(t.rate());
-        BigDecimal worst = null;
-        for (long c = 0; c <= cents; c++) {
-            BigDecimal commission = BigDecimal.valueOf(c, 2);
-            BigDecimal margin = quote(p, commission, highest, p.jdNonSelfRate(), p.incentives(), null, null, true).margin()
-                .min(quote(p, commission, highest, BigDecimal.ZERO, p.incentives(), null, null, true).margin());
-            worst = worst == null ? margin : worst.min(margin);
-        }
-        if (worst.compareTo(p.minimumMargin()) < 0) throw new IllegalArgumentException("rounded worst-case margin below minimum: " + worst);
-        return worst;
     }
 }

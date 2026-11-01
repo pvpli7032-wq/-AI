@@ -15,11 +15,10 @@ public class CommissionCalculatorTest {
         assertEquals(d("0.86"), q.payoutCost());
         assertEquals(d("6.34"), q.margin());
     }
-    @Test public void configuredLimitAndRoundedMarginAreEnforced() {
+    @Test public void configuredLimitAndRoundedAmountsAreEnforced() {
         assertThrows(IllegalArgumentException.class, () -> CommissionCalculator.calculate(d("20.01"), d("20"), d("0"), d("0"), d("0"), d("0"), d("0"), d("0")));
         var q = CommissionCalculator.calculate(d("0.01"), d("1"), d("0"), d("0"), d("0.5"), d("0.5"), d("0"), d("0"));
-        assertEquals(d("-0.01"), q.margin());
-        assertThrows(IllegalArgumentException.class, () -> CommissionCalculator.requireMinimumMargin(q, d("0.00")));
+        assertEquals(d("-0.01"), q.margin()); // rounded loss is reported, not rejected at save time
     }
     @Test public void zeroRateIsAValidHigherPriorityRule() {
         var base = new ProportionSelector.Candidate(1, ProportionSelector.Priority.BASE, d("0.5"));

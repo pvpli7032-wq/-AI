@@ -20,11 +20,11 @@ public final class RulePorts {
          * independent reward-configuration write paths are forbidden by the integration contract. */
         Limits limits(RulePolicy policy);
     }
-    /** rewardsDisabled is retained for source compatibility only; policy incentives are now fully costed. */
-    public record Limits(BigDecimal maximumActualCommission, BigDecimal minimumMargin,
-            boolean rewardsDisabled, String sourceReference) {
-        public Limits(BigDecimal maximumActualCommission, BigDecimal minimumMargin, String sourceReference) {
-            this(maximumActualCommission, minimumMargin, false, sourceReference);
+    /** Authoritative server commission cap only: publication does not apply a margin floor.
+     * rewardsDisabled is retained for source compatibility only; policy incentives are now fully costed. */
+    public record Limits(BigDecimal maximumActualCommission, boolean rewardsDisabled, String sourceReference) {
+        public Limits(BigDecimal maximumActualCommission, String sourceReference) {
+            this(maximumActualCommission, false, sourceReference);
         }
     }
 }

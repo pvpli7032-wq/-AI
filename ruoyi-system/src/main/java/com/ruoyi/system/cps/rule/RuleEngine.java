@@ -74,13 +74,10 @@ public class RuleEngine {
         if (port == null) throw new IllegalStateException("trusted server commission limits adapter unavailable");
         RulePorts.Limits limits = Objects.requireNonNull(port.limits(policy));
         if (limits.sourceReference() == null || limits.sourceReference().isBlank()
-                || limits.maximumActualCommission() == null || limits.maximumActualCommission().signum() <= 0
-                || limits.minimumMargin() == null)
-            throw new IllegalStateException("invalid server safety evidence");
-        if (policy.maximumCommission().compareTo(limits.maximumActualCommission()) > 0
-                || policy.minimumMargin().compareTo(limits.minimumMargin()) < 0)
-            throw new IllegalArgumentException("policy exceeds trusted server financial limits");
-        RuleEvaluation.worstMargin(policy);
+                || limits.maximumActualCommission() == null || limits.maximumActualCommission().signum() <= 0)
+            throw new IllegalStateException("invalid server commission limit evidence");
+        if (policy.maximumCommission().compareTo(limits.maximumActualCommission()) > 0)
+            throw new IllegalArgumentException("policy exceeds trusted server commission limit");
         return limits.sourceReference();
     }
     /** Trial does not publish, reserve rewards, mutate counters or write order snapshots. */

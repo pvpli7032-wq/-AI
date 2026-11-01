@@ -7,9 +7,9 @@ import com.ruoyi.system.cps.rule.RuleDocuments.Draft;
 /** Mutable drafts only; published history is append-only through RuleVersionMapper. */
 @Mapper
 public interface RuleMapper {
-    @Select("SELECT config_id AS id,config_key AS `key`,config_value AS `value` FROM sys_config WHERE config_key IN (#{maximumKey},#{minimumKey}) ORDER BY config_id")
+    @Select("SELECT config_id AS id,config_key AS `key`,config_value AS `value` FROM sys_config WHERE config_key=#{maximumKey} ORDER BY config_id")
     List<com.ruoyi.system.cps.rule.RuleSafetyConfiguration.Entry> financialLimits(
-        @Param("maximumKey") String maximumKey, @Param("minimumKey") String minimumKey);
+        @Param("maximumKey") String maximumKey);
 
     @Insert("INSERT INTO cps_rule_document(platform,revision,config,archived,updated_by) VALUES(#{platform},1,#{config},0,#{operator})")
     int create(@Param("platform") String platform, @Param("config") String config, @Param("operator") long operator);

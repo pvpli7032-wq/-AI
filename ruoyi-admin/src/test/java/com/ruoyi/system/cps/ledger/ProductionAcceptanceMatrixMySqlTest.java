@@ -152,7 +152,6 @@ public class ProductionAcceptanceMatrixMySqlTest {
     }
 
     @Test public void case10QuantityAwardDropsThroughProductionRefundAndCannotPayAgainOnReplay() {
-        configure(RuleSafetyConfiguration.PREFIX+"TBK.minimumMargin","-20.00");
         var quantity=new RulePolicy.Incentive("matrix-two-orders",RulePolicy.IncentiveKind.ORDER_COUNT,bd("2"),bd("0"),2,0,null,null);
         publish(Platform.TBK,false,List.of(quantity));
         Instant firstPaid=now(); long first=order(Platform.TBK);
@@ -463,14 +462,9 @@ public class ProductionAcceptanceMatrixMySqlTest {
     private void publish(Platform platform,boolean referral,List<RulePolicy.Incentive> extra) {
         var base=(RulePolicy)ReflectionTestUtils.invokeMethod(fixture,"policy","0.50",referral);
         var incentives=new java.util.ArrayList<>(base.incentives()); incentives.addAll(extra);
-        // Synthetic publication budget: the two independently rounded referral/subsidy
-        // legs can cost two cents at tiny commissions. Preserve every actual test
-        // amount and the production worst-margin proof; only this fixture permits it.
-        BigDecimal floor=extra.stream().anyMatch(i->i.fixed().signum()>0) ? bd("-20")
-            : referral && !extra.isEmpty() ? bd("-0.02") : bd("-0.01");
+        // No margin floor is configured any more: publication is gated only by the server cap.
         configure(RuleSafetyConfiguration.PREFIX+platform.name()+".maximumActualCommission","20.00");
-        configure(RuleSafetyConfiguration.PREFIX+platform.name()+".minimumMargin",floor.toPlainString());
-        var policy=new RulePolicy(platform,base.serviceRate(),base.jdNonSelfRate(),base.maximumCommission(),floor,
+        var policy=new RulePolicy(platform,base.serviceRate(),base.jdNonSelfRate(),base.maximumCommission(),
             base.payoutCostRate(),base.minimumRebate(),base.targetedWithTier(),base.proportions(),incentives);
         var draft=rules.create(policy,buyer); rules.publish(draft.id(),draft.revision(),buyer);
         var freeze=new ConfiguredSettlementFreezePort.Configuration(

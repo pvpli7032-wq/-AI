@@ -127,10 +127,9 @@ public class ProductionSettlementMySqlTest {
             provider(SettlementFreezePort.class, new ConfiguredSettlementFreezePort()),
             new SettlementExternalServices(invitations, notifications), rewards,
             provider(SettlementRewardTermsPort.class, bridge), manager);
-        // Explicit server-side publication safety, including a one-cent rounded-loss allowance.
-        for (var entry : Map.of("maximumActualCommission", "20.00", "minimumMargin", "-0.01").entrySet())
-            jdbc.update("INSERT INTO sys_config(config_name,config_key,config_value,config_type) VALUES(?,?,?,'N')",
-                "SYNTHETIC production settlement test ONLY", RuleSafetyConfiguration.PREFIX + "TBK." + entry.getKey(), entry.getValue());
+        // Explicit server-side publication safety: only the actual commission cap remains authoritative.
+        jdbc.update("INSERT INTO sys_config(config_name,config_key,config_value,config_type) VALUES(?,?,'20.00','N')",
+            "SYNTHETIC production settlement test ONLY", RuleSafetyConfiguration.PREFIX + "TBK.maximumActualCommission");
     }
 
     @After public void dropOnlyIsolatedSchema() throws Exception {
@@ -263,7 +262,7 @@ public class ProductionSettlementMySqlTest {
         var subsidy = new RulePolicy.Incentive("first-n-ratio", RulePolicy.IncentiveKind.FIRST_N_SUBSIDY,
             bd("0"), bd("0.50"), 1, 0, null, null);
         var policy = new RulePolicy(base.platform(), base.serviceRate(), base.jdNonSelfRate(),
-            base.maximumCommission(), base.minimumMargin(), base.payoutCostRate(), base.minimumRebate(),
+            base.maximumCommission(), base.payoutCostRate(), base.minimumRebate(),
             base.targetedWithTier(), base.proportions(), List.of(subsidy));
         var draft = rules.create(policy, buyer);
         var published = rules.publish(draft.id(), draft.revision(), buyer);
@@ -353,7 +352,7 @@ public class ProductionSettlementMySqlTest {
             bd(ordinary), target, 0, 0, null, List.of());
         var incentive = new RulePolicy.Incentive("referral", RulePolicy.IncentiveKind.INVITATION_COMMISSION,
             bd("0"), bd("0.50"), 0, 0, null, null);
-        return new RulePolicy(Platform.TBK, bd("0.10"), bd("0"), bd("20"), bd("-0.01"), bd("0"),
+        return new RulePolicy(Platform.TBK, bd("0.10"), bd("0"), bd("20"), bd("0"),
             bd("0"), false, List.of(base), referral ? List.of(incentive) : List.of());
     }
     private RuleDocuments.Version publish() {

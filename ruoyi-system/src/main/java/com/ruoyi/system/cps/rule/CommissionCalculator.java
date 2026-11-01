@@ -36,14 +36,6 @@ public final class CommissionCalculator {
                 money(net.subtract(rebate).subtract(referral).subtract(reward).subtract(cost)));
     }
 
-    public static void requireMinimumMargin(Quote worstCase, BigDecimal minimumMargin) {
-        Objects.requireNonNull(worstCase, "worstCase");
-        Objects.requireNonNull(minimumMargin, "minimumMargin");
-        if (worstCase.margin().compareTo(money(minimumMargin)) < 0) {
-            throw new IllegalArgumentException("worst-case margin below configured minimum");
-        }
-    }
-
     private static BigDecimal money(BigDecimal value) { return value.setScale(2, RoundingMode.HALF_UP); }
     private static void nonNegative(BigDecimal value, String name) {
         if (Objects.requireNonNull(value, name).signum() < 0) throw new IllegalArgumentException(name + " must not be negative");

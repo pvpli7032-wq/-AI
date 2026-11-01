@@ -109,8 +109,8 @@ public class RuleSettlementBridgeMySqlTest {
             provider(SettlementFreezePort.class, new ConfiguredSettlementFreezePort()),
             new SettlementExternalServices(invitations, notifications), rewards,
             provider(SettlementRewardTermsPort.class, bridge), manager);
-        // Explicit one-cent rounded-loss allowance; exhaustive proof includes tiny commissions.
-        safety("20.00", "-0.01");
+        // Explicit server commission cap; no margin floor is required any more.
+        safety("20.00");
     }
 
     @Test public void explicitlyConfiguredZeroOrdinaryRateNeedsNeitherAgentNorHistoricalTierProof() {
@@ -133,21 +133,23 @@ public class RuleSettlementBridgeMySqlTest {
         // No agent application/approval fixture is inserted anywhere in this suite.
     }
 
-    @Test public void publicationRejectsNegativeFullStackMarginEvenWhenRebateAloneIsAffordable() {
-        var draft = rules.create(policy("0.80", false), buyer);
-        var unsafe = policy("0.80", true); // 80% rebate + 50% OF REBATE referral = 120% of net.
-        assertTrue(assertThrows(IllegalArgumentException.class, () -> rules.create(unsafe, buyer))
-            .getMessage().contains("rounded worst-case margin below minimum"));
-        assertTrue(assertThrows(IllegalArgumentException.class,
-            () -> rules.update(draft.id(), draft.revision(), unsafe, buyer)).getMessage()
-            .contains("rounded worst-case margin below minimum"));
-        // Simulate an imported/legacy unsafe draft: publish must revalidate, not trust prior SAVE.
-        assertEquals(1, drafts.replace(draft.id(), draft.revision(), JSON.toJSONString(unsafe), false, buyer));
-        assertTrue(assertThrows(IllegalArgumentException.class,
-            () -> rules.publish(draft.id(), draft.revision() + 1, buyer)).getMessage()
-            .contains("rounded worst-case margin below minimum"));
-        assertTrue(rules.history(draft.id()).isEmpty());
-        assertEquals(0, count("SELECT COUNT(*) FROM cps_rule_snapshot"));
+    @Test public void negativeFullStackMarginIsPublishableAndStillFreezesAnImmutablePaymentSnapshot() {
+        var unsafe = policy("0.80", true); // Can exceed net commission after the invitation leg.
+        var publication = publish(unsafe);
+        assertTrue(publication.config().contains("\"ordinary\""));
+        assertFalse(publication.config().contains("minimumMargin"));
+        configureFreeze(3600);
+        long id = order();
+        Instant paid = databaseNow();
+        settlements.onOrderEvent(event(id, "paid", null, OrderStatus.PAID, paid, null, paid));
+        String snapshotJson = versions.snapshot(id);
+        assertNotNull(snapshotJson);
+        var snapshot = JSON.parseObject(snapshotJson, RuleDecision.Snapshot.class);
+        assertEquals(publication.id(), snapshot.versionId());
+        assertEquals("ordinary", snapshot.decision().proportionKey());
+        assertEquals(bd("0.80"), snapshot.decision().userRate());
+        assertEquals(snapshotJson, versions.snapshot(id)); // idempotent persisted snapshot read
+        assertEquals(1, rules.history(publication.documentId()).size());
         assertEquals(0, count("SELECT COUNT(*) FROM sys_commission_flow WHERE user_id IN (?,?)", buyer, inviter));
     }
 
@@ -232,7 +234,7 @@ public class RuleSettlementBridgeMySqlTest {
 
     @Test public void missingServerSafetyKeyFailsClosedOnPublication() {
         var draft = rules.create(policy("0.50", false), buyer);
-        jdbc.update("DELETE FROM sys_config WHERE config_key=?", RuleSafetyConfiguration.PREFIX + "TBK.minimumMargin");
+        jdbc.update("DELETE FROM sys_config WHERE config_key=?", RuleSafetyConfiguration.PREFIX + "TBK.maximumActualCommission");
         assertTrue(assertThrows(IllegalStateException.class,
             () -> rules.publish(draft.id(), draft.revision(), buyer)).getMessage().contains("exactly one sys_config row"));
         assertTrue(rules.history(draft.id()).isEmpty());
@@ -385,11 +387,11 @@ public class RuleSettlementBridgeMySqlTest {
         return new RuleSettlementTermsBridge(qualified, configuration);
     }
     private RulePolicy withIncentives(RulePolicy p, List<RulePolicy.Incentive> incentives) {
-        return new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), p.maximumCommission(), p.minimumMargin(),
+        return new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), p.maximumCommission(),
             p.payoutCostRate(), p.minimumRebate(), p.targetedWithTier(), p.proportions(), incentives);
     }
     private RulePolicy withPayoutCost(RulePolicy p, String cost) {
-        return new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), p.maximumCommission(), p.minimumMargin(),
+        return new RulePolicy(p.platform(), p.serviceRate(), p.jdNonSelfRate(), p.maximumCommission(),
             bd(cost), p.minimumRebate(), p.targetedWithTier(), p.proportions(), p.incentives());
     }
     private BigDecimal benefit(SettlementTermsPort.Terms terms, String type) {
@@ -403,17 +405,16 @@ public class RuleSettlementBridgeMySqlTest {
             bd(ordinary), target, 0, 0, null, List.of());
         var incentive = new RulePolicy.Incentive("referral", RulePolicy.IncentiveKind.INVITATION_COMMISSION,
             bd("0"), bd("0.50"), 0, 0, null, null);
-        return new RulePolicy(Platform.TBK, bd("0.10"), bd("0"), bd("20"), bd("-0.01"), bd("0"),
+        return new RulePolicy(Platform.TBK, bd("0.10"), bd("0"), bd("20"), bd("0"),
             bd("0"), false, List.of(base), referral ? List.of(incentive) : List.of());
     }
     private RuleDocuments.Version publish(RulePolicy policy) {
         var draft = rules.create(policy, buyer);
         return rules.publish(draft.id(), draft.revision(), buyer);
     }
-    private void safety(String max, String min) {
-        for (var entry : Map.of("maximumActualCommission", max, "minimumMargin", min).entrySet())
-            jdbc.update("INSERT INTO sys_config(config_name,config_key,config_value,config_type) VALUES(?,?,?,'N')",
-                "Synthetic rule bridge test ONLY", RuleSafetyConfiguration.PREFIX + "TBK." + entry.getKey(), entry.getValue());
+    private void safety(String max) {
+        jdbc.update("INSERT INTO sys_config(config_name,config_key,config_value,config_type) VALUES(?,?,?,'N')",
+            "Synthetic rule bridge test ONLY", RuleSafetyConfiguration.PREFIX + "TBK.maximumActualCommission", max);
     }
     private void configureFreeze(long seconds) {
         var freeze = new ConfiguredSettlementFreezePort.Configuration(

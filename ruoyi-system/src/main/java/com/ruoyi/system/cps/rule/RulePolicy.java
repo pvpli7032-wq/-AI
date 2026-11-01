@@ -7,9 +7,10 @@ import java.util.Set;
 import com.ruoyi.union.adapter.Platform;
 
 /** Complete immutable publication unit. Fractions, not percentages. No production defaults.
- * minimumRebate is a rounded rebate floor, including at zero commission, and is fully costed. */
+ * minimumRebate is a rounded rebate floor, including at zero commission, and is fully costed.
+ * Legacy snapshots may contain a now-ignored minimumMargin JSON property. */
 public record RulePolicy(Platform platform, BigDecimal serviceRate, BigDecimal jdNonSelfRate,
-        BigDecimal maximumCommission, BigDecimal minimumMargin, BigDecimal payoutCostRate,
+        BigDecimal maximumCommission, BigDecimal payoutCostRate,
         BigDecimal minimumRebate, boolean targetedWithTier, List<Proportion> proportions,
         List<Incentive> incentives) {
     public RulePolicy {

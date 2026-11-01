@@ -21,7 +21,7 @@ public class AuditedPaymentInvitationAdapter implements PaymentInvitationSnapsho
     private record Audit(long id, Long inviter, String eventType) {}
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public Optional<Snapshot> findAtPayment(Platform platform, String orderNo, String subOrderNo,
             Long buyerUserId, Instant paidAt) {
         if (platform == null || orderNo == null || orderNo.isBlank() || buyerUserId == null

@@ -87,8 +87,9 @@ export default {
     handleQuery() { this.queryParams.pageNum = 1; this.getList() },
     updatePage() {},
     resetQuery() { this.resetForm('queryForm'); this.queryParams.pageNum = 1; this.getList() },
-    canAssign(row) { return row.status === 'OPEN' && !this.isExpired(row.expiresAt) },
-    actionTitle(row) { if (row.status === 'PLATFORM' || this.isExpired(row.expiresAt)) return '已到期订单不可认领'; if (row.status === 'BLOCKED') return '屏蔽 PID 下的订单不可认领'; if (row.status !== 'OPEN') return '当前状态不可认领'; return '' },
+    isBlocked(row) { return row.status === 'BLOCKED' || row.reason === 'BLOCKED_PID' },
+    canAssign(row) { return row.status === 'OPEN' && !this.isBlocked(row) && !this.isExpired(row.expiresAt) },
+    actionTitle(row) { if (this.isBlocked(row)) return '屏蔽 PID 下的订单不可认领'; if (row.status === 'PLATFORM' || this.isExpired(row.expiresAt)) return '已到期订单不可认领'; if (row.status !== 'OPEN') return '当前状态不可认领'; return '' },
     openAssign(row) { this.selected = row; this.assignForm = { userId: undefined, reason: '' }; this.assignOpen = true },
     submitAssign() {
       this.$refs.assignForm.validate(valid => {

@@ -5,6 +5,11 @@ import java.math.RoundingMode;
 import java.util.Date;
 import java.util.List;
 import java.util.TreeSet;
+import java.util.Map;
+import java.util.Objects;
+import com.ruoyi.system.cps.ledger.AccountType;
+import com.ruoyi.system.cps.ledger.LedgerPosting;
+import com.ruoyi.system.cps.ledger.PostingCommand;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -52,7 +57,10 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
     private SysWechatUserMapper wechatUserMapper;
 
     @Autowired
-    private com.ruoyi.system.mapper.SysTbkAgentApplyMapper agentApplyMapper;
+    private org.springframework.jdbc.core.JdbcTemplate ledgerJdbc;
+
+    @Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.ruoyi.system.cps.settlement.PaymentInvitationSnapshotPort> paymentInvitationSnapshotPorts;
 
     /**
      * 计算订单佣金
@@ -70,6 +78,8 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         Long buyerUserId,
         String orderTime)
     {
+        if (buyerUserId == null || buyerUserId <= 0 || estimatedCommission == null || estimatedCommission.signum() < 0)
+            throw new ServiceException("购买用户和预估佣金无效");
         // 检查订单是否已存在
         SysOrderCommission existingOrder = orderCommissionMapper
             .selectSysOrderCommissionByOrderIdAndPlatformType(orderId, platformType);
@@ -92,40 +102,38 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         // 将String类型的orderTime转换为Date类型
         try {
             java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            sdf.setLenient(false);
             orderCommission.setOrderTime(sdf.parse(orderTime));
-        } catch (java.text.ParseException e) {
-            orderCommission.setOrderTime(new Date());
+            // Legacy orderTime is creation time, NOT trusted payment evidence.
+        } catch (java.text.ParseException | NullPointerException e) {
+            throw new ServiceException("缺少有效的下单时间");
         }
         orderCommission.setOrderStatus("pending"); // 待结算
         orderCommission.setSettleStatus("unsettled"); // 未结算
         orderCommission.setCreateTime(new Date());
 
-        // 查询购买用户的代理申请信息，判断是否有推荐人
-        com.ruoyi.system.domain.SysTbkAgentApply buyerAgentApply = agentApplyMapper.selectByUserId(buyerUserId);
-        if (buyerAgentApply == null)
-        {
-            throw new RuntimeException("用户不是代理，无法计算佣金");
-        }
+        // Existence only: the current invitation relationship is never payment-time evidence.
+        if (ledgerJdbc.queryForObject("SELECT COUNT(*) FROM sys_wechat_user WHERE user_id=?", Long.class, buyerUserId) != 1)
+            throw new ServiceException("购买用户不存在或不唯一");
+        // This legacy API has no trusted paidAt. Ordinary buyer rebate continues, referral is zero.
+        Long inviterId = null;
 
         // 获取佣金配置
         BigDecimal selfRate = getSelfCommissionRate();
         BigDecimal promotionRate = getPromotionCommissionRate();
 
-        // 判断是否有推荐人（基于代理申请表的 referrer_invitation_code 字段）
-        boolean hasReferrer = buyerAgentApply.getReferrerInvitationCode() != null 
-            && !buyerAgentApply.getReferrerInvitationCode().isEmpty();
+        boolean hasReferrer = inviterId != null;
         
         orderCommission.setHasReferrer(hasReferrer ? "1" : "0");
 
         if (hasReferrer)
         {
-            // 有推荐人：根据推荐人邀请码查找推荐人的代理申请信息
-            com.ruoyi.system.domain.SysTbkAgentApply referrerAgentApply = agentApplyMapper
-                .selectByInvitationCode(buyerAgentApply.getReferrerInvitationCode());
-            
-            if (referrerAgentApply != null)
+            // An inactive/deleted inviter cannot receive a new commission.
+            boolean activeInviter = ledgerJdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_user WHERE user_id=? AND status='0' AND del_flag='0'", Long.class, inviterId) == 1;
+            if (activeInviter)
             {
-                orderCommission.setReferrerUserId(referrerAgentApply.getUserId());
+                orderCommission.setReferrerUserId(inviterId);
                 
                 // 计算自购佣金（购买者获得）
                 BigDecimal selfCommissionAmount = estimatedCommission
@@ -133,7 +141,7 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
                     .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
                 
                 // 计算推广佣金（推荐人获得）
-                BigDecimal promotionCommissionAmount = estimatedCommission
+                BigDecimal promotionCommissionAmount = selfCommissionAmount
                     .multiply(promotionRate)
                     .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
                 
@@ -175,6 +183,14 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
 
         // 保存订单佣金记录
         orderCommissionMapper.insertSysOrderCommission(orderCommission);
+        if (orderCommission.getId() == null) throw new ServiceException("Missing persisted order line ID");
+        var line = new com.ruoyi.union.adapter.UnionOrderLine(
+            com.ruoyi.union.adapter.Platform.valueOf(platformType.toUpperCase(java.util.Locale.ROOT)),
+            orderId, null, itemId, null, null, orderAmount, estimatedCommission, null,
+            "pending", null, null, null);
+        // Uses this method's transaction. Persist unknown/manual even without a line 9 port.
+        new com.ruoyi.system.cps.settlement.PaymentInvitationSnapshotService(ledgerJdbc, paymentInvitationSnapshotPorts)
+            .resolve(orderCommission.getId(), buyerUserId, line);
 
         return orderCommission;
     }
@@ -195,6 +211,7 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
             throw new RuntimeException("订单佣金记录不存在");
         }
 
+        rejectEventManagedLegacyPosting(orderCommission);
         if (actualCommission == null || actualCommission.signum() < 0)
         {
             throw new ServiceException("实际佣金必须为非负金额");
@@ -235,7 +252,7 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         BigDecimal actualPromotionAmount = BigDecimal.ZERO;
         if ("1".equals(orderCommission.getHasReferrer()) && orderCommission.getReferrerUserId() != null)
         {
-            actualPromotionAmount = actualCommission
+            actualPromotionAmount = actualSelfAmount
                 .multiply(orderCommission.getPromotionCommissionRate())
                 .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
         }
@@ -282,6 +299,7 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
             throw new RuntimeException("订单佣金记录不存在");
         }
 
+        rejectEventManagedLegacyPosting(orderCommission);
         if ("refunded".equals(orderCommission.getOrderStatus()))
         {
             return true;
@@ -324,6 +342,14 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         return true;
     }
 
+    /** Legacy admin commands carry neither an alliance event key nor cumulative recovery.
+     * Never let them post a second time for orders owned by the event settlement engine. */
+    private void rejectEventManagedLegacyPosting(SysOrderCommission order)
+    {
+        if (order.getLineStatus() != null)
+            throw new ServiceException("事件管理订单必须经结算事件处理，旧结算/退款入口不可入账");
+    }
+
     private BigDecimal refundableIncome(Long userId, String type, Long orderId, BigDecimal legacyAmount)
     {
         List<SysCommissionFlow> incomes = flowMapper.selectIncomeForOrder(userId, type, orderId);
@@ -363,6 +389,10 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         {
             throw new ServiceException("原流水不存在或缺少必要数据");
         }
+        // Contract transfers store a positive transfer amount (unlike signed legacy flows).
+        // Never let the legacy reversal endpoint reinterpret a withdrawal reservation as income.
+        if (original.getIdempotencyKey() != null)
+            throw new ServiceException("带业务幂等键的账本分录不能使用旧冲正入口");
         String type = original.getFlowType();
         if (!("income_self".equals(type) || "income_promotion".equals(type) || "withdraw".equals(type)))
         {
@@ -565,6 +595,127 @@ public class CommissionCalculateServiceImpl implements ICommissionCalculateServi
         {
             throw new ServiceException("佣金账户更新失败");
         }
+    }
+
+    /** Contract postings join the caller's transaction (including withdrawal state changes).
+     * Positive amount describes one balanced transfer; balance_before/after refer to available money.
+     * Legacy order_commission_id is intentionally null: event identity is the contract business key.
+     */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public LedgerPosting updateUserAccount(PostingCommand c)
+    {
+        validatePosting(c);
+        if (!TransactionSynchronizationManager.isActualTransactionActive())
+            throw new IllegalStateException("账户入账必须在事务中执行");
+        accountMapper.ensureAccount(c.userId());
+        SysAgentCommissionAccount a = accountMapper.selectByUserIdForUpdate(c.userId());
+        var debit = c.debitAccount();
+        var credit = c.creditAccount();
+        var available = AccountType.USER_AVAILABLE;
+        var frozen = AccountType.USER_FROZEN;
+        var withdrawing = AccountType.USER_WITHDRAWING;
+        var payout = AccountType.PAYOUT;
+        BigDecimal before = a.getBalance(), amount = c.amount();
+        if (debit == available) a.setBalance(a.getBalance().subtract(amount));
+        if (credit == available) a.setBalance(a.getBalance().add(amount));
+        if (debit == frozen) a.setFrozenAmount(a.getFrozenAmount().subtract(amount));
+        if (credit == frozen) a.setFrozenAmount(a.getFrozenAmount().add(amount));
+        if (debit == withdrawing) a.setWithdrawingAmount(a.getWithdrawingAmount().subtract(amount));
+        if (credit == withdrawing) a.setWithdrawingAmount(a.getWithdrawingAmount().add(amount));
+        if (credit == payout) a.setWithdrawn(a.getWithdrawn().add(amount));
+        // INSERT first avoids locking missing business keys (gap-lock deadlocks between users).
+        // Only the caller's transaction commits this row; any admission error below rolls it back.
+        try
+        {
+            ledgerJdbc.update("INSERT INTO sys_commission_flow(user_id,flow_type,amount,balance_before,balance_after,"
+                    + "related_order_id,business_type,business_id,account,debit_account,credit_account,idempotency_key,"
+                    + "description,operator_id,create_time) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP(3))",
+                c.userId(), c.type(), amount, before, a.getBalance(), c.orderLineId() == null ? null : c.orderLineId().toString(),
+                c.businessType(), c.businessId(), c.account().name(), debit.name(), credit.name(), c.businessKey(), c.reason(), c.operatorId());
+        }
+        catch (DuplicateKeyException duplicate)
+        {
+            return replayPosting(c, duplicate);
+        }
+        if (credit == withdrawing && (!"0".equals(a.getStatus()) || before.compareTo(amount) < 0))
+            throw new ServiceException("账户不可提现或可提现余额不足");
+        if (a.getFrozenAmount().signum() < 0 || a.getWithdrawingAmount().signum() < 0)
+            throw new ServiceException("冻结或提现中金额不足");
+        // Prevent competing terminal postings from consuming another withdrawal's reservation.
+        if (debit == withdrawing)
+        {
+            List<Map<String, Object>> applications = ledgerJdbc.queryForList(
+                "SELECT user_id,amount FROM sys_commission_flow WHERE business_type='WITHDRAW_APPLY' AND business_id=? FOR UPDATE",
+                c.businessId());
+            if (applications.size() != 1
+                || ((Number) applications.getFirst().get("user_id")).longValue() != c.userId()
+                || amount.compareTo((BigDecimal) applications.getFirst().get("amount")) != 0
+                || ledgerJdbc.queryForObject("SELECT COUNT(*) FROM sys_commission_flow WHERE business_id=? "
+                    + "AND business_type IN ('WITHDRAW_SUCCESS','WITHDRAW_RETURN') AND idempotency_key<>? FOR UPDATE",
+                    Long.class, c.businessId(), c.businessKey()) != 0)
+                throw new ServiceException("提现预留不存在或已处理");
+        }
+        BigDecimal earnings = BigDecimal.ZERO;
+        if (debit == frozen && credit == available) earnings = amount;
+        if (debit == available && (credit == AccountType.REBATE_COST || credit == AccountType.REWARD_COST))
+            earnings = amount.negate();
+        a.setTotalEarned(a.getTotalEarned().add(earnings));
+        if ("income_self".equals(c.type()) || "refund_self".equals(c.type()))
+            a.setSelfEarned(a.getSelfEarned().add(earnings));
+        if ("income_promotion".equals(c.type()) || "refund_promotion".equals(c.type()))
+            a.setPromotionEarned(a.getPromotionEarned().add(earnings));
+        // Existing updateUserAccount boundary owns every balance write, including the new pockets.
+        if (accountMapper.updateSysAgentCommissionAccount(a) != 1) throw new ServiceException("佣金账户更新失败");
+        ledgerJdbc.update("UPDATE sys_agent_commission_account SET withdrawing_amount=?,version=version+1 WHERE user_id=?",
+            a.getWithdrawingAmount(), c.userId());
+        Long id = ledgerJdbc.queryForObject("SELECT id FROM sys_commission_flow WHERE idempotency_key=?", Long.class, c.businessKey());
+        return new LedgerPosting(id, c.businessKey(), a.getBalance(), false);
+    }
+
+    private LedgerPosting replayPosting(PostingCommand c, DuplicateKeyException duplicate)
+    {
+        List<Map<String, Object>> prior = ledgerJdbc.queryForList(
+            "SELECT * FROM sys_commission_flow WHERE idempotency_key=? OR "
+                + "(business_type=? AND business_id=? AND account=?) FOR UPDATE",
+            c.businessKey(), c.businessType(), c.businessId(), c.account().name());
+        if (prior.isEmpty()) throw duplicate;
+        Map<String, Object> row = prior.getFirst();
+        if (prior.size() != 1 || !c.businessKey().equals(row.get("idempotency_key"))
+            || !c.businessType().equals(row.get("business_type")) || !c.businessId().equals(row.get("business_id"))
+            || !c.userId().equals(((Number) row.get("user_id")).longValue())
+            || !c.type().equals(row.get("flow_type")) || !c.account().name().equals(row.get("account"))
+            || !c.debitAccount().name().equals(row.get("debit_account"))
+            || !c.creditAccount().name().equals(row.get("credit_account"))
+            || !Objects.equals(c.orderLineId() == null ? null : c.orderLineId().toString(), row.get("related_order_id"))
+            || c.amount().compareTo((BigDecimal) row.get("amount")) != 0)
+            throw new ServiceException("幂等键已用于不同分录");
+        return new LedgerPosting(((Number) row.get("id")).longValue(), c.businessKey(),
+            (BigDecimal) row.get("balance_after"), true);
+    }
+
+    private void validatePosting(PostingCommand c)
+    {
+        if (c == null || c.userId() == null || c.userId() <= 0 || c.amount() == null || c.amount().signum() <= 0
+            || c.amount().stripTrailingZeros().scale() > 2 || c.amount().precision() - c.amount().scale() > 12
+            || c.account() == null || c.account() != c.debitAccount() || c.creditAccount() == null)
+            throw new ServiceException("无效账本分录");
+        if (c.businessKey() == null || c.businessKey().isBlank() || c.businessKey().length() > 128
+            || c.businessType() == null || c.businessType().isBlank() || c.businessType().length() > 64
+            || c.businessId() == null || c.businessId().isBlank() || c.businessId().length() > 128
+            || c.type() == null || c.type().isBlank() || c.type().length() > 20
+            || c.reason() == null || c.reason().length() > 500)
+            throw new ServiceException("分录缺少有效业务标识");
+        String route = c.debitAccount().name() + ":" + c.creditAccount().name();
+        boolean legal = switch (route) {
+            case "REBATE_COST:USER_FROZEN", "REWARD_COST:USER_FROZEN", "USER_FROZEN:USER_AVAILABLE",
+                 "USER_FROZEN:REBATE_COST", "USER_FROZEN:REWARD_COST", "USER_AVAILABLE:REBATE_COST",
+                 "USER_AVAILABLE:REWARD_COST" -> !c.businessType().startsWith("WITHDRAW_");
+            case "USER_AVAILABLE:USER_WITHDRAWING" -> "WITHDRAW_APPLY".equals(c.businessType());
+            case "USER_WITHDRAWING:PAYOUT" -> "WITHDRAW_SUCCESS".equals(c.businessType());
+            case "USER_WITHDRAWING:USER_AVAILABLE" -> "WITHDRAW_RETURN".equals(c.businessType());
+            default -> false;
+        };
+        if (!legal) throw new ServiceException("不支持的账本路径");
     }
 
     /** 多个账户按固定顺序加锁，避免互为推荐人的并发订单交叉锁定。 */

@@ -1,6 +1,6 @@
 # 开发约定
 
-业务依据见 `docs/plan.md`，任务见 `docs/tasks/`。
+接手先读 `docs/handover.md`。业务依据见 `docs/plan.md`，任务见 `docs/tasks/`。
 
 ## 目录结构
 

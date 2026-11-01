@@ -1,57 +1,22 @@
 # 开发约定
 
-本文件给所有写代码的代理和开发者看。业务依据见 `docs/plan.md`，任务见 `docs/tasks/`。
+业务依据见 `docs/plan.md`，任务见 `docs/tasks/`。
 
-## 工作方式
+## 目录结构
 
-- 一个任务一个 PR，只改任务单列出的范围。发现范围外的问题，写进 PR 说明，不要顺手改。
-- 需求不清楚时在 PR 里提问，不要猜业务规则。
-- 不做方案没要求的功能。
-- 这是公开仓库：不提交密钥、真实推广位、用户数据、真实返利比例和风控阈值。业务数值放后台配置，种子数据用明显的假值。
+遵守项目目录结构，不要在下面约定的位置以外新建文件或写代码，也不要新建顶层目录。
 
-## 多线并行
-
-- 分工见 `docs/tasks/parallel.md`。只改自己这条线列出的文件。必须改别的线的文件时，停下并在 PR 里说明。
-- 分支名用 `codex/line-N-<内容>`，从最新的 `main` 拉出。
-- 开 PR 前同步最新的 `main`，有冲突自己解决，并重新跑验收。
-- 迁移脚本用自己这条线的编号段。
-- 改动范围和迁移编号由 CI 按 `.github/pr-scope.conf` 检查（`scripts/check-pr-scope.sh`）。越界时停下，在 PR 里说明，不要改清单或脚本绕过。
-- 清单和检查脚本只能由 `chore/guardrails-*` 分支修改。
-
-## 技术约定
-
-- 后端 Java 21、Spring Boot 4；后台 Vue 2 + Element UI；小程序为原生框架。
-- **默认在基座现有代码上增加功能。** 对不上的地方补字段、修路径，缺的功能新增。
-- **替换或删除旧模块：** 能让项目规划更好时允许，但不能在开发中顺手做。必须先由用户同意并写进任务单，列出影响范围，登记到 `.github/pr-scope.conf`，用新逻辑的测试覆盖后再删。代码删除和数据删除分开：删表、删数据只写脚本，由用户确认后执行。
-- 新功能按现有模块放：联盟接口在 `ruoyi-union-sdk`，业务逻辑在 `ruoyi-system`，接口在 `ruoyi-admin`，定时任务在 `ruoyi-quartz`。
-- 现有表加字段；新增的表用 `cps_` 前缀，对应 `docs/plan.md` 第 5.3 节。
-- 配置中的 `${VAR}` 没有默认值，缺变量应用启动会失败。新增变量同步到 `.env.example`，值留空。
-- 改表只新增迁移脚本，不修改已合并的脚本。
-- 除 `ruoyi-union-sdk/lib` 下的三家联盟 SDK 外，不提交 jar 文件。
-- 占位 SDK 由 `scripts/build-sdk-stub.sh` 生成，只用于编译和测试，不提交，不能上线。真实调用三家官方接口前必须完成 T05。
-- **任务必须全部做完才能报完成。** 中途卡住要如实说卡在哪、做了哪些、没做哪些，不得报完成，也不得跳过测试或把未做的写成已做。报完成时逐项对照任务单，附分支、提交号、PR 和 CI 结果；验收只看远端代码和 CI 原始日志，查出谎报就退回重做。
-
-## 金额和账务硬规则
-
-这些规则任何任务都不能违反：
-
-- 金额用 `BigDecimal`，禁止 `double` 和 `float`。用户金额算到分，四舍五入（`HALF_UP`）。
-- 账户余额只能经统一的入账方法改变（基于 `CommissionCalculateServiceImpl.updateUserAccount`），其他代码不能直接更新余额。
-- 流水只追加，不修改、不删除；纠错用冲正分录。
-- 任何入账、追回、提现都要有唯一键保证幂等，重复执行结果不变。
-- 改余额必须锁账户行或用版本号，禁止先读后写。
-- 订单以子订单为单位，唯一键是平台 + 订单号 + 子订单号。
-- 订单状态只能按合法路径流转，非法跳转记录异常，不强行修改。
-- 用户身份只从登录态取，不信任请求参数里的 userId、pid、邀请码。
-- 提现单号就是打款幂等号。结果不明时只查询，不换号重发。
-
-## 测试
-
-- 账务、归因、规则、订单状态的改动，必须有覆盖异常场景的测试，用例依据 `docs/plan.md` 第 4.6 节。
-- 涉及锁和 SQL 行为的测试用真实 MySQL，不用内存库代替。
-- 不要为了通过测试修改已有验收用例。认为用例有误时，在 PR 里说明。
-- 联盟接口用模拟返回测试，不调用真实接口。
-
-## PR 要求
-
-PR 说明写清：改了什么、验收命令及原始输出、没做到的部分。没有实际跑过的不要写成已通过。
+| 内容 | 位置 |
+|---|---|
+| 联盟接口 | `ruoyi-union-sdk/src/main/java/com/ruoyi/union/` |
+| 业务逻辑 | `ruoyi-system/src/main/java/com/ruoyi/system/cps/<业务包>/` |
+| Mapper XML | `ruoyi-system/src/main/resources/mapper/cps/` |
+| 小程序接口 | `ruoyi-admin/src/main/java/com/ruoyi/web/controller/miniapp/` |
+| 后台接口 | `ruoyi-admin/src/main/java/com/ruoyi/web/controller/cps/` |
+| 定时任务 | `ruoyi-quartz/src/main/java/com/ruoyi/quartz/task/` |
+| 数据库迁移 | `ruoyi-admin/src/main/resources/db/migration/` |
+| 后台页面 | `ruoyi-ui/src/views/`、`ruoyi-ui/src/api/`、`ruoyi-ui/src/router/` |
+| 小程序 | `tbk-miniapp/` |
+| 测试 | 对应模块的 `src/test/` |
+| 文档 | `docs/`，设计规格放 `design/` |
+| 脚本 | `scripts/` |

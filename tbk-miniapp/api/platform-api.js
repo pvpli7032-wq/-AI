@@ -7,6 +7,14 @@ const request = require('../utils/request.js');
 const { PLATFORM_TYPES, getPlatformConfig } = require('../config/platform.js');
 const { getAdapter } = require('../utils/tbk-adapter.js');
 
+// 归属由服务端从登录态和自己的推广池决定，兼容调用方也不能透传身份参数。
+function productParams(params = {}) {
+  const result = { ...params };
+  ['userId', 'pid', 'invitationCode', 'inviteCode', 'positionId', 'subUnionId',
+    'custom_parameters', 'relationId', 'relation_id'].forEach(key => delete result[key]);
+  return result;
+}
+
 /**
  * 获取商品列表
  * @param {String} platform - 平台类型 (tbk/jd/pdd)，可选
@@ -41,7 +49,7 @@ function getGoodsList(platform, params) {
   const apiPath = `${platformConfig.apiPrefix}/goods/list`;
   
   // 调用接口
-  return request.publicGet(apiPath, params)
+  return request.optionalGet(apiPath, productParams(params))
     .then(res => {
       // 使用对应平台的适配器转换数据
       const adapter = getAdapter(platform);
@@ -77,7 +85,7 @@ function getHotGoods(platform, params) {
   
   const apiPath = `${platformConfig.apiPrefix}/goods/hot`;
   
-  return request.publicGet(apiPath, params)
+  return request.optionalGet(apiPath, productParams(params))
     .then(res => {
       const adapter = getAdapter(platform);
       // adaptGoodsList已返回商品数组，直接返回即可
@@ -113,14 +121,28 @@ function getGoodsDetail(platform, params) {
     return Promise.reject(new Error('商品ID不能为空'));
   }
   
-  const apiPath = `${platformConfig.apiPrefix}/goods/detail`;
-  
-  return request.publicGet(apiPath, { id: params.id })
+  let apiPath = `${platformConfig.apiPrefix}/goods/detail`;
+  let detailParams = { id: params.id };
+  if ([PLATFORM_TYPES.TBK, PLATFORM_TYPES.DTK, PLATFORM_TYPES.HDK].includes(platform)) {
+    apiPath = `${platformConfig.apiPrefix}/goods/${encodeURIComponent(params.id)}`;
+    detailParams = {};
+  } else if (platform === PLATFORM_TYPES.JD) {
+    apiPath = `${platformConfig.apiPrefix}/getGoodsDetail`;
+    detailParams = { skuIds: params.id };
+  } else if (platform === PLATFORM_TYPES.PDD) {
+    apiPath = `${platformConfig.apiPrefix}/goods/detail`;
+    detailParams = { goodsIdList: JSON.stringify([String(params.id)]) };
+  }
+  return request.optionalGet(apiPath, detailParams)
     .then(res => {
       const adapter = getAdapter(platform);
+      const goods = adapter.adaptGoodsDetail(res);
       return {
         ...res,
-        data: adapter.adaptGoodsDetail(res)
+        data: goods ? {
+          ...goods,
+          estimatedRebate: res.data && (res.data.estimatedRebate ?? res.data.shownRebate ?? res.data.rebateAmount)
+        } : null
       };
     });
 }
@@ -156,7 +178,7 @@ function getCategoryList(params = {}) {
  * @param {Object} params - 查询参数
  * @param {String} params.platform - 平台类型
  * @param {String} params.id - 商品ID
- * @param {String} params.positionId - 推广位ID（可选）
+ * 推广位由服务端选择。
  * @returns {Promise}
  */
 function getPromotionLink(params = {}) {
@@ -173,7 +195,7 @@ function getPromotionLink(params = {}) {
   
   const apiPath = `${platformConfig.apiPrefix}/promotion/link`;
   
-  return request.get(apiPath, params);
+  return request.optionalGet(apiPath, productParams(params));
 }
 
 /**
@@ -181,7 +203,7 @@ function getPromotionLink(params = {}) {
  * @param {Object} params - 参数
  * @param {String} params.platform - 平台类型
  * @param {String} params.text - 文案
- * @param {String} params.url - 推广链接
+ * @param {String} params.goodsId - 商品ID，由服务端生成推广链接
  * @param {String} params.logo - 商品图片（可选）
  * @returns {Promise}
  */
@@ -198,7 +220,9 @@ function generateCode(params = {}) {
     ? `${platformConfig.apiPrefix}/getTpwd`
     : `${platformConfig.apiPrefix}/getJdCode`;
   
-  return request.publicGet(apiPath, params);
+  const goodsId = params.goodsId || params.id || params.itemId;
+  if (!goodsId) return Promise.reject(new Error('商品ID不能为空，请重新打开商品'));
+  return request.optionalGet(apiPath, { goodsId, text: params.text, logo: params.logo });
 }
 
 /**
@@ -210,7 +234,7 @@ function generateCode(params = {}) {
  * @param {String} params.couponId - 优惠券ID（大淘客可选）
  * @param {String} params.goodsName - 商品名称（大淘客可选，用于设置淘口令右符号）
  * @param {String} params.text - 文案（淘宝客需要）
- * @param {String} params.url - 推广链接（淘宝客需要）
+ * 淘宝推广链接由服务端生成，不接受客户端指定推广位。
  * @param {String} params.logo - 商品图片（可选）
  * @param {String} params.itemId - 商品ID（京东需要）
  * @returns {Promise}
@@ -274,8 +298,8 @@ function getTpwd(platform, params) {
     console.log('→ 匹配到淘宝客或其他平台');
     apiPath = `${platformConfig.apiPrefix}/getTpwd`;
     requestParams = {
+      goodsId: params.goodsId || params.itemId || params.id,
       text: params.text,
-      url: params.url,
       logo: params.logo
     };
   }
@@ -283,16 +307,21 @@ function getTpwd(platform, params) {
   console.log('最终API路径:', apiPath);
   console.log('最终请求参数:', requestParams);
   
-  // 传递邀请码和用户ID（如果有）
-  if (params.invitationCode) {
-    requestParams.invitationCode = params.invitationCode;
-  }
-  if (params.userId) {
-    requestParams.userId = params.userId;
-  }
-  
-  return request.publicGet(apiPath, requestParams)
+  return request.optionalGet(apiPath, productParams(requestParams))
     .then(res => {
+      // New server-generated values retain a type. URLs stay URLs and do not need a fabricated淘口令.
+      // DTK keeps its code=0/data envelope; other legacy endpoints return the value directly.
+      const payload = res && res.data && (typeof res.data.value === 'string' ? res.data
+        : (res.data.code === 0 && res.data.data && typeof res.data.data.value === 'string' ? res.data.data : null));
+      if (res && res.code === 200 && payload && payload.value) {
+        const data = { ...payload, data: { model: payload.value } };
+        if (payload.valueType === 'URL') {
+          data.clickURL = payload.value;
+          data.mobileShortUrl = payload.value;
+          data.promotionUrl = payload.value;
+        }
+        return { ...res, data };
+      }
       // 使用对应平台的适配器转换数据
       const adapter = getAdapter(platform);
       if (adapter.adaptTpwdResponse) {
@@ -335,7 +364,7 @@ function searchGoods(platform, params) {
   
   const apiPath = `${platformConfig.apiPrefix}/goods/search`;
   
-  return request.publicGet(apiPath, params)
+  return request.optionalGet(apiPath, productParams(params))
     .then(res => {
       const adapter = getAdapter(platform);
       // adaptGoodsList已返回商品数组，直接返回即可

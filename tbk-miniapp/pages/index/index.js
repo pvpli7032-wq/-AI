@@ -481,15 +481,7 @@ Page({
       params.keyword = this.data.searchKeyword;
     }
     
-    // 如果有推荐人邀请码，添加到请求参数
-    if (app.globalData.referralCode) {
-      params.invitationCode = app.globalData.referralCode;
-    }
-    
-    // 如果用户已登录且没有推荐人邀请码，传递用户ID用于查询代理信息
-    if (!params.invitationCode && app.globalData.userInfo && app.globalData.userInfo.userId) {
-      params.userId = app.globalData.userInfo.userId;
-    }
+    // 商品请求的身份只由当前 token 决定。
     
     // 使用新的平台API获取商品列表
     return platformApi.getGoodsList(this.data.currentPlatform, params)
@@ -700,28 +692,9 @@ Page({
       params.couponId = goods.couponId || '';
       params.goodsName = goods.title || '';
     } else {
-      // 淘宝客需要文案、链接和图片
-      let itemUrl = goods.clickUrl;
-      if (goods.couponShareUrl) {
-        itemUrl = goods.couponShareUrl;
-      }
-      
-      // 确保URL以https:开头
-      if (itemUrl && !itemUrl.startsWith('http')) {
-        itemUrl = 'https:' + itemUrl;
-      }
-      
+      // 服务端按商品 ID 重新转链，不沿用列表中的推广位。
       params.text = goods.title;
-      params.url = itemUrl;
       params.logo = goods.mainPic;
-    }
-    
-    // 如果有推荐人邀请码，添加到请求参数
-    if (app.globalData.referralCode) {
-      params.invitationCode = app.globalData.referralCode;
-    } else if (app.globalData.userInfo && app.globalData.userInfo.userId) {
-      // 如果没有邀请码，但用户已登录，传入用户ID
-      params.userId = app.globalData.userInfo.userId;
     }
     
     // 调用统一的getTpwd接口
@@ -862,15 +835,9 @@ Page({
    */
   onShareAppMessage() {
     const shareData = {
-      title: '实佣有你平台 - 优质商品·高额佣金',
+      title: '实佣有你平台 - 优质商品·查券返利',
       path: '/pages/index/index'
     };
-    
-    // 如果是代理，添加邀请码
-    if (this.data.isAgent && this.data.invitationCode) {
-      shareData.path += `?invitationCode=${this.data.invitationCode}`;
-      shareData.title = '我在实佣有你发现好货，快来看看吧！';
-    }
     
     return shareData;
   }

@@ -34,6 +34,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 小程序登录认证Controller
@@ -82,9 +85,11 @@ public class MiniappAuthController extends BaseController {
      */
     @Operation(summary = "小程序登录")
     @PostMapping("/login")
+    @Transactional(rollbackFor = Exception.class)
     public AjaxResult login(@RequestParam String code,
                            @RequestParam(required = false) String encryptedData,
-                           @RequestParam(required = false) String iv) {
+                           @RequestParam(required = false) String iv,
+                           @RequestParam(name = "invitationCode", required = false) String referralInvitationCode) {
         try {
             // 1. 调用微信接口获取session_key和openid
             WxMaJscode2SessionResult session = wxMaService.getUserService().getSessionInfo(code);
@@ -128,7 +133,11 @@ public class MiniappAuthController extends BaseController {
                     }
                 }
                 
-                wechatUserService.insertSysWechatUser(wechatUser);
+                if (StringUtils.isBlank(referralInvitationCode)) {
+                    wechatUserService.insertSysWechatUser(wechatUser);
+                } else {
+                    wechatUserService.insertFirstAuthorizedUser(wechatUser, referralInvitationCode);
+                }
             } else {
                 // 6. 已存在用户，获取用户信息
                 sysUser = userService.selectUserById(wechatUser.getUserId());
@@ -162,7 +171,8 @@ public class MiniappAuthController extends BaseController {
             // 8. 查询代理状态
             SysTbkAgentApply agentApply = tbkAgentApplyService.selectByUserId(sysUser.getUserId());
             boolean isAgent = agentApply != null && "1".equals(agentApply.getStatus());
-            String invitationCode = (agentApply != null && isAgent) ? agentApply.getInvitationCode() : "";
+            String invitationCode = wechatUserService.ensureInvitationCode(sysUser.getUserId());
+            wechatUser.setInvitationCode(invitationCode);
 
             // 9. 查询代理用户绑定的联盟平台列表（优化：登录时一并返回，避免二次请求）
             List<SysUnionPlatform> boundPlatforms = new ArrayList<>();
@@ -187,6 +197,9 @@ public class MiniappAuthController extends BaseController {
             return ajax;
 
         } catch (Exception e) {
+            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            }
             log.error("小程序登录失败", e);
             return AjaxResult.error("登录失败：" + e.getMessage());
         }
@@ -246,7 +259,8 @@ public class MiniappAuthController extends BaseController {
         // 查询代理状态
         SysTbkAgentApply agentApply = tbkAgentApplyService.selectByUserId(user.getUserId());
         boolean isAgent = agentApply != null && "1".equals(agentApply.getStatus());
-        String invitationCode = (agentApply != null && isAgent) ? agentApply.getInvitationCode() : "";
+        String invitationCode = wechatUserService.ensureInvitationCode(user.getUserId());
+        if (wechatUser != null) wechatUser.setInvitationCode(invitationCode);
         
         // 查询代理用户绑定的联盟平台列表
         List<SysUnionPlatform> boundPlatforms = new ArrayList<>();

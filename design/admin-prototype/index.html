@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>返利管理后台</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>.prio{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.prio div{padding:10px 12px;background:#f5f7fa;border-radius:6px;font-size:13px;color:#4b5563}.prio b{display:block;color:#18243a;font-size:14px;margin-bottom:2px}.tcat{background:#f5f7fa}.tsub{padding-left:28px}.dlg.wide2{width:min(1000px,94vw)}.ovbar{flex-wrap:wrap;gap:8px}.ovs{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}.ov{all:unset;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:8px;color:#fff;cursor:pointer}.ov:focus-visible,.tile:focus-visible{outline:2px solid #1f6fd1;outline-offset:2px}.ov-a{background:#1f5fb4}.ov-b{background:#18243a}.ov-c{background:#a8232d}.ovt{font-size:16px;font-weight:600}.ovm{display:grid;grid-template-columns:repeat(3,auto);justify-content:space-between;gap:12px 14px}.ovi{display:flex;flex-direction:column;gap:2px}.ovi b{font-size:15px;font-variant-numeric:tabular-nums}.ovi small{font-size:12px;color:#e6ecf5}.ovf{font-size:12px;color:#e6ecf5;border-top:1px solid rgba(255,255,255,.3);padding-top:8px}.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}.tile{all:unset;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:2px;padding:12px 8px;background:#f5f7fa;border-radius:6px;cursor:pointer}.tile:hover{background:#e8f1fc}.tile strong{font-size:19px;font-variant-numeric:tabular-nums}.tile span{font-size:13px;color:#4b5563}.tile.hl{background:#e8f6ec}.tile.hl strong{color:#166534}.chart{display:flex;align-items:flex-end;gap:3px;height:230px;margin-top:12px;overflow-x:auto;overflow-y:hidden}.cb{flex:1 0 14px;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px}.cb i{display:block;width:100%;background:#1f6fd1;border-radius:2px 2px 0 0}.cb:hover i{background:#1558a8}.cb small{height:16px;font-size:11px;color:#4b5563;white-space:nowrap}body{margin:0}
+.app{display:flex;flex-wrap:wrap;min-height:1000px;background:#f2f4f7;color:#1f2937;font:14px/1.5 "PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+.side{flex:1 1 216px;background:#18243a;color:#c7d0dd;padding-bottom:24px}
+.brand{height:56px;display:flex;align-items:center;padding:0 20px;color:#fff;font-size:16px;font-weight:600}
+.gt{padding:16px 20px 6px;font-size:12px;color:#9fb0c6}
+.side a{display:block;padding:9px 20px;color:#c7d0dd;text-decoration:none}
+.side a:hover{color:#fff}
+.side a.on{background:#1f6fd1;color:#fff}
+.main{flex:999 1 560px;min-width:0}
+.top{height:56px;background:#fff;border-bottom:1px solid #e4e7ec;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 24px}
+.crumb{color:#4b5563}.crumb b{color:#1f2937;font-weight:600}
+.sample{font-size:12px;color:#92400e;background:#fef3c7;padding:2px 8px;border-radius:3px}
+.body{padding:20px 24px;display:flex;flex-direction:column;gap:16px}
+.card{background:#fff;border:1px solid #e4e7ec;border-radius:6px;padding:16px 20px}
+.card h2{margin:0 0 12px;font-size:15px;font-weight:600}
+.btn{height:32px;padding:0 14px;border:1px solid #cdd3dc;border-radius:4px;background:#fff;color:#1f2937;font:inherit;font-size:13px}
+.btn.pri{background:#1f6fd1;border-color:#1f6fd1;color:#fff}
+.btn.dan{border-color:#c02626;color:#b91c1c}
+.btn:disabled{background:#eef1f5;border-color:#dfe3e9;color:#6b7280}
+.link{border:0;background:none;padding:0 6px;color:#1f6fd1;font:inherit;font-size:13px}
+.link.dan{color:#b91c1c}
+.link:disabled{color:#6b7280}
+.seg{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.between{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.form{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:end}
+.fld{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#4b5563}
+.fld input,.fld select{height:32px;box-sizing:border-box;width:170px;padding:0 10px;border:1px solid #cdd3dc;border-radius:4px;background:#fff;color:#1f2937;font:inherit;font-size:13px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px}
+.kpi span{display:block;color:#4b5563;font-size:13px}
+.kpi strong{display:block;font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:4px}
+.kpi small{color:#4b5563}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
+th{background:#f7f8fa;color:#374151;font-weight:600;text-align:left}
+th,td{padding:10px 12px;border-bottom:1px solid #e9ecf1}
+.r{text-align:right;font-variant-numeric:tabular-nums}
+.tag{display:inline-block;padding:0 8px;line-height:22px;border-radius:3px;font-size:12px;border:1px solid transparent;margin-right:4px}
+.t-b{background:#e8f1fc;color:#1558a8;border-color:#c5dcf6}
+.t-g{background:#e8f6ec;color:#166534;border-color:#c3e6cd}
+.t-y{background:#fef5e0;color:#8a4b08;border-color:#f6dfaa}
+.t-r{background:#fdeaea;color:#a11a1a;border-color:#f6c8c8}
+.t-n{background:#eef1f5;color:#374151;border-color:#dfe3e9}
+.alert{padding:10px 14px;border-radius:4px;font-size:13px;border:1px solid}
+.alert.y{background:#fef5e0;border-color:#f6dfaa;color:#7a4306}
+.alert.r{background:#fdeaea;border-color:#f6c8c8;color:#8f1717}
+.alert.g{background:#e8f6ec;border-color:#c3e6cd;color:#14532d}
+.tabs{display:flex;flex-wrap:wrap;gap:24px;border-bottom:1px solid #e4e7ec}
+.tabs span{padding:8px 0;color:#4b5563}
+.tabs span.on{color:#1558a8;font-weight:600;border-bottom:2px solid #1f6fd1;margin-bottom:-1px}
+.pager{display:flex;justify-content:flex-end;gap:8px;align-items:center;margin-top:12px;font-size:13px;color:#4b5563}
+.tip{font-size:12px;color:#4b5563;margin:0}
+.fun{display:grid;grid-template-columns:96px 1fr 120px;gap:8px 12px;align-items:center;font-size:13px}
+.bar{height:20px;background:#eef1f5;border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:#1f6fd1}
+.num{text-align:right;font-variant-numeric:tabular-nums;color:#4b5563}.side .gb{display:flex;justify-content:space-between;width:100%;box-sizing:border-box;background:none;border:0;padding:12px 20px;font-family:inherit;font-size:14px;color:#c7d0dd;text-align:left;cursor:pointer}.side .gb:hover{color:#fff}.side .nv{display:block;width:100%;box-sizing:border-box;background:none;border:0;padding:9px 20px 9px 34px;font-family:inherit;font-size:13px;color:#c7d0dd;text-align:left;cursor:pointer}.side .nv:hover{color:#fff}.side .nv.on{background:#1f6fd1;color:#fff}.mask{position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;z-index:20}.dlg{background:#fff;border-radius:8px;padding:20px;width:460px;max-height:90vh;overflow:auto;display:flex;flex-direction:column;gap:12px;box-sizing:border-box}.dlg h2,.dlg h3,.dlg p{margin:0}.wide{width:680px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.grid span{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#4b5563}.grid b{font-size:14px;color:#1e293b}.ava{width:32px;height:32px;flex:none;border-radius:50%;background:#dbe7f7;color:#1f5fb4;display:flex;align-items:center;justify-content:center}.mem{overflow:visible}.menu{position:absolute;right:0;top:100%;z-index:10;width:150px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 6px 16px rgba(15,23,42,.15);padding:4px 0}.menu button{display:block;width:100%;box-sizing:border-box;padding:8px 12px;background:none;border:0;font:inherit;color:#1e293b;text-align:left;cursor:pointer}.menu button:hover{background:#f1f5f9}.chip{display:flex;align-items:center;gap:12px}.kbtn{all:unset;display:block;cursor:pointer}.kbtn:focus-visible{outline:2px solid #1f6fd1}.nw{white-space:nowrap}</style></helmet>
+<div class="app">
+<aside class="side"><div class="brand">返利管理后台</div>
+<sc-for list="{{nav}}" as="g" hint-placeholder-count="7"><button class="gt gb" onClick="{{g.tog}}"><span>{{g.t}}</span><span>{{g.a}}</span></button><sc-if value="{{g.open}}" hint-placeholder-val="{{ false }}"><sc-for list="{{g.items}}" as="i" hint-placeholder-count="3"><button class="nv {{i.c}}" onClick="{{i.go}}">{{i.t}}</button></sc-for></sc-if></sc-for>
+</aside>
+<div class="main">
+<header class="top"><div class="crumb">{{crumb1}} / <b>{{crumb2}}</b></div><span class="sample">界面示例，数字均为虚构</span></header>
+<div class="body">
+<sc-if value="{{chip}}" hint-placeholder-val="{{ false }}"><div class="alert g chip"><span>当前只看：<b>{{chip}}</b></span><button class="link" onClick="{{clearF}}">查看全部</button></div></sc-if>
+
+<sc-if value="{{is.Main}}" hint-placeholder-val="{{ true }}">
+<div class="between ovbar"><h2 style="margin:0">订单概括</h2><div class="seg"><sc-for list="{{ranges}}" as="x" hint-placeholder-count="5"><button class="btn {{x.c}}" onClick="{{x.go}}">{{x.t}}</button></sc-for><span class="tip">{{rangeText}}</span><button class="btn">查询</button></div></div>
+<div class="ovs"><sc-for list="{{ovs}}" as="c" hint-placeholder-count="3"><button class="ov {{c.cls}}" onClick="{{c.go}}"><span class="ovt">{{c.t}}</span><span class="ovm"><sc-for list="{{c.items}}" as="i" hint-placeholder-count="6"><span class="ovi"><b>{{i.v}}</b><small>{{i.l}}</small></span></sc-for></span><span class="ovf">{{c.foot}}</span></button></sc-for></div>
+<section class="card"><h2>经营数据</h2><div class="tiles"><sc-for list="{{kpis}}" as="k" hint-placeholder-count="6"><button class="tile {{k.c}}" onClick="{{k.go}}"><strong>{{k.v}}</strong><span>{{k.t}}</span></button></sc-for></div><p class="tip" style="margin-top:10px">总利润 = 联盟利润 − 运营消耗。</p></section>
+<section class="card"><h2>会员动态</h2><div class="tiles"><sc-for list="{{mems}}" as="k" hint-placeholder-count="5"><button class="tile" onClick="{{k.go}}"><strong>{{k.v}}</strong><span>{{k.t}}</span></button></sc-for></div></section>
+<section class="card"><div class="between"><h2 style="margin:0">运营消耗</h2><b>合计 {{costT}}</b></div><div class="tiles" style="margin-top:12px"><sc-for list="{{costs}}" as="k" hint-placeholder-count="14"><button class="tile" onClick="{{k.go}}"><strong>{{k.v}}</strong><span>{{k.t}}</span></button></sc-for></div></section>
+<section class="card"><h2>订单详情</h2><div class="scroll"><table class="nw">
+<thead><tr><th>平台</th><th class="r">查券次数</th><th class="r">订单笔数</th><th class="r">付款金额</th><th class="r">预估佣金</th><th class="r">下单率</th><th class="r">佣金率</th><th class="r">有效订单</th><th class="r">有效佣金</th><th class="r">有效率</th><th class="r">下单用户</th><th class="r">用户补贴</th><th class="r">联盟利润</th><th class="r">利润率</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{unions}}" as="r" hint-placeholder-count="6"><tr><td><span class="tag {{r.c}}">{{r.p}}</span></td><td class="r">{{r.q}}</td><td class="r">{{r.o}}</td><td class="r">{{r.pay}}</td><td class="r">{{r.m}}</td><td class="r">{{r.cr}}</td><td class="r">{{r.mr}}</td><td class="r">{{r.vo}}</td><td class="r">{{r.vm}}</td><td class="r">{{r.vr}}</td><td class="r">{{r.u}}</td><td class="r">{{r.s}}</td><td class="r"><b>{{r.l}}</b></td><td class="r">{{r.lr}}</td><td><sc-if value="{{r.go}}" hint-placeholder-val="{{ true }}"><button class="link" onClick="{{r.go}}">看订单</button></sc-if></td></tr></sc-for></tbody>
+</table></div><p class="tip" style="margin-top:10px">用户补贴 = 用户返利 + 上级提成 + 强制补贴；联盟利润 = 预估佣金 − 用户补贴。</p></section>
+<section class="card"><div class="between"><h2 style="margin:0">数据走势</h2><div class="seg"><sc-for list="{{tp}}" as="x" hint-placeholder-count="6"><button class="btn {{x.c}}" onClick="{{x.go}}">{{x.t}}</button></sc-for><sc-for list="{{tper}}" as="x" hint-placeholder-count="2"><button class="btn {{x.c}}" onClick="{{x.go}}">{{x.t}}</button></sc-for></div></div>
+<div class="seg" style="margin-top:12px"><sc-for list="{{tm}}" as="x" hint-placeholder-count="5"><button class="btn {{x.c}}" onClick="{{x.go}}">{{x.t}}</button></sc-for><span class="tip">{{trendNote}}</span></div>
+<div class="chart"><sc-for list="{{bars}}" as="b" hint-placeholder-count="30"><span class="cb" title="{{b.tip}}"><i style="height:{{b.h}}"></i><small>{{b.l}}</small></span></sc-for></div></section>
+</sc-if>
+
+<sc-if value="{{is.Exposure}}" hint-placeholder-val="{{ false }}">
+<div class="alert y chip"><span>敞口已到上限的 95.5%，到上限后提现转人工。</span><button class="link" onClick="{{toWithdrawSet}}">去提现设置</button></div>
+<div class="kpis">
+<div class="card kpi"><span>当前敞口</span><strong>¥286,400.00</strong><small>每小时更新，提现时实时计算</small></div>
+<div class="card kpi"><span>近 30 天峰值</span><strong>¥312,750.00</strong><small>10 月 24 日</small></div>
+<div class="card kpi"><span>敞口上限</span><strong>¥300,000.00</strong><small>在提现设置里修改</small></div>
+<div class="card kpi"><span>使用率</span><strong>95.5%</strong><div class="bar" style="height:8px;margin-top:8px"><i style="width:95.5%;background:#b45309"></i></div></div>
+</div>
+<section class="card"><h2>按平台拆分</h2><div class="scroll"><table>
+<thead><tr><th>平台</th><th class="r">已入账</th><th class="r">已提现</th><th class="r">联盟已到账</th><th class="r">敞口</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{expo}}" as="r" hint-placeholder-count="5"><tr><td><span class="tag {{r.c}}">{{r.p}}</span></td><td class="r">{{r.a}}</td><td class="r">{{r.b}}</td><td class="r">{{r.d}}</td><td class="r"><b>{{r.e}}</b></td><td><button class="link" onClick="{{r.go}}">看订单</button></td></tr></sc-for></tbody>
+</table></div><p class="tip" style="margin-top:12px">敞口 = 已进用户余额、但联盟的钱还没到账的部分，也就是公司垫付的钱。</p></section>
+</sc-if>
+
+<sc-if value="{{is.Settings}}" hint-placeholder-val="{{ false }}">
+<div class="two">
+<section class="card"><h2>默认冻结分组</h2><div class="scroll"><table>
+<thead><tr><th>对象</th><th>冻结分组</th></tr></thead>
+<tbody><sc-for list="{{defs}}" as="d" hint-placeholder-count="7"><tr><td>{{d}}</td><td><select aria-label="冻结分组"><sc-for list="{{fgn}}" as="o" hint-placeholder-count="3"><option>{{o}}</option></sc-for></select></td></tr></sc-for></tbody>
+</table></div><div class="chip" style="margin-top:12px"><span class="tip">优先级：会员单独选的分组 &gt; 新人或老用户 &gt; 平台。保存后只影响之后的订单。</span><button class="link" onClick="{{toRules}}">新人怎么算</button></div></section>
+<section class="card"><h2>其他</h2><div class="form">
+<label class="fld">无主订单保留天数<input placeholder="请填写"></label>
+<label class="fld">邀请码起始值<input placeholder="4 位数往后排"></label>
+<label class="fld">邀请层级<select><option>一级</option></select></label>
+</div></section>
+</div>
+<section class="card"><div class="between"><h2 style="margin:0">冻结分组</h2><button class="btn pri" onClick="{{newFz}}">新建分组</button></div>
+<div class="scroll" style="margin-top:12px"><table>
+<thead><tr><th>分组名称</th><th>分档依据</th><th>冻结阶梯</th><th class="r">单独使用的会员</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{fz}}" as="r" hint-placeholder-count="3"><tr><td>{{r.n}}</td><td>{{r.by}}</td><td>{{r.txt}}</td><td class="r"><button class="link" onClick="{{r.go}}">{{r.u}}</button></td><td><button class="link" onClick="{{r.edit}}">编辑</button></td></tr></sc-for></tbody>
+</table></div></section>
+<section class="card"><h2>奖励设置</h2><div class="scroll"><table>
+<thead><tr><th>奖励</th><th>开关</th><th>触发条件</th><th>金额（元）</th><th>发放时机</th><th>每人次数</th></tr></thead>
+<tbody><sc-for list="{{rewards}}" as="r" hint-placeholder-count="10"><tr><td class="nw">{{r.n}}</td><td><select aria-label="开关"><option>开启</option><option>关闭</option></select></td><td><sc-if value="{{r.u}}" hint-placeholder-val="{{ true }}"><span class="seg" style="flex-wrap:nowrap"><input placeholder="N" aria-label="触发数值" style="width:64px">{{r.u}}</span></sc-if><sc-if value="{{r.c}}" hint-placeholder-val="{{ false }}">{{r.c}}</sc-if></td><td><input placeholder="请填写" aria-label="奖励金额" style="width:90px"></td><td><select aria-label="发放时机"><sc-for list="{{r.w}}" as="o" hint-placeholder-count="3"><option>{{o}}</option></sc-for></select></td><td><select aria-label="每人次数"><option>{{r.t}}</option><option>不限</option></select></td></tr></sc-for></tbody>
+</table></div><p class="tip" style="margin-top:12px">发出的奖励写进余额记录，并算进运营消耗。</p></section>
+<div class="seg"><button class="btn pri">保存</button></div>
+</sc-if>
+
+<sc-if value="{{is.Guide}}" hint-placeholder-val="{{ false }}">
+<section class="card"><h2>查券通道</h2><div class="scroll"><table>
+<thead><tr><th>平台</th><th>查券来源</th><th>备用来源</th><th>状态</th><th class="r">今日查券</th><th class="r">成功率</th></tr></thead>
+<tbody><sc-for list="{{guide}}" as="r" hint-placeholder-count="5"><tr><td><span class="tag {{r.pc}}">{{r.p}}</span></td><td><select aria-label="查券来源"><option>{{r.a}}</option><option>大淘客</option><option>好单库</option></select></td><td><select aria-label="备用来源"><option>{{r.b}}</option><option>大淘客</option><option>好单库</option></select></td><td><span class="tag {{r.c}}">{{r.s}}</span></td><td class="r">{{r.q}}</td><td class="r">{{r.r}}</td></tr></sc-for></tbody>
+</table></div></section>
+<section class="card"><div class="between"><h2 style="margin:0">强制订单设置</h2><button class="link" onClick="{{toForced}}">看强制订单</button></div><div class="form" style="margin-top:12px">
+<label class="fld">开启强制补贴<select><option>开启</option><option>关闭</option></select></label>
+<label class="fld">新人多少单内可用<input defaultValue="3" aria-label="新人可用单数"></label>
+<label class="fld">补贴方式<select><option>固定金额</option><option>按付款金额比例</option></select></label>
+<label class="fld">强制补贴多少（元或 %）<input defaultValue="2" aria-label="强制补贴"></label>
+<label class="fld">多少天没下单可再次激活<input defaultValue="30" aria-label="激活天数"></label>
+<label class="fld">激活后可用多少单<input defaultValue="1" aria-label="激活后单数"></label>
+<label class="fld">每人每天上限（单）<input defaultValue="1" aria-label="每日上限"></label>
+</div><p class="tip" style="margin-top:12px">示例：新人前 3 单查不到券时，下单后补 2 元。用完后，连续 30 天没下单的用户重新激活，可再用 1 单。补贴由公司出，计入用户补贴，联盟传回收货后才放行。</p></section>
+<section class="card"><h2>查券限制</h2><div class="form">
+<label class="fld">每人每分钟次数<input placeholder="请填写"></label>
+<label class="fld">每人每天次数<input placeholder="请填写"></label>
+</div></section>
+<div class="seg"><button class="btn pri">保存</button></div>
+</sc-if>
+
+<sc-if value="{{is.Rules}}" hint-placeholder-val="{{ false }}">
+<section class="card"><h2>返佣优先级</h2><div class="prio"><div><b>1. 定向补贴</b>会员单独选的分组</div><div><b>2. 分组补贴</b>会员标签返佣</div><div><b>3. 新用户补贴</b>新人或老用户分组</div><div><b>4. 默认补贴</b>平台默认分组</div></div><p class="tip" style="margin-top:10px">从 1 往下找，先找到哪个就用哪个。</p></section>
+<section class="card"><div class="between"><h2 style="margin:0">返佣分组</h2><button class="btn pri" onClick="{{newRg}}">新建分组</button></div>
+<div class="scroll" style="margin-top:12px"><table>
+<thead><tr><th>分组名称</th><th>返佣阶梯</th><th class="r">上级提成比例</th><th class="r">单独使用的会员</th><th>状态</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{rg}}" as="r" hint-placeholder-count="4"><tr><td>{{r.n}}</td><td>{{r.txt}}</td><td class="r">{{r.b}}</td><td class="r"><button class="link" onClick="{{r.go}}">{{r.u}}</button></td><td><span class="tag t-g">启用</span></td><td><button class="link" onClick="{{r.edit}}">编辑</button></td></tr></sc-for></tbody>
+</table></div></section>
+<div class="two">
+<section class="card"><h2>默认分组</h2><div class="scroll"><table>
+<thead><tr><th>对象</th><th>返佣分组</th></tr></thead>
+<tbody><sc-for list="{{defs}}" as="d" hint-placeholder-count="7"><tr><td>{{d}}</td><td><select aria-label="返佣分组"><sc-for list="{{rgn}}" as="o" hint-placeholder-count="4"><option>{{o}}</option></sc-for></select></td></tr></sc-for></tbody>
+</table></div></section>
+<section class="card"><h2>新人和老用户怎么算</h2><div class="form">
+<label class="fld">统计哪种订单<select><option>已付款订单</option><option>已结算订单</option></select></label>
+<label class="fld">多少单以内是新人<input defaultValue="3" aria-label="新人单数"></label>
+<label class="fld">多少单以内是老用户<input defaultValue="50" aria-label="老用户单数"></label>
+</div><p class="tip" style="margin-top:12px">示例：3 单以内走新人分组，第 4 到 50 单走老用户分组，超过 50 单走平台分组。</p></section>
+</div>
+<section class="card"><div class="between"><div><h2 style="margin:0">会员标签返佣</h2><p class="tip" style="margin-top:6px">{{tagRbT}}</p></div><button class="btn pri" onClick="{{openTagRb}}">设置</button></div></section>
+<div class="alert y">保存后只影响之后的订单，已下单的订单不变。</div>
+<div class="seg"><button class="btn pri">保存</button></div>
+</sc-if>
+
+<sc-if value="{{is.Subscribe}}" hint-placeholder-val="{{ false }}">
+<section class="card"><div class="between"><h2 style="margin:0">小程序订阅通知</h2><button class="btn pri">新增模板</button></div>
+<div class="scroll" style="margin-top:12px"><table>
+<thead><tr><th>通知名称</th><th>触发时机</th><th>模板 ID</th><th>状态</th><th class="r">今日发送</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{subs}}" as="r" hint-placeholder-count="5"><tr><td>{{r.n}}</td><td>{{r.t}}</td><td>待填写</td><td><span class="tag {{r.c}}">{{r.s}}</span></td><td class="r">{{r.q}}</td><td><button class="link">编辑</button><button class="link">发送测试</button></td></tr></sc-for></tbody>
+</table></div></section>
+<section class="card"><h2>按标签群发</h2><div class="form">
+<label class="fld">用户标签<select value="{{subTag}}" onChange="{{setSubTag}}"><sc-for list="{{tagn}}" as="o" hint-placeholder-count="4"><option>{{o}}</option></sc-for></select></label>
+<label class="fld">通知模板<select><option>订单状态通知</option><option>活动通知</option></select></label>
+<label class="fld">发送时间<input placeholder="立即发送或选择时间"></label>
+</div><div class="seg" style="margin-top:12px"><button class="btn pri">发送</button><button class="btn" onClick="{{subUsers}}">看这个标签的会员</button></div>
+<p class="tip" style="margin-top:12px">用户点过允许才能收到，实际发送人数会少于标签人数。</p></section>
+</sc-if>
+
+<sc-if value="{{is.MiniBase}}" hint-placeholder-val="{{ false }}">
+<section class="card"><h2>小程序信息</h2><div class="form">
+<label class="fld">小程序名称<input placeholder="请填写"></label>
+<label class="fld">Logo<input placeholder="上传图片"></label>
+<label class="fld">默认头像<input placeholder="上传图片"></label>
+<label class="fld">客服微信<input placeholder="请填写"></label>
+<label class="fld">分享标题<input placeholder="请填写"></label>
+<label class="fld">分享图片<input placeholder="上传图片"></label>
+<label class="fld">首页公告<input placeholder="请填写"></label>
+<label class="fld">用户协议<input placeholder="填写链接或上传"></label>
+<label class="fld">隐私政策<input placeholder="填写链接或上传"></label>
+</div></section>
+<section class="card"><div class="between"><h2 style="margin:0">首页轮播图</h2><button class="btn pri">新增</button></div>
+<div class="scroll" style="margin-top:12px"><table>
+<thead><tr><th>图片</th><th>跳转页面</th><th class="r">排序</th><th>状态</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{banners}}" as="r" hint-placeholder-count="2"><tr><td>{{r.n}}</td><td>{{r.u}}</td><td class="r">{{r.i}}</td><td><span class="tag t-g">启用</span></td><td><button class="link">编辑</button><button class="link dan">删除</button></td></tr></sc-for></tbody>
+</table></div></section>
+<div class="seg"><button class="btn pri">保存</button></div>
+</sc-if>
+
+<sc-if value="{{is.MiniLink}}" hint-placeholder-val="{{ false }}">
+<section class="card"><h2>对接状态</h2><div class="scroll"><table>
+<thead><tr><th>对接项</th><th>状态</th><th>最近检测</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{links}}" as="r" hint-placeholder-count="4"><tr><td>{{r}}</td><td><span class="tag t-n">未检测</span></td><td>-</td><td><button class="link">测试</button></td></tr></sc-for></tbody>
+</table></div></section>
+<section class="card"><h2>微信小程序</h2><div class="form">
+<label class="fld">AppID<input placeholder="请填写"></label>
+<label class="fld">AppSecret<input type="password" placeholder="保存后不再显示"></label>
+<label class="fld">接口域名<input placeholder="请填写"></label>
+</div></section>
+<section class="card"><h2>消息推送</h2><div class="form">
+<label class="fld">回调地址<input placeholder="请填写"></label>
+<label class="fld">Token<input type="password" placeholder="保存后不再显示"></label>
+<label class="fld">EncodingAESKey<input type="password" placeholder="保存后不再显示"></label>
+</div><div class="seg" style="margin-top:12px"><button class="link" onClick="{{toSubscribe}}">去配置订阅消息</button><button class="link" onClick="{{toWithdrawSet}}">去配置打款接口</button></div></section>
+<div class="seg"><button class="btn pri">保存</button></div>
+</sc-if>
+
+<sc-if value="{{is.Union}}" hint-placeholder-val="{{ false }}">
+<div class="seg"><sc-for list="{{utabs}}" as="x" hint-placeholder-count="5"><button class="btn {{x.c}}" onClick="{{x.go}}">{{x.t}}</button></sc-for></div>
+<section class="card"><div class="between"><h2 style="margin:0">{{up}}联盟 授权账号</h2><button class="btn pri" onClick="{{addAcc}}">新增授权账号</button></div>
+<sc-if value="{{uhas}}" hint-placeholder-val="{{ true }}"><div class="scroll" style="margin-top:12px"><table>
+<thead><tr><th>账号名称</th><th>授权状态</th><th>授权到期</th><th class="r">PID 数</th><th>使用的 PID</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{uacc}}" as="r" hint-placeholder-count="2"><tr><td>{{r.n}}</td><td><span class="tag {{r.c}}">{{r.s}}</span></td><td>{{r.d}}</td><td class="r"><button class="link" onClick="{{toPid}}">{{r.k}}</button></td><td><select aria-label="选择 PID"><option>{{r.pid}}</option><option>选择其他 PID</option></select></td><td><button class="link">重新授权</button><button class="link">同步 PID</button><button class="link dan">停用</button></td></tr></sc-for></tbody>
+</table></div></sc-if>
+<sc-if value="{{unone}}" hint-placeholder-val="{{ false }}"><p class="tip" style="margin-top:12px">这个联盟还没有授权账号，点「新增授权账号」开始。</p></sc-if>
+</section>
+</sc-if>
+
+<sc-if value="{{is.UnionConfig}}" hint-placeholder-val="{{ false }}">
+<div class="seg"><sc-for list="{{ctabs}}" as="x" hint-placeholder-count="2"><button class="btn {{x.c}}" onClick="{{x.go}}">{{x.t}}</button></sc-for></div>
+<section class="card"><h2>{{up}}配置</h2><div class="form">
+<label class="fld">AppKey<input placeholder="请填写"></label>
+<label class="fld">AppSecret<input type="password" placeholder="保存后不再显示"></label>
+<label class="fld">接口地址<input placeholder="使用默认地址"></label>
+<label class="fld">状态<select><option>启用</option><option>停用</option></select></label>
+</div><div class="seg" style="margin-top:12px"><label><input type="checkbox" defaultChecked="true"> 查券</label><label><input type="checkbox" defaultChecked="true"> 转链</label></div></section>
+<div class="seg"><button class="btn pri">保存</button><button class="btn">测试连接</button></div>
+</sc-if>
+
+<sc-if value="{{is.Pid}}" hint-placeholder-val="{{ false }}">
+<div class="kpis">
+<div class="card kpi"><span>追踪 PID</span><strong>500</strong><small>占用中 318 · 空闲 182</small></div>
+<div class="card kpi"><span>默认 PID</span><strong>3</strong><small>不能放进追踪池</small></div>
+<div class="card kpi"><span>占用时长</span><strong>2 小时</strong><small>爆款可按商品缩短</small></div>
+<div class="card kpi"><span>近 24 小时进无主</span><strong>41 次</strong><small>PID 用完时兜底</small></div>
+</div>
+<section class="card"><div class="seg"><select aria-label="平台" value="{{f.plat}}" onChange="{{sf.plat}}"><option value="">全部平台</option><sc-for list="{{pl}}" as="o" hint-placeholder-count="5"><option>{{o}}</option></sc-for></select></div></section>
+<section class="card"><div class="scroll"><table>
+<thead><tr><th>平台</th><th>商品 ID</th><th>商品</th><th class="r">占用中</th><th class="r">可用</th><th style="width:220px">占用率</th><th class="r">最近查券</th></tr></thead>
+<tbody><sc-for list="{{pids}}" as="r" hint-placeholder-count="5"><tr><td><span class="tag {{r.pc}}">{{r.p}}</span></td><td>{{r.id}}</td><td>{{r.g}}</td><td class="r">{{r.a}}</td><td class="r">{{r.b}}</td><td><div class="seg" style="flex-wrap:nowrap"><div class="bar" style="height:8px;flex:1"><i style="width:{{r.w}};background:{{r.bc}}"></i></div><span>{{r.w}}</span></div></td><td class="r">{{r.q}}</td></tr></sc-for></tbody>
+</table></div><sc-if value="{{empty.pids}}" hint-placeholder-val="{{ false }}"><p class="tip">这个平台还没有 PID。</p></sc-if></section>
+</sc-if>
+
+<sc-if value="{{is.Members}}" hint-placeholder-val="{{ false }}">
+<section class="card"><div class="seg"><input placeholder="用户 ID / 名称" aria-label="搜索用户" value="{{f.kw}}" onChange="{{sf.kw}}"><select aria-label="分佣分组" value="{{f.group}}" onChange="{{sf.group}}"><option value="">全部分组</option><sc-for list="{{rgn}}" as="o" hint-placeholder-count="4"><option>{{o}}</option></sc-for></select><select aria-label="标签" value="{{f.tag}}" onChange="{{sf.tag}}"><option value="">全部标签</option><sc-for list="{{tagn}}" as="o" hint-placeholder-count="4"><option>{{o}}</option></sc-for></select><button class="btn" onClick="{{ruleDlg}}">标签规则</button></div></section>
+<section class="card"><div class="scroll mem"><table>
+<thead><tr><th>会员</th><th>上级 ID</th><th class="r">资金</th><th>分佣比例</th><th class="r">冻结金额</th><th class="r">冻结订单</th><th class="r">订单笔数</th><th>创建时间</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{mem}}" as="r" hint-placeholder-count="7"><tr><td><div class="seg" style="flex-wrap:nowrap"><span class="ava">{{r.a}}</span><span>{{r.n}}<br><small>ID {{r.id}}</small></span></div></td><td><sc-if value="{{r.up}}" hint-placeholder-val="{{ true }}"><button class="link" onClick="{{r.upgo}}">{{r.up}}</button></sc-if></td><td class="r">{{r.m}}</td><td><span class="tag {{r.gc}}">{{r.g}}</span></td><td class="r">{{r.f}}</td><td class="r">{{r.fo}}</td><td class="r">{{r.o}}</td><td>{{r.t}}</td><td class="nw" style="position:relative"><button class="link" onClick="{{r.det}}">会员详情</button><button class="link" onClick="{{r.more}}">更多操作 ▾</button>
+<sc-if value="{{r.on}}" hint-placeholder-val="{{ false }}"><div class="menu"><button onClick="{{r.toOrders}}">查看各平台订单</button><button onClick="{{r.toWithdraw}}">看提现记录</button><button onClick="{{r.toBalance}}">看余额记录</button><button onClick="{{r.pay}}">给用户转账</button><button onClick="{{r.cut}}">解除上下级关系</button></div></sc-if></td></tr></sc-for></tbody>
+</table></div><sc-if value="{{empty.mem}}" hint-placeholder-val="{{ false }}"><p class="tip">没有符合条件的会员。</p></sc-if></section>
+</sc-if>
+
+<sc-if value="{{is.Balance}}" hint-placeholder-val="{{ false }}">
+<section class="card"><div class="seg"><input placeholder="用户 ID / 名称 / 单号" aria-label="搜索" value="{{f.kw}}" onChange="{{sf.kw}}"><select aria-label="变动大类" value="{{f.cat}}" onChange="{{sf.cat}}"><option value="">全部大类</option><sc-for list="{{cats}}" as="o" hint-placeholder-count="5"><option>{{o}}</option></sc-for></select><select aria-label="变动类型" value="{{f.type}}" onChange="{{sf.type}}"><option value="">全部类型</option><sc-for list="{{types}}" as="o" hint-placeholder-count="10"><option>{{o}}</option></sc-for></select><button class="btn">导出</button></div></section>
+<section class="card"><div class="scroll"><table>
+<thead><tr><th>时间</th><th>用户</th><th>类型</th><th class="r">余额变动</th><th class="r">冻结变动</th><th class="r">变动后余额</th><th>关联单号</th><th>用途</th><th>操作人</th><th>备注</th></tr></thead>
+<tbody><sc-for list="{{led}}" as="r" hint-placeholder-count="10"><tr><td class="nw">{{r.t}}</td><td><button class="link" onClick="{{r.uo}}">{{r.un}}</button></td><td><span class="tag {{r.c}}">{{r.k}}</span></td><td class="r">{{r.a}}</td><td class="r">{{r.f}}</td><td class="r">{{r.b}}</td><td><sc-if value="{{r.no}}" hint-placeholder-val="{{ true }}"><button class="link" onClick="{{r.ref}}">{{r.no}}</button></sc-if></td><td>{{r.pu}}</td><td>{{r.op}}</td><td>{{r.m}}</td></tr></sc-for></tbody>
+</table></div><sc-if value="{{empty.led}}" hint-placeholder-val="{{ false }}"><p class="tip">没有余额变动记录。</p></sc-if></section>
+</sc-if>
+
+<sc-if value="{{is.Risk}}" hint-placeholder-val="{{ false }}">
+<section class="card"><div class="seg"><input placeholder="用户 ID / 名称" aria-label="搜索用户" value="{{f.kw}}" onChange="{{sf.kw}}"><select aria-label="状态" value="{{f.st}}" onChange="{{sf.st}}"><option value="">全部状态</option><option>正常</option><option>奖励暂停</option><option>提现冻结</option><option>封禁</option></select></div></section>
+<section class="card"><div class="scroll"><table>
+<thead><tr><th>用户</th><th>状态</th><th>命中信号</th><th>邀请人</th><th class="r">被邀请人</th><th class="r">可用余额</th><th>最近命中</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{risk}}" as="r" hint-placeholder-count="4"><tr><td><button class="link" onClick="{{r.uo}}">{{r.un}}</button></td><td><span class="tag {{r.sc}}">{{r.s}}</span></td><td><span class="tag t-r">{{r.sig}}</span></td><td>{{r.up}}</td><td class="r">{{r.n}}</td><td class="r">{{r.m}}</td><td>{{r.t}}</td><td class="nw"><button class="link" onClick="{{r.pause}}">{{r.pt}}</button><button class="link dan" onClick="{{r.ban}}">{{r.bt}}</button><button class="link" onClick="{{r.rebind}}">改绑邀请人</button></td></tr></sc-for></tbody>
+</table></div><sc-if value="{{empty.risk}}" hint-placeholder-val="{{ false }}"><p class="tip">这个用户没有风控记录。</p></sc-if></section>
+</sc-if>
+
+<sc-if value="{{is.Orders}}" hint-placeholder-val="{{ false }}">
+<section class="card"><div class="seg"><input placeholder="订单编号 / 用户 ID" aria-label="搜索订单" value="{{f.kw}}" onChange="{{sf.kw}}"><select aria-label="平台" value="{{f.plat}}" onChange="{{sf.plat}}"><option value="">全部平台</option><sc-for list="{{pl}}" as="o" hint-placeholder-count="5"><option>{{o}}</option></sc-for></select><select aria-label="订单状态" value="{{f.st}}" onChange="{{sf.st}}"><option value="">全部状态</option><sc-for list="{{ost}}" as="o" hint-placeholder-count="6"><option>{{o}}</option></sc-for></select><button class="btn">导出</button></div></section>
+<section class="card"><div class="scroll"><table class="nw">
+<thead><tr><th>用户</th><th>订单编号</th><th>商品标题</th><th class="r">付款金额</th><th class="r">结算金额</th><th class="r">联盟佣金</th><th>结算用户</th><th class="r">分成佣金</th><th class="r">用户补贴</th><th class="r">提成补贴</th><th>订单状态</th><th>推广位名称</th><th>创建时间</th><th>资金状态</th><th>详细信息</th></tr></thead>
+<tbody><sc-for list="{{ord}}" as="r" hint-placeholder-count="8"><tr><td><button class="link" onClick="{{r.uo}}">{{r.un}}</button></td><td>{{r.no}}</td><td>{{r.g}}</td><td class="r">{{r.m}}</td><td class="r">{{r.st}}</td><td class="r">{{r.c}}</td><td>{{r.su}}</td><td class="r">{{r.fen}}</td><td class="r">{{r.bu}}</td><td class="r">{{r.ti}}</td><td><span class="tag {{r.sc}}">{{r.s}}</span></td><td>{{r.pos}}</td><td>{{r.t}}</td><td>{{r.fs}}</td><td><button class="link" onClick="{{r.open}}">查看</button></td></tr></sc-for></tbody>
+</table></div><sc-if value="{{empty.ord}}" hint-placeholder-val="{{ false }}"><p class="tip">没有符合条件的订单。</p></sc-if></section>
+</sc-if>
+
+<sc-if value="{{is.Unowned}}" hint-placeholder-val="{{ false }}">
+<section class="card"><div class="seg"><input placeholder="订单号" aria-label="搜索订单" value="{{f.kw}}" onChange="{{sf.kw}}"><select aria-label="平台" value="{{f.plat}}" onChange="{{sf.plat}}"><option value="">全部平台</option><sc-for list="{{pl}}" as="o" hint-placeholder-count="5"><option>{{o}}</option></sc-for></select><select aria-label="状态" value="{{f.st}}" onChange="{{sf.st}}"><option value="">全部状态</option><option>待认领</option><option>用户已提交</option><option>转人工</option><option>已认领</option></select></div></section>
+<section class="card"><div class="scroll"><table>
+<thead><tr><th>订单号</th><th>平台</th><th>商品</th><th class="r">付款金额</th><th>进入原因</th><th>提交用户</th><th>保留到期</th><th>状态</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{uno}}" as="r" hint-placeholder-count="5"><tr><td>{{r.no}}</td><td><span class="tag {{r.pc}}">{{r.p}}</span></td><td>{{r.g}}</td><td class="r">{{r.m}}</td><td>{{r.w}}</td><td><sc-if value="{{r.un}}" hint-placeholder-val="{{ true }}"><button class="link" onClick="{{r.uo}}">{{r.un}}</button></sc-if></td><td>{{r.d}}</td><td><span class="tag {{r.sc}}">{{r.s}}</span></td><td><sc-if value="{{r.todo}}" hint-placeholder-val="{{ true }}"><button class="link" onClick="{{r.claim}}">指定归属</button></sc-if></td></tr></sc-for></tbody>
+</table></div></section>
+<p class="tip">用户提交订单号后，核对到有交易且没有归属就绑给提交人；已归别人的不覆盖，转人工。</p>
+</sc-if>
+
+<sc-if value="{{is.Forced}}" hint-placeholder-val="{{ false }}">
+<div class="between"><div class="tip">用户查不到券时下单，系统自动补贴。规则在导购查券里设置。</div><button class="btn" onClick="{{toGuide}}">强制订单设置</button></div>
+<section class="card"><div class="seg"><input placeholder="订单编号 / 用户 ID" aria-label="搜索订单" value="{{f.kw}}" onChange="{{sf.kw}}"><select aria-label="平台" value="{{f.plat}}" onChange="{{sf.plat}}"><option value="">全部平台</option><sc-for list="{{pl}}" as="o" hint-placeholder-count="5"><option>{{o}}</option></sc-for></select><select aria-label="放行状态" value="{{f.st}}" onChange="{{sf.st}}"><option value="">全部状态</option><option>等待收货</option><option>已放行</option><option>已失效</option></select></div></section>
+<section class="card"><div class="scroll"><table>
+<thead><tr><th>用户</th><th>订单编号</th><th>平台</th><th>商品</th><th class="r">付款金额</th><th class="r">平台补贴</th><th>使用资格</th><th>订单状态</th><th>放行状态</th><th>下单时间</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{forced}}" as="r" hint-placeholder-count="4"><tr><td><button class="link" onClick="{{r.uo}}">{{r.un}}</button></td><td>{{r.no}}</td><td><span class="tag {{r.pc}}">{{r.p}}</span></td><td>{{r.g}}</td><td class="r">{{r.m}}</td><td class="r">{{r.bu}}</td><td>{{r.q}}</td><td>{{r.s}}</td><td><span class="tag {{r.fc}}">{{r.fv}}</span></td><td>{{r.t}}</td><td><button class="link" onClick="{{r.open}}">查看</button></td></tr></sc-for></tbody>
+</table></div><sc-if value="{{empty.forced}}" hint-placeholder-val="{{ false }}"><p class="tip">没有符合条件的强制订单。</p></sc-if></section>
+</sc-if>
+
+<sc-if value="{{is.Penalty}}" hint-placeholder-val="{{ false }}">
+<section class="card"><div class="between"><h2 style="margin:0">上传处罚单</h2><button class="btn">下载模板</button></div>
+<div style="border:1px dashed #9aa6b5;border-radius:6px;padding:28px;text-align:center;color:#4b5563;margin-top:12px">把联盟下载的处罚单拖到这里，或 <button class="link">点击选择文件</button></div></section>
+<section class="card"><h2>预览</h2><div class="scroll"><table>
+<thead><tr><th>行号</th><th>订单号</th><th>用户</th><th>处罚类型</th><th class="r">处罚金额</th><th>校验结果</th></tr></thead>
+<tbody><sc-for list="{{pen}}" as="r" hint-placeholder-count="3"><tr><td>{{r.n}}</td><td><button class="link" onClick="{{r.open}}">{{r.no}}</button></td><td><button class="link" onClick="{{r.uo}}">{{r.un}}</button></td><td>{{r.t}}</td><td class="r">{{r.m}}</td><td><span class="tag {{r.sc}}">{{r.s}}</span></td></tr></sc-for></tbody>
+</table></div><div class="seg" style="margin-top:12px"><button class="btn pri">确认导入</button></div></section>
+<section class="card"><h2>导入记录</h2><div class="scroll"><table>
+<thead><tr><th>批次号</th><th>文件名</th><th>导入人</th><th>导入时间</th><th class="r">成功</th><th class="r">失败</th><th>状态</th></tr></thead>
+<tbody><sc-for list="{{penlog}}" as="l" hint-placeholder-count="2"><tr><td>{{l.id}}</td><td>{{l.f}}</td><td>{{l.u}}</td><td>{{l.t}}</td><td class="r">{{l.b}}</td><td class="r">{{l.c}}</td><td><span class="tag {{l.sc}}">{{l.s}}</span></td></tr></sc-for></tbody>
+</table></div></section>
+</sc-if>
+
+<sc-if value="{{is.Withdraw}}" hint-placeholder-val="{{ false }}">
+<section class="card"><div class="seg"><input placeholder="提现号 / 用户 ID" aria-label="搜索提现" value="{{f.kw}}" onChange="{{sf.kw}}"><select aria-label="状态" value="{{f.st}}" onChange="{{sf.st}}"><option value="">全部状态</option><sc-for list="{{wst}}" as="o" hint-placeholder-count="5"><option>{{o}}</option></sc-for></select><button class="btn" onClick="{{toWithdrawSet}}">提现设置</button></div></section>
+<section class="card"><div class="scroll"><table>
+<thead><tr><th>提现号</th><th>用户</th><th class="r">申请金额</th><th>申请时间</th><th>状态</th><th>转人工原因</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{wd}}" as="r" hint-placeholder-count="6"><tr><td>{{r.id}}</td><td><button class="link" onClick="{{r.uo}}">{{r.un}}</button></td><td class="r">{{r.a}}</td><td>{{r.t}}</td><td><span class="tag {{r.c}}">{{r.s}}</span></td><td>{{r.why}}</td><td class="nw"><sc-if value="{{r.review}}" hint-placeholder-val="{{ true }}"><button class="link" onClick="{{r.ok}}">通过</button><button class="link dan" onClick="{{r.no}}">驳回</button></sc-if><button class="link" onClick="{{r.toLed}}">看余额记录</button></td></tr></sc-for></tbody>
+</table></div><sc-if value="{{empty.wd}}" hint-placeholder-val="{{ false }}"><p class="tip">没有提现记录。</p></sc-if></section>
+</sc-if>
+
+<sc-if value="{{is.Payments}}" hint-placeholder-val="{{ false }}">
+<section class="card"><div class="seg"><input placeholder="流水号 / 用户 ID" aria-label="搜索" value="{{f.kw}}" onChange="{{sf.kw}}"><select aria-label="状态" value="{{f.st}}" onChange="{{sf.st}}"><option value="">全部状态</option><sc-for list="{{wpay}}" as="o" hint-placeholder-count="3"><option>{{o}}</option></sc-for></select><button class="btn">导出</button></div></section>
+<section class="card"><div class="scroll"><table>
+<thead><tr><th>流水号</th><th>来源</th><th>用户</th><th class="r">金额</th><th>关联单号</th><th>状态</th><th>操作人</th><th>时间</th></tr></thead>
+<tbody><sc-for list="{{pay}}" as="r" hint-placeholder-count="6"><tr><td>{{r.id}}</td><td>{{r.k}}</td><td><button class="link" onClick="{{r.uo}}">{{r.un}}</button></td><td class="r">{{r.a}}</td><td><sc-if value="{{r.ref}}" hint-placeholder-val="{{ true }}"><button class="link" onClick="{{r.ref}}">{{r.no}}</button></sc-if></td><td><span class="tag {{r.c}}">{{r.s}}</span></td><td>{{r.op}}</td><td>{{r.t}}</td></tr></sc-for></tbody>
+</table></div><sc-if value="{{empty.pay}}" hint-placeholder-val="{{ false }}"><p class="tip">没有支付记录。</p></sc-if></section>
+</sc-if>
+
+<sc-if value="{{is.Returned}}" hint-placeholder-val="{{ false }}">
+<section class="card"><div class="seg"><input placeholder="提现号 / 用户 ID" aria-label="搜索" value="{{f.kw}}" onChange="{{sf.kw}}"><select aria-label="退回原因" value="{{f.st}}" onChange="{{sf.st}}"><option value="">全部原因</option><sc-for list="{{wret}}" as="o" hint-placeholder-count="2"><option>{{o}}</option></sc-for></select></div></section>
+<section class="card"><div class="scroll"><table>
+<thead><tr><th>提现号</th><th>用户</th><th class="r">退回金额</th><th>退回原因</th><th>申请时间</th><th>状态</th></tr></thead>
+<tbody><sc-for list="{{ret}}" as="r" hint-placeholder-count="3"><tr><td><button class="link" onClick="{{r.ref}}">{{r.id}}</button></td><td><button class="link" onClick="{{r.uo}}">{{r.un}}</button></td><td class="r">{{r.a}}</td><td><span class="tag {{r.c}}">{{r.s}}</span></td><td>{{r.t}}</td><td><span class="tag t-g">已回余额</span></td></tr></sc-for></tbody>
+</table></div><sc-if value="{{empty.ret}}" hint-placeholder-val="{{ false }}"><p class="tip">没有退回记录。</p></sc-if></section>
+</sc-if>
+
+<sc-if value="{{is.WithdrawSet}}" hint-placeholder-val="{{ false }}">
+<section class="card"><h2>打款接口</h2><div class="form">
+<label class="fld">打款通道<select><option>待选定打款商户</option></select></label>
+<label class="fld">商户号<input placeholder="请填写"></label>
+<label class="fld">接口密钥<input type="password" placeholder="保存后不再显示"></label>
+</div></section>
+<section class="card"><h2>提现门槛和次数</h2><div class="form">
+<label class="fld">最低提现金额（元）<input placeholder="请填写"></label>
+<label class="fld">每天提现次数<input placeholder="请填写"></label>
+<label class="fld">单笔最高金额（元）<input placeholder="请填写"></label>
+<label class="fld">手续费（元）<input defaultValue="0" aria-label="手续费"></label>
+</div></section>
+<section class="card"><div class="between"><h2 style="margin:0">审核</h2><button class="link" onClick="{{toExposure}}">看敞口</button></div><div class="form" style="margin-top:12px">
+<label class="fld">审核方式<select><option>额度以下自动，以上人工</option><option>全部人工</option><option>全部自动</option></select></label>
+<label class="fld">自动通过额度（元）<input placeholder="请填写"></label>
+<label class="fld">敞口上限（元）<input placeholder="请填写"></label>
+<label class="fld">到上限后<select><option>转人工</option><option>暂停提现</option></select></label>
+</div></section>
+<div class="seg"><button class="btn pri">保存</button></div>
+</sc-if>
+
+<sc-if value="{{is.Recon}}" hint-placeholder-val="{{ false }}">
+<div class="kpis">
+<div class="card kpi"><span>待处理差异</span><strong>{{recTodo}} 笔</strong></div>
+<div class="card kpi"><span>最近对账</span><strong style="font-size:20px">11-01 03:00</strong></div>
+</div>
+<section class="card"><div class="seg"><select aria-label="平台" value="{{f.plat}}" onChange="{{sf.plat}}"><option value="">全部平台</option><sc-for list="{{pl}}" as="o" hint-placeholder-count="5"><option>{{o}}</option></sc-for></select><select aria-label="状态" value="{{f.st}}" onChange="{{sf.st}}"><option value="">全部状态</option><option>待处理</option><option>已处理</option></select></div></section>
+<section class="card"><div class="scroll"><table>
+<thead><tr><th>对账日期</th><th>平台</th><th>关联单号</th><th class="r">联盟报表</th><th class="r">联盟到账</th><th class="r">系统台账</th><th class="r">差额</th><th>状态</th><th>操作</th></tr></thead>
+<tbody><sc-for list="{{rec}}" as="r" hint-placeholder-count="3"><tr><td>{{r.d}}</td><td><span class="tag {{r.pc}}">{{r.p}}</span></td><td><button class="link" onClick="{{r.ref}}">{{r.no}}</button></td><td class="r">{{r.a}}</td><td class="r">{{r.b}}</td><td class="r">{{r.c}}</td><td class="r"><b>{{r.x}}</b></td><td><span class="tag {{r.sc}}">{{r.s}}</span></td><td><sc-if value="{{r.todo}}" hint-placeholder-val="{{ true }}"><button class="link" onClick="{{r.done}}">处理</button></sc-if></td></tr></sc-for></tbody>
+</table></div></section>
+</sc-if>
+</div>
+</div>
+
+<sc-if value="{{dl.det}}" hint-placeholder-val="{{ false }}"><div class="mask"><div class="dlg wide"><h2>会员详情：{{u.n}}（ID {{u.id}}）</h2>
+<div class="grid"><span>上级 ID<b>{{u.upv}}</b></span><span>可用余额<b>{{u.m}}</b></span><span>冻结金额<b>{{u.f}}</b></span><span>累计返利<b>{{u.total}}</b></span><span>累计提现<b>{{u.wt}}</b></span><span>订单笔数<b>{{u.o}}</b></span><span>下级人数<b>{{u.kids}}</b></span><span>标签<b>{{u.tagt}}</b></span><span>创建时间<b>{{u.t}}</b></span></div>
+<div class="seg"><button class="btn" onClick="{{u.toOrders}}">看订单</button><button class="btn" onClick="{{u.toWithdraw}}">看提现记录</button><button class="btn" onClick="{{u.toBalance}}">看余额记录</button><button class="btn" onClick="{{u.pay}}">给用户转账</button></div>
+<div class="form"><label class="fld">分佣分组<select value="{{u.g}}" onChange="{{u.setG}}"><sc-for list="{{rgn}}" as="o" hint-placeholder-count="4"><option>{{o}}</option></sc-for></select></label>
+<label class="fld">冻结分组<select value="{{u.fzg}}" onChange="{{u.setF}}"><sc-for list="{{fgn}}" as="o" hint-placeholder-count="3"><option>{{o}}</option></sc-for></select></label></div>
+<h3>修改余额</h3><div class="form">
+<label class="fld">方式<select value="{{fm.dir}}" onChange="{{sm.dir}}"><option>增加</option><option>减少</option></select></label>
+<label class="fld">金额（元）<input value="{{fm.amt}}" onChange="{{sm.amt}}" placeholder="请填写"></label>
+<label class="fld">用途<select value="{{fm.pu}}" onChange="{{sm.pu}}"><option>普通调整</option><option>福利补贴</option></select></label>
+<label class="fld">操作人<select value="{{fm.op}}" onChange="{{sm.op}}"><option>运营 A</option><option>财务 B</option></select></label>
+<label class="fld">备注<input value="{{fm.note}}" onChange="{{sm.note}}" placeholder="请填写"></label></div>
+<p class="tip">用途选福利补贴时算进运营消耗。保存后写进余额记录。</p>
+<div class="seg"><button class="btn pri" onClick="{{saveBal}}">保存</button><button class="btn" onClick="{{close}}">关闭</button></div></div></div></sc-if>
+
+<sc-if value="{{dl.pay}}" hint-placeholder-val="{{ false }}"><div class="mask"><div class="dlg"><h2>给用户转账：{{u.n}}（ID {{u.id}}）</h2><p>当前余额 <b>{{u.m}}</b></p>
+<label class="fld">转账金额（元）<input value="{{fm.amt}}" onChange="{{sm.amt}}" placeholder="请填写"></label>
+<label class="fld">用途<select value="{{fm.pu}}" onChange="{{sm.pu}}"><option>普通转账</option><option>福利补贴</option></select></label>
+<label class="fld">操作人<select value="{{fm.op}}" onChange="{{sm.op}}"><option>运营 A</option><option>财务 B</option></select></label>
+<label class="fld">备注<input value="{{fm.note}}" onChange="{{sm.note}}" placeholder="请填写"></label>
+<div class="alert y">确认后直接打款，不走提现审核，转出的钱从余额扣。</div>
+<div class="seg"><button class="btn pri" onClick="{{savePay}}">确认转账</button><button class="btn" onClick="{{close}}">取消</button></div></div></div></sc-if>
+
+<sc-if value="{{dl.cut}}" hint-placeholder-val="{{ false }}"><div class="mask"><div class="dlg"><h2>解除上下级关系</h2><p>解除 {{u.n}} 与上级 {{u.upv}} 的关系。之后的新订单不再给这位上级算提成，已下单的订单不变。</p><label class="fld">备注<input placeholder="请填写"></label>
+<div class="seg"><button class="btn dan" onClick="{{doCut}}">确认解除</button><button class="btn" onClick="{{close}}">取消</button></div></div></div></sc-if>
+
+<sc-if value="{{dl.rebind}}" hint-placeholder-val="{{ false }}"><div class="mask"><div class="dlg"><h2>改绑邀请人：{{u.n}}</h2><p>当前邀请人 {{u.upv}}。只影响之后的订单，已下单的按付款时的关系算。</p><label class="fld">新邀请人 ID<input placeholder="请填写"></label><label class="fld">原因<input placeholder="请填写"></label>
+<div class="seg"><button class="btn pri" onClick="{{close}}">确定</button><button class="btn" onClick="{{close}}">取消</button></div></div></div></sc-if>
+
+<sc-if value="{{dl.claim}}" hint-placeholder-val="{{ false }}"><div class="mask"><div class="dlg"><h2>指定归属</h2><p>把订单绑给用户后，进入总订单，按付款时的上下级关系计算。</p><label class="fld">用户 ID<input placeholder="请填写"></label><label class="fld">备注<input placeholder="请填写"></label>
+<div class="seg"><button class="btn pri" onClick="{{doClaim}}">确定</button><button class="btn" onClick="{{close}}">取消</button></div></div></div></sc-if>
+
+<sc-if value="{{dl.acc}}" hint-placeholder-val="{{ false }}"><div class="mask"><div class="dlg"><h2>新增{{up}}授权账号</h2><label class="fld">账号备注<input placeholder="方便自己认的名字"></label><label class="fld">选择 PID<select><option>授权完成后选择</option></select></label>
+<div class="seg"><button class="btn pri">去授权</button><button class="btn" onClick="{{close}}">取消</button></div></div></div></sc-if>
+
+<sc-if value="{{dl.rule}}" hint-placeholder-val="{{ false }}"><div class="mask"><div class="dlg wide"><h2>标签规则</h2>
+<div class="scroll"><table><thead><tr><th>标签</th><th>规则</th><th>同步方式</th><th>最后同步</th><th>操作</th></tr></thead><tbody><sc-for list="{{tagr}}" as="r" hint-placeholder-count="5"><tr><td><span class="tag t-b">{{r.n}}</span></td><td>{{r.r}}</td><td>{{r.way}}</td><td>{{r.last}}</td><td><button class="link" onClick="{{r.go}}">看会员</button> <sc-if value="{{r.man}}" hint-placeholder-val="{{ false }}"><button class="link" onClick="{{r.sync}}">同步</button></sc-if></td></tr></sc-for></tbody></table></div>
+<h3>新建标签</h3><div class="form"><label class="fld">标签名称<input value="{{nt.n}}" onChange="{{nt.sn}}" placeholder="请填写"></label><label class="fld">条件<select value="{{nt.c}}" onChange="{{nt.sc}}"><sc-for list="{{tcn}}" as="o" hint-placeholder-count="5"><option>{{o}}</option></sc-for></select></label>
+<sc-if value="{{nt.no}}" hint-placeholder-val="{{ false }}"><label class="fld">多少天内没有下单<input value="{{nt.gt}}" onChange="{{nt.sgt}}" placeholder="请填写天数"></label></sc-if>
+<sc-if value="{{nt.rng}}" hint-placeholder-val="{{ true }}"><label class="fld">大于<input value="{{nt.gt}}" onChange="{{nt.sgt}}" placeholder="可留空"></label><label class="fld">小于<input value="{{nt.lt}}" onChange="{{nt.slt}}" placeholder="可留空"></label></sc-if></div>
+<sc-if value="{{nt.err}}" hint-placeholder-val="{{ false }}"><p class="alert r">{{nt.err}}</p></sc-if>
+<p class="tip">大于、小于可以只填一个，也可以都填，比如订单大于 3 单、小于 50 单。“多少天内没有下单”要手动点同步才更新，其他标签系统每天自动打。标签可在会员列表筛选，在订阅消息里群发。</p>
+<div class="seg"><button class="btn pri" onClick="{{saveTag}}">保存</button><button class="btn" onClick="{{close}}">关闭</button></div></div></div></sc-if>
+
+<sc-if value="{{dl.tagrb}}" hint-placeholder-val="{{ false }}"><div class="mask"><div class="dlg wide2"><h2>会员标签返佣</h2>
+<div class="scroll"><table class="nw"><thead><tr><th>标签</th><sc-for list="{{pln}}" as="p" hint-placeholder-count="5"><th>{{p}}</th></sc-for></tr></thead><tbody><sc-for list="{{trows}}" as="r" hint-placeholder-count="7"><tr class="{{r.cls}}"><td class="{{r.tc}}" colSpan="{{r.span}}"><sc-if value="{{r.isC}}" hint-placeholder-val="{{ false }}"><button class="link" onClick="{{r.tog}}">{{r.n}}</button></sc-if><sc-if value="{{r.isT}}" hint-placeholder-val="{{ true }}">{{r.n}}</sc-if></td><sc-for list="{{r.cells}}" as="c" hint-placeholder-count="5"><td><select aria-label="{{c.lb}}" value="{{c.v}}" onChange="{{c.set}}"><option value="">不设置</option><sc-for list="{{rgn}}" as="o" hint-placeholder-count="4"><option>{{o}}</option></sc-for></select></td></sc-for></tr></sc-for></tbody></table></div>
+<p class="tip">标签自动从标签规则同步。选“不设置”就往下走新用户补贴、默认补贴。会员命中多个标签时，按这里从上到下，走第一个已设置的。</p>
+<div class="seg"><button class="btn pri" onClick="{{saveTagRb}}">保存</button><button class="btn" onClick="{{close}}">取消</button></div></div></div></sc-if>
+
+
+<sc-if value="{{dl.rg}}" hint-placeholder-val="{{ false }}"><div class="mask"><div class="dlg"><h2>返佣分组</h2>
+<label class="fld">分组名称<input value="{{ge.n}}" onChange="{{ge.sn}}" placeholder="请填写"></label>
+<table><thead><tr><th>商品佣金小于等于（元）</th><th>分出佣金（%）</th><th>操作</th></tr></thead><tbody><sc-for list="{{ge.tiers}}" as="t" hint-placeholder-count="3"><tr><td><input value="{{t.lt}}" onChange="{{t.slt}}" aria-label="商品佣金小于等于" placeholder="留空表示其余"></td><td><input value="{{t.p}}" onChange="{{t.sp}}" aria-label="分出佣金比例"></td><td><button class="link dan" onClick="{{t.del}}">删除</button></td></tr></sc-for></tbody></table>
+<div class="seg"><button class="btn" onClick="{{ge.add}}">增加一档</button></div>
+<p class="tip">档位从小到大填，商品佣金走第一个满足条件的档。例如 10 元以内分 80%、20 元以内分 50%、30 元以内分 20%：佣金 5 元走 80%，13 元走 50%，20.5 元走 20%。超过最高档时走最后一档，例如 35 元走 20%。</p>
+<label class="fld">上级提成比例（%）<input value="{{ge.b}}" onChange="{{ge.sb}}" placeholder="请填写"></label>
+<div class="seg"><button class="btn pri" onClick="{{saveRg}}">保存</button><button class="btn" onClick="{{close}}">取消</button></div></div></div></sc-if>
+
+<sc-if value="{{dl.fz}}" hint-placeholder-val="{{ false }}"><div class="mask"><div class="dlg"><h2>冻结分组</h2>
+<label class="fld">分组名称<input value="{{ze.n}}" onChange="{{ze.sn}}" placeholder="请填写"></label>
+<label class="fld">按什么分档<select value="{{ze.by}}" onChange="{{ze.sby}}"><option>按单笔返利金额</option><option>按订单付款金额</option></select></label>
+<table><thead><tr><th>大于（元）</th><th>冻结（天）</th><th>操作</th></tr></thead><tbody><sc-for list="{{ze.tiers}}" as="t" hint-placeholder-count="3"><tr><td><input value="{{t.a}}" onChange="{{t.sa}}" aria-label="大于金额"></td><td><input value="{{t.d}}" onChange="{{t.sd}}" aria-label="冻结天数"></td><td><button class="link dan" onClick="{{t.del}}">删除</button></td></tr></sc-for></tbody></table>
+<div class="seg"><button class="btn" onClick="{{ze.add}}">增加一档</button></div>
+<p class="tip">订单走满足条件里金额最大的一档，从联盟确认收货起算。</p>
+<div class="seg"><button class="btn pri" onClick="{{saveFz}}">保存</button><button class="btn" onClick="{{close}}">取消</button></div></div></div></sc-if>
+
+<sc-if value="{{dl.ord}}" hint-placeholder-val="{{ false }}"><div class="mask"><div class="dlg wide"><h2>订单 {{o.no}}</h2>
+<div class="seg"><sc-for list="{{otabs}}" as="x" hint-placeholder-count="3"><button class="btn {{x.c}}" onClick="{{x.go}}">{{x.t}}</button></sc-for></div>
+<sc-if value="{{ot.a}}" hint-placeholder-val="{{ true }}"><div class="grid"><span>用户名称<b>{{o.su}}</b></span><span>用户 ID<b>{{o.uid}}</b></span><span>上级 ID<b>{{o.upv}}</b></span><span>订单状态<b>{{o.s}}</b></span><span>资金状态<b>{{o.fs}}</b></span><span>推广位<b>{{o.pos}}</b></span><span>创建时间<b>{{o.t}}</b></span></div></sc-if>
+<sc-if value="{{ot.b}}" hint-placeholder-val="{{ false }}"><div class="grid"><span>商品标题<b>{{o.g}}</b></span><span>平台<b>{{o.p}}</b></span><span>付款金额<b>{{o.m}}</b></span><span>结算金额<b>{{o.st}}</b></span></div></sc-if>
+<sc-if value="{{ot.c}}" hint-placeholder-val="{{ false }}"><div class="grid"><span>联盟佣金<b>{{o.c}}</b></span><span>佣金比例<b>{{o.rate}}</b></span><span>返佣比例<b>{{o.back}}</b></span><span>分成佣金<b>{{o.fen}}</b></span><span>用户补贴<b>{{o.bu}}</b></span><span>提成补贴<b>{{o.ti}}</b></span><span>本单利润<b>{{o.pf}}</b></span></div></sc-if>
+<div class="seg"><button class="btn" onClick="{{o.uo}}">看会员</button><button class="btn" onClick="{{close}}">关闭</button></div></div></div></sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1160}}'>
+const NAV=[['数据看板',[['运营看板','Main'],['敞口看板','Exposure']]],['功能管理',[['系统设置','Settings'],['导购查券','Guide'],['返利设置','Rules'],['订阅消息','Subscribe']]],['小程序',[['基础设置','MiniBase'],['对接设置','MiniLink']]],['联盟管理',[['淘宝联盟','Union','淘宝'],['京东联盟','Union','京东'],['拼多多联盟','Union','拼多多'],['唯品会联盟','Union','唯品会'],['抖音联盟','Union','抖音'],['大淘客','UnionConfig','大淘客'],['好单库','UnionConfig','好单库'],['PID 池','Pid']]],['用户管理',[['会员列表','Members'],['余额记录','Balance'],['用户风控','Risk']]],['订单管理',[['总订单','Orders'],['无主订单','Unowned'],['强制订单','Forced'],['处罚导入','Penalty']]],['提现管理',[['提现列表','Withdraw'],['支付记录','Payments'],['退回记录','Returned'],['提现设置','WithdrawSet'],['对账差异','Recon']]]];
+const BT=(g,c,l)=>l.map(v=>({v,g,c}));
+const DICT={
+  platform:[{v:'淘宝',c:'t-y'},{v:'京东',c:'t-r'},{v:'拼多多',c:'t-g'},{v:'唯品会',c:'t-b'},{v:'抖音',c:'t-n'}],
+  orderStatus:[{v:'订单付款',c:'t-b'},{v:'订单失效',c:'t-n'},{v:'订单收货',c:'t-y'},{v:'订单结算',c:'t-g'},{v:'维权订单',c:'t-r'},{v:'处罚订单',c:'t-r'}],
+  withdrawStatus:[{v:'审核中',c:'t-y'},{v:'打款中',c:'t-b',pay:true},{v:'已打款',c:'t-g',pay:true},{v:'打款失败',c:'t-r',pay:true,ret:true},{v:'审核驳回',c:'t-n',ret:true}],
+  balanceType:[
+    ...BT('奖励','t-g',['新用户注册奖励','首次查券奖励','首次订单付款奖励','被邀请人首单奖励','裂变奖励','累计邀请奖励','累计下单奖励','单月下单奖励','连续下单奖励','沉默回归奖励','首次提现奖励','累计提现奖励','活动奖励']),
+    ...BT('订单','t-y',['订单冻结','上级提成冻结']),...BT('订单','t-n',['订单解冻','上级提成解冻']),
+    ...BT('订单','t-g',['订单结算','上级提成结算','订单补贴','强制订单补贴','无主订单认领入账']),
+    ...BT('订单','t-r',['订单失效','上级提成失效','维权扣回','上级提成扣回','处罚扣回','强制补贴扣回']),
+    ...BT('人工','t-b',['手动修改余额（加）','手动修改余额（减）','福利补贴','人工转账','人工转账退回']),
+    ...BT('提现','t-n',['提现','提现退回','打款失败退回']),
+    ...BT('风控','t-r',['奖励撤回','风控扣回','风控解除退回'])
+  ]
+};
+const CM=k=>Object.fromEntries(DICT[k].map(x=>[x.v,x.c]));
+const P=CM('platform'),PL=DICT.platform.map(x=>x.v);
+const fm=n=>(n<0?'-':'')+'¥'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const sg=n=>n===0?'-':(n>0?'+':'-')+'¥'+Math.abs(n).toFixed(2);
+const USERS=[['10245','林小满','10018',326.4,'默认分组','默认冻结',['活跃用户'],'2026-03-12'],['10246','周一鸣','',1204,'高佣用户分组','短冻结',['活跃用户','大额提现用户'],'2026-02-28'],['10247','陈可','10245',18.9,'默认分组','默认冻结',['新手用户'],'2026-05-06'],['10248','吴桐','10246',96.1,'默认分组','默认冻结',['活跃用户'],'2026-06-19'],['10249','郑晓','',1.5,'默认分组','长冻结',['新手用户'],'2026-10-30'],['10250','王一诺','10018',522.75,'默认分组','默认冻结',['大额提现用户'],'2026-01-09'],['10018','苏禾','',88,'默认分组','默认冻结',['沉默用户'],'2025-12-20']].map(([id,n,up,m,g,z,tags,t])=>({id,n,up,m,g,z,tags,t}));
+const ORD0=[['T2026110188','10245','淘宝','保温杯 500ml',89,0,10,'11.2%',.6,0,'订单付款','淘宝-追踪位 318','11-01 10:42','冻结中'],['T2026110102','10245','淘宝','数据线',19.9,0,1.6,'8.0%',.6,1,'订单付款','淘宝-追踪位 12','11-01 08:24','冻结中'],['J2026103118','10250','京东','插线板',59,0,4.2,'7.1%',.6,2,'订单付款','京东-追踪位 45','10-31 22:05','冻结中'],['P2026102955','10248','拼多多','抽纸 24 包',36.9,36.9,1.2,'3.3%',.6,2,'订单收货','拼多多-追踪位 12','10-29 20:11','冻结中'],['T2026102802','10247','淘宝','洗衣液 3kg',49.9,0,0,'8.0%',.6,1,'订单失效','淘宝-追踪位 201','10-28 13:27','已作废'],['J2026102713','10246','京东','蓝牙耳机',199,199,14,'7.0%',.8,0,'订单结算','京东-追踪位 45','10-27 09:03','已入账'],['P2026102907','10246','拼多多','垃圾袋',12.9,12.9,.8,'6.2%',.8,.5,'订单结算','拼多多-追踪位 3','10-26 11:32','已入账'],['T2026101944','10250','淘宝','电动牙刷',129,129,9,'7.0%',.6,0,'维权订单','淘宝-追踪位 77','10-19 18:40','已追回'],['J2026101522','10249','京东','移动电源',79,79,4,'5.1%',.6,0,'处罚订单','京东-追踪位 8','10-15 12:16','待人工'],['T2026101203','10245','淘宝','收纳箱',59,59,5,'8.5%',.6,0,'订单结算','淘宝-追踪位 318','10-12 16:50','已入账']];
+const WD0=[['W2026110107','10246',1280,'11-01 09:42','审核中','超自动额度'],['W2026110106','10250',860.5,'11-01 09:15','审核中','敞口到限'],['W2026110104','10245',120,'11-01 08:12','打款中',''],['W2026103109','10246',300,'10-31 09:30','已打款',''],['W2026103107','10248',60,'10-31 09:20','打款失败',''],['W2026103102','10250',100,'10-31 09:05','已打款',''],['W2026103012','10245',200,'10-30 15:40','审核驳回','超自动额度']];
+const LED0=[['11-01 10:42','10245','订单冻结',0,6,'T2026110188','','系统','付款后进冻结'],['11-01 09:58','10248','强制订单补贴',2,0,'P2026102955','','系统',''],['11-01 09:42','10246','提现',-1280,0,'W2026110107','','系统','申请提现'],['11-01 09:40','10247','裂变奖励',3,0,'','','系统','邀请新用户'],['11-01 09:15','10250','提现',-860.5,0,'W2026110106','','系统','申请提现'],['11-01 08:12','10245','提现',-120,0,'W2026110104','','系统','申请提现'],['10-31 21:06','10249','首次订单付款奖励',1,0,'J2026101522','','系统',''],['10-31 18:20','10250','手动修改余额（加）',20,0,'','福利补贴','运营 A','活动福利'],['10-31 17:02','10245','手动修改余额（减）',-5,0,'','普通调整','财务 B','错发更正'],['10-31 15:44','10247','订单失效',0,-.42,'T2026102802','','系统','冻结期全额退款'],['10-31 14:10','10246','人工转账',-50,0,'PAY2026103121','普通转账','运营 A','活动奖金'],['10-31 10:30','10246','订单解冻',0,-11.2,'J2026102713','','系统','冻结期满'],['10-31 10:30','10246','订单结算',11.2,0,'J2026102713','','系统','返利入账'],['10-31 09:30','10246','提现',-300,0,'W2026103109','','系统','申请提现'],['10-31 09:20','10248','提现',-60,0,'W2026103107','','系统','申请提现'],['10-31 09:05','10250','提现',-100,0,'W2026103102','','系统','申请提现'],['10-31 09:12','10249','首次查券奖励',.5,0,'','','系统',''],['10-30 16:00','10245','提现退回',200,0,'W2026103012','','财务 B','审核驳回'],['10-30 12:00','10250','维权扣回',-5.4,0,'T2026101944','','系统','入账后全额退款'],['10-30 12:00','10018','上级提成扣回',-.45,0,'T2026101944','','系统','按原比例扣回'],['10-30 11:00','10249','处罚扣回',-2.4,0,'J2026101522','','系统','联盟处罚'],['10-30 09:00','10018','上级提成结算',.25,0,'T2026101203','','系统','']];
+const TC=CM('balanceType'),TG=Object.fromEntries(DICT.balanceType.map(x=>[x.v,x.g])),CATS=[...new Set(DICT.balanceType.map(x=>x.g))];
+const WS=CM('withdrawStatus'),OS=CM('orderStatus'),WPAY=DICT.withdrawStatus.filter(x=>x.pay).map(x=>x.v),WRET=DICT.withdrawStatus.filter(x=>x.ret).map(x=>x.v);
+const PD={淘宝:[4126,742,84200,8420,5050,420,180,318],京东:[2204,418,52600,5260,3150,260,120,156],拼多多:[1408,217,21400,2140,1280,100,60,92]};
+const COST={新用户注册奖励:180,首次查券奖励:96,首次订单付款奖励:240,裂变奖励:210,被邀请人首单奖励:120,累计邀请奖励:80,累计下单奖励:60,沉默回归奖励:44,福利补贴:170};
+const RANGE={今天:[1,'2026-11-01'],昨天:[.95,'2026-10-31'],近七天:[6.8,'2026-10-26 至 2026-11-01'],本月:[1,'2026-11-01 至 2026-11-01'],上月:[28,'2026-10-01 至 2026-10-31']};
+const num=n=>Math.round(n).toLocaleString('en-US'),pct=(a,b)=>b?(a/b*100).toFixed(2)+'%':'0%';
+const RT=(a,c,d)=>[{k:1,lt:'10',p:a},{k:2,lt:'20',p:c},{k:3,lt:'30',p:d}];
+const RG0=[{n:'默认分组',tiers:RT('80','50','20'),b:'5'},{n:'新人分组',tiers:RT('85','55','25'),b:'5'},{n:'老用户分组',tiers:RT('82','52','22'),b:'5'},{n:'高佣用户分组',tiers:RT('90','60','30'),b:'3'}];
+const FZ0=[{n:'默认冻结',by:'按单笔返利金额',tiers:[{k:1,a:'0',d:'7'},{k:2,a:'20',d:'15'},{k:3,a:'100',d:'30'}]},{n:'短冻结',by:'按单笔返利金额',tiers:[{k:1,a:'0',d:'3'}]},{n:'长冻结',by:'按订单付款金额',tiers:[{k:1,a:'0',d:'15'},{k:2,a:'500',d:'30'}]}];
+const NO='多少天内没有下单',TCOND=[['订单笔数','订单'],['近 30 天订单笔数','订单'],['累计提现金额','金额'],['累计返利金额','金额'],[NO,'未下单']];
+const TAGS0=[{n:'活跃用户',c:'近 30 天订单笔数',gt:'5',lt:''},{n:'成长用户',c:'订单笔数',gt:'3',lt:'50'},{n:'新手用户',c:'订单笔数',gt:'',lt:'3'},{n:'大额提现用户',c:'累计提现金额',gt:'1000',lt:''},{n:'沉默用户',c:NO,gt:'60',lt:''}];
+const TM0={活跃用户:{淘宝:'高佣用户分组'},新手用户:{淘宝:'新人分组',京东:'新人分组'}};
+const ruleT=t=>{const u=/金额/.test(t.c)?' 元':'';return t.c===NO?t.gt+' 天内没有下单':t.c+(t.gt?' 大于 '+t.gt+u:'')+(t.lt?' 小于 '+t.lt+u:'');},tcat=t=>TCOND.find(x=>x[0]===t.c)[1];
+const REW=[['新用户注册奖励','首次进入小程序','',['注册后'],'1 次'],['首次查券奖励','第一次查券','',['查券后'],'1 次'],['首次订单付款奖励','第一笔订单','',['付款后','确认收货后','结算后'],'1 次'],['裂变奖励','邀请的新用户绑定','',['绑定后','被邀请人首单付款后'],'不限'],['被邀请人首单奖励','被邀请人完成首单','',['确认收货后','结算后'],'不限'],['累计邀请奖励','','累计邀请 N 人',['达成后'],'每档 1 次'],['累计下单奖励','','累计下单 N 单',['确认收货后','结算后'],'每档 1 次'],['单月下单奖励','','当月下单 N 单',['次月 1 日'],'每月 1 次'],['连续下单奖励','','连续 N 天下单',['确认收货后','结算后'],'每轮 1 次'],['沉默回归奖励','','N 天没下单后再下单',['确认收货后','结算后'],'每次回归 1 次'],['首次提现奖励','第一次提现成功','',['提现成功后'],'1 次'],['累计提现奖励','','累计提现满 N 元',['达成后'],'每档 1 次']];
+const FORM={dir:'增加',amt:'',pu:'普通调整',op:'运营 A',note:''};
+class Component extends DCLogic {
+  state={page:'Main',open:'数据看板',f:{},up:'淘宝',range:'今天',tr:{p:'全部',m:'订单量',per:'近 30 天'},dlg:'',uid:'',menu:'',oid:'',otab:0,form:FORM,led:[],pays:[],ws:{},us:{},rg:RG0,fz:FZ0,ge:null,ze:null,rs:{},rec:{},uno:{},claim:'',subTag:'活跃用户',ncut:{},tags:TAGS0,tm:TM0,te:null,tc:{},ts:{沉默用户:'2026-10-31 09:30'},nt:{n:'',c:'订单笔数',gt:'',lt:''},nterr:''};
+  go(page,f,extra){const g=NAV.find(x=>x[1].some(i=>i[1]===page));this.setState({page,f:f||{},open:g[0],dlg:'',menu:'',...(extra||{})});try{window.scrollTo(0,0)}catch(e){}}
+  renderVals() {
+    const s=this.state,F={kw:'',plat:'',st:'',group:'',tag:'',cat:'',type:'',...s.f},to=(p,f)=>()=>this.go(p,f);
+    const cur=(NAV.flatMap(g=>g[1].map(i=>[g[0],...i])).find(i=>i[2]===s.page&&(!i[3]||i[3]===s.up)));
+    const us=USERS.map(u=>{const o=s.us[u.id]||{},ex=s.led.filter(l=>l[1]===u.id).reduce((a,l)=>a+l[3],0);return {...u,g:o.g||u.g,z:o.z||u.z,up:s.ncut[u.id]?'':u.up,m:u.m+ex};});
+    const U=id=>us.find(u=>u.id===id),UN=id=>{const u=U(id);return u?u.n+' '+id:id;};
+    const det=id=>()=>this.setState({dlg:'det',uid:id,menu:'',form:FORM});
+    const openO=no=>()=>this.setState({dlg:'ord',oid:no,otab:0,menu:''});
+    const ORD=ORD0.map(([no,uid,p,g,m,st,c,rate,back,bu,sx,pos,t,fs])=>{const u=U(uid),ti=u.up?c*.05:0,fen=c*back;return {no,uid,p,pc:P[p],g,m:fm(m),st:st?fm(st):'-',c:fm(c),cv:c,su:u.n,un:UN(uid),rate,back:Math.round(back*100)+'%',fen:fm(fen),fv:fen,bu:fm(bu),bv:bu,ti:fm(ti),pf:fm(c-fen-bu-ti),s:sx,sc:OS[sx],pos,t,fs,upv:u.up||'无',uo:det(uid),open:openO(no)};});
+    const hasKw=(...a)=>!F.kw||a.some(x=>String(x).includes(F.kw));
+    const ref=no=>()=>{if(/^W/.test(no))this.go('Withdraw',{kw:no});else if(/^PAY/.test(no))this.go('Payments',{kw:no});else if(ORD.some(o=>o.no===no))openO(no)();else this.go('Orders',{kw:no});};
+    const byU=x=>!F.uid||x.uid===F.uid;
+    const ordV=ORD.filter(o=>byU(o)&&hasKw(o.no,o.uid,o.su)&&(!F.plat||o.p===F.plat)&&(!F.st||o.s===F.st));
+    const forced=ORD.filter(o=>o.bv>0).map(o=>{const fv=o.s==='订单付款'?'等待收货':o.s==='订单失效'?'已失效':'已放行';return {...o,fv,fc:{等待收货:'t-y',已放行:'t-g',已失效:'t-n'}[fv],q:o.uid==='10246'?'沉默激活':'新人'};}).filter(o=>byU(o)&&hasKw(o.no,o.uid,o.su)&&(!F.plat||o.p===F.plat)&&(!F.st||o.fv===F.st));
+    const WD=WD0.map(([id,uid,a,t,st,why])=>{const x=s.ws[id]||st;return {id,uid,a:fm(a),av:a,t,s:x,c:WS[x],why,un:UN(uid),uo:det(uid),review:x==='审核中',ok:()=>this.setState({ws:{...s.ws,[id]:'打款中'}}),no:()=>this.setState({ws:{...s.ws,[id]:'审核驳回'}}),toLed:to('Balance',{uid,kw:id})};});
+    const wdV=WD.filter(w=>byU(w)&&hasKw(w.id,w.uid,w.un)&&(!F.st||w.s===F.st));
+    const payAll=[...s.pays,['PAY2026103121','人工转账','10246',50,'','已打款','运营 A','10-31 14:10'],...WD.filter(w=>WPAY.includes(w.s)).map(w=>['PAY'+w.id.slice(1),'用户提现',w.uid,w.av,w.id,w.s,'系统',w.t])].map(([id,k,uid,a,no,st,op,t])=>({id,k,uid,a:fm(a),no,s:st,c:WS[st],op,t,un:UN(uid),uo:det(uid),ref:no?ref(no):null}));
+    const payV=payAll.filter(x=>byU(x)&&hasKw(x.id,x.uid,x.no,x.un)&&(!F.st||x.s===F.st));
+    const retV=WD.filter(w=>WRET.includes(w.s)).map(w=>({...w,ref:ref(w.id)})).filter(w=>byU(w)&&hasKw(w.id,w.uid,w.un)&&(!F.st||w.s===F.st));
+    const bal={};us.forEach(u=>bal[u.id]=u.m);
+    const ledAll=[...s.led,...LED0].map(([t,uid,k,a,f,no,pu,op,m])=>{const b=bal[uid];bal[uid]-=a;return {t,uid,k,c:TC[k],a:sg(a),f:sg(f),b:fm(b),no,pu:pu||'-',op,m:m||'-',un:UN(uid),uo:det(uid),ref:ref(no),pv:pu};});
+    const ledV=ledAll.filter(l=>byU(l)&&hasKw(l.no,l.uid,l.un)&&(!F.cat||TG[l.k]===F.cat)&&(!F.type||l.k===F.type)&&(!F.purpose||l.pv===F.purpose));
+    const RF=RANGE[s.range][0],extra=s.led.filter(l=>l[6]==='福利补贴').reduce((a,l)=>a+Math.abs(l[3]),0),cost=1200*RF+extra;
+    const pr=PL.map(p=>{const[q,o,pay,m,a,b,sb,u]=(PD[p]||Array(8).fill(0)).map(x=>x*RF);return {p,q,o,pay,m,sub:a+b+sb,u,vo:o*.9,vm:m*.9,lp:m-a-b-sb};});
+    const sum=k=>pr.reduce((a,r)=>a+r[k],0),T={q:sum('q'),o:sum('o'),pay:sum('pay'),m:sum('m'),sub:sum('sub'),u:sum('u'),vo:sum('vo'),vm:sum('vm'),lp:sum('lp')},lp=T.lp;
+    const urow=(r,c,go)=>({p:r.p,c,q:num(r.q),o:num(r.o),pay:fm(r.pay),m:fm(r.m),cr:pct(r.o,r.q),mr:pct(r.m,r.pay),vo:num(r.vo),vm:fm(r.vm),vr:pct(r.vo,r.o),u:num(r.u),s:fm(r.sub),l:fm(r.lp),lr:pct(r.lp,r.m),go});
+    const TV={订单量:[1377,num],预估佣金:[15820,fm],联盟利润:[5200,fm],提现金额:[12640,fm],运营消耗:[1200,fm]},tp0=s.tr.p==='全部'?1:((PD[s.tr.p]||[0,0])[1]/1377),noP=['提现金额','运营消耗'].includes(s.tr.m),TD=s.tr.per==='上月'?31:30;
+    const tv=Array.from({length:TD},(_,i)=>TV[s.tr.m][0]*(noP?1:tp0)*(.82+.14*Math.sin(i*.7+(s.tr.per==='上月'?1:0))+.08*Math.sin(i*2.1))),tmax=Math.max(...tv,1);
+    const bars=tv.map((x,i)=>{const dt=new Date(Date.UTC(2026,9,s.tr.per==='上月'?1+i:3+i)),lb=String(dt.getUTCMonth()+1).padStart(2,'0')+'-'+String(dt.getUTCDate()).padStart(2,'0');return {h:(x/tmax*190).toFixed(0)+'px',tip:lb+' '+s.tr.m+' '+TV[s.tr.m][1](x),l:i%5===0?lb:''};});
+    const seg=(l,k)=>l.map(t=>({t,c:t===s.tr[k]?'pri':'',go:()=>this.setState({tr:{...s.tr,[k]:t}})}));
+    const cost2=DICT.balanceType.filter(x=>x.g==='奖励'||x.v==='福利补贴').map(x=>{const v=(COST[x.v]||0)*RF+(x.v==='福利补贴'?extra:0);return {t:x.v,v:fm(v),go:to('Balance',x.v==='福利补贴'?{purpose:x.v}:{type:x.v})};});
+    const mem=us.filter(u=>hasKw(u.id,u.n)&&(!F.group||u.g===F.group)&&(!F.tag||u.tags.includes(F.tag))).map(u=>{const os=ORD.filter(o=>o.uid===u.id),fr=os.filter(o=>o.fs==='冻结中');return {...u,a:u.n[0],m:fm(u.m),gc:u.g==='默认分组'?'t-n':'t-b',f:fm(fr.reduce((a,o)=>a+o.fv,0)),fo:fr.length,o:os.length,on:s.menu===u.id,upgo:det(u.up),more:()=>this.setState({menu:s.menu===u.id?'':u.id}),det:det(u.id),toOrders:to('Orders',{uid:u.id}),toWithdraw:to('Withdraw',{uid:u.id}),toBalance:to('Balance',{uid:u.id}),pay:()=>this.setState({dlg:'pay',uid:u.id,menu:'',form:{...FORM,pu:'普通转账'}}),cut:()=>this.setState({dlg:'cut',uid:u.id,menu:''})};});
+    const u0=U(s.uid)||us[0],uos=ORD.filter(o=>o.uid===u0.id);
+    const u={...u0,m:fm(u0.m),upv:u0.up||'无',f:fm(uos.filter(o=>o.fs==='冻结中').reduce((a,o)=>a+o.fv,0)),total:fm(uos.filter(o=>o.fs==='已入账').reduce((a,o)=>a+o.fv,0)),wt:fm(WD.filter(w=>w.uid===u0.id&&w.s==='已打款').reduce((a,w)=>a+w.av,0)),o:uos.length,kids:us.filter(x=>x.up===u0.id).length,tagt:u0.tags.join('、'),fzg:u0.z,toOrders:to('Orders',{uid:u0.id}),toWithdraw:to('Withdraw',{uid:u0.id}),toBalance:to('Balance',{uid:u0.id}),pay:()=>this.setState({dlg:'pay',form:{...FORM,pu:'普通转账'}}),setG:e=>this.setState({us:{...s.us,[u0.id]:{...s.us[u0.id],g:e.target.value}}}),setF:e=>this.setState({us:{...s.us,[u0.id]:{...s.us[u0.id],z:e.target.value}}})};
+    const addLed=(k,a,no)=>[['刚刚',u0.id,k,a,0,no||'',s.form.pu,s.form.op,s.form.note],...s.led];
+    const sf={},sm={};['kw','plat','st','group','tag','type'].forEach(k=>sf[k]=e=>this.setState({f:{...s.f,[k]:e.target.value}}));sf.cat=e=>this.setState({f:{...s.f,cat:e.target.value,type:''}});Object.keys(FORM).forEach(k=>sm[k]=e=>this.setState({form:{...s.form,[k]:e.target.value}}));
+    const chipT=[F.uid&&UN(F.uid),F.group&&'分组 '+F.group,F.tag&&'标签 '+F.tag,F.purpose&&'用途 '+F.purpose].filter(Boolean).join(' · ');
+    const dl={};['det','pay','cut','rebind','claim','acc','rule','rg','fz','ord','tagrb'].forEach(k=>dl[k]=s.dlg===k);
+    const is={};NAV.forEach(g=>g[1].forEach(i=>is[i[1]]=s.page===i[1]));
+    const o=ORD.find(x=>x.no===s.oid)||ORD[0];
+    const ACC={淘宝:[{n:'主账号',s:'已授权',c:'t-g',d:'2026-12-20',k:'200',pid:'mm_xxx_001'},{n:'备用账号',s:'即将到期',c:'t-y',d:'2026-11-08',k:'120',pid:'mm_xxx_201'}],京东:[{n:'主账号',s:'已授权',c:'t-g',d:'2027-01-15',k:'100',pid:'jd_xxx_001'}],拼多多:[{n:'主账号',s:'已授权',c:'t-g',d:'2026-12-02',k:'80',pid:'pdd_xxx_001'}]}[s.up]||[];
+    const pids=[['淘宝','684120377265','保温杯 500ml',186,14,93,'1,204'],['淘宝','702233418870','洗衣液 3kg',142,58,71,'860'],['拼多多','51882306417','抽纸 24 包',96,104,48,'512'],['京东','100094228816','蓝牙耳机',61,139,31,'274']].filter(r=>!F.plat||r[0]===F.plat).map(([p,id,g,a,b,w,q])=>({p,pc:P[p],id,g,a,b,w:w+'%',bc:w>=90?'#b91c1c':'#1f6fd1',q}));
+    const RK=[['10249','奖励暂停','同设备批量新号',0,'10-31 22:10'],['10247','提现冻结','订单全部退款',0,'10-31 19:45'],['10250','正常','集中买低价商品',2,'10-30 16:02']].map(([uid,st,sig,n,t])=>{const x=s.rs[uid]||st,us0=U(uid);return {uid,s:x,sc:{正常:'t-g',奖励暂停:'t-y',提现冻结:'t-b',封禁:'t-r'}[x],sig,n,t,un:UN(uid),uo:det(uid),up:us0.up||'-',m:fm(us0.m),pt:x==='奖励暂停'?'恢复奖励':'暂停奖励',bt:x==='封禁'?'解封':'封禁',pause:()=>this.setState({rs:{...s.rs,[uid]:x==='奖励暂停'?'正常':'奖励暂停'}}),ban:()=>this.setState({rs:{...s.rs,[uid]:x==='封禁'?'正常':'封禁'}}),rebind:()=>this.setState({dlg:'rebind',uid})};}).filter(r=>byU(r)&&hasKw(r.uid,r.un)&&(!F.st||r.s===F.st));
+    const UNO=[['2487163402218','淘宝','收纳箱 3 件',59,'PID 用完','','剩 12 天','待认领'],['311209011463','京东','空气炸锅',299,'商品多人同时查券','10245','剩 9 天','用户已提交'],['2487163398740','淘宝','手机壳',19.9,'商品多人同时查券','10248','剩 6 天','转人工'],['261030771209','拼多多','纸尿裤',88,'PID 用完','','剩 3 天','待认领']].map(([no,p,g,m,w,uid,d,st])=>{const x=s.uno[no]||st;return {no,p,pc:P[p],g,m:fm(m),w,un:uid?UN(uid):'',uo:det(uid),d,s:x,sc:{待认领:'t-y',用户已提交:'t-b',转人工:'t-r',已认领:'t-g'}[x],todo:x!=='已认领',claim:()=>this.setState({dlg:'claim',claim:no})};}).filter(r=>hasKw(r.no)&&(!F.plat||r.p===F.plat)&&(!F.st||r.s===F.st));
+    const REC=[['10-31','淘宝','T2026101203','¥5.00','¥4.40','¥5.00','¥0.60','待处理'],['10-31','京东','J2026102713','¥14.00','¥14.00','¥12.40','¥1.60','待处理'],['10-30','淘宝','W2026103109','-','-','¥300.00','¥0.00','已处理']].map(([d,p,no,a,b,c,x,st])=>{const v=s.rec[no]||st;return {d,p,pc:P[p],no,a,b,c,x,s:v,sc:v==='待处理'?'t-y':'t-g',todo:v==='待处理',ref:ref(no),done:()=>this.setState({rec:{...s.rec,[no]:'已处理'}})};});
+    const setNt=x=>this.setState({nt:{...s.nt,...x},nterr:''});
+    const trows=s.te?[...new Set(s.tags.map(tcat))].flatMap(c=>{const l=s.tags.filter(t=>tcat(t)===c),up=s.tc[c];return [{isC:true,isT:false,span:6,cls:'tcat',tc:'',n:(up?'▸ ':'▾ ')+c+'（'+l.length+'）',cells:PL.map(p=>({})).slice(0,0),tog:()=>this.setState({tc:{...s.tc,[c]:!up}})},...(up?[]:l.map(t=>({isC:false,isT:true,span:1,cls:'',tc:'tsub',n:t.n,cells:PL.map(p=>({lb:t.n+' '+p+' 返佣分组',v:(s.te[t.n]||{})[p]||'',set:e=>this.setState({te:{...s.te,[t.n]:{...s.te[t.n],[p]:e.target.value}}})}))})))];}):[];
+    const gset=t=>this.setState({ge:{...s.ge,tiers:t}});
+    const ge=s.ge&&{...s.ge,sn:e=>this.setState({ge:{...s.ge,n:e.target.value}}),sb:e=>this.setState({ge:{...s.ge,b:e.target.value}}),add:()=>{const l=s.ge.tiers,r={k:l.reduce((a,t)=>Math.max(a,t.k),0)+1,lt:'',p:''},at=l.length&&!l[l.length-1].lt?l.length-1:l.length;gset([...l.slice(0,at),r,...l.slice(at)]);},tiers:s.ge.tiers.map(t=>({...t,slt:e=>gset(s.ge.tiers.map(x=>x.k===t.k?{...x,lt:e.target.value}:x)),sp:e=>gset(s.ge.tiers.map(x=>x.k===t.k?{...x,p:e.target.value}:x)),del:()=>gset(s.ge.tiers.filter(x=>x.k!==t.k))}))};
+    const zset=t=>this.setState({ze:{...s.ze,tiers:t}});
+    const ze=s.ze&&{...s.ze,sn:e=>this.setState({ze:{...s.ze,n:e.target.value}}),sby:e=>this.setState({ze:{...s.ze,by:e.target.value}}),add:()=>zset([...s.ze.tiers,{k:s.ze.tiers.reduce((a,t)=>Math.max(a,t.k),0)+1,a:'',d:''}]),tiers:s.ze.tiers.map(t=>({...t,sa:e=>zset(s.ze.tiers.map(x=>x.k===t.k?{...x,a:e.target.value}:x)),sd:e=>zset(s.ze.tiers.map(x=>x.k===t.k?{...x,d:e.target.value}:x)),del:()=>zset(s.ze.tiers.filter(x=>x.k!==t.k))}))};
+    return {
+      nav:NAV.map(([t,l])=>{const open=s.open===t;return {t,open,a:open?'▾':'▸',tog:()=>this.setState({open:open?'':t}),items:l.map(([n,p,x])=>({t:n,c:s.page===p&&(!x||x===s.up)?'on':'',go:()=>this.go(p,{},x?{up:x}:{})}))};}),
+      crumb1:cur[0],crumb2:cur[1],chip:chipT,clearF:to(s.page),is,dl,f:F,sf,sm,fm:s.form,u,o,up:s.up,close:()=>this.setState({dlg:''}),pl:PL,ost:DICT.orderStatus.map(x=>x.v),wst:DICT.withdrawStatus.map(x=>x.v),wpay:WPAY,wret:WRET,cats:CATS,
+      empty:{ord:!ordV.length,mem:!mem.length,led:!ledV.length,risk:!RK.length,forced:!forced.length,wd:!wdV.length,pay:!payV.length,ret:!retV.length,pids:!pids.length},
+      ranges:Object.keys(RANGE).map(t=>({t,c:t===s.range?'pri':'',go:()=>this.setState({range:t})})),rangeText:RANGE[s.range][1],
+      ovs:[{t:'联盟订单',cls:'ov-a',go:to('Orders'),items:[[num(T.o),'订单笔数'],[fm(T.pay),'付款金额'],[fm(T.m),'预估佣金'],[num(T.vo),'有效笔数'],[fm(T.pay*.9),'有效金额'],[fm(T.vm),'有效佣金']].map(([v,l])=>({v,l})),foot:'平均每笔付款 '+fm(T.pay/T.o)+' · 平均每笔佣金 '+fm(T.m/T.o)},
+        {t:'用户补贴',cls:'ov-b',go:to('Forced'),items:[[num(T.o),'补贴笔数'],[fm(T.sub),'全部补贴'],[fm(T.sub*.9),'有效补贴'],[fm(T.sub/T.o),'平均补贴'],[pct(T.sub,T.m),'补贴占比'],[pct(T.sub*.9,T.vm),'有效补贴占比']].map(([v,l])=>({v,l})),foot:'含用户返利、上级提成、强制补贴'},
+        {t:'联盟利润',cls:'ov-c',go:to('Orders'),items:[[fm(lp),'全部利润'],[fm(lp*.9),'有效利润'],[pct(lp*.9,T.vm),'有效利润占比'],[fm(lp/T.o),'平均利润'],[pct(lp,T.m),'利润占比'],[fm(lp-cost),'总利润']].map(([v,l])=>({v,l})),foot:'总利润已扣运营消耗 '+fm(cost)}],
+      kpis:[['查券次数',num(T.q),to('Guide')],['下单量',num(T.o),to('Orders')],['提现金额',fm(12640*RF),to('Payments')],['待审核提现',fm(WD.filter(w=>w.s==='审核中').reduce((a,w)=>a+w.av,0)),to('Withdraw',{st:'审核中'})],['运营消耗',fm(cost),to('Balance',{purpose:'福利补贴'})],['总利润',fm(lp-cost),to('Orders'),'hl']].map(([t,v,go,c])=>({t,v,go,c:c||''})),
+      mems:[['新增会员',num(1280*RF)],['已查券会员',num(3460*RF)],['未下单会员',num(2894*RF)],['已下单会员',num(T.u)],['已提现会员',num(486*RF)]].map(([t,v])=>({t,v,go:to('Members')})),
+      costs:cost2,costT:fm(cost),unions:[...pr.map(r=>urow(r,P[r.p],to('Orders',{plat:r.p}))),urow({...T,p:'合计'},'t-n',null)],
+      tp:seg(['全部',...PL],'p'),tper:seg(['近 30 天','上月'],'per'),tm:seg(Object.keys(TV),'m'),trendNote:noP?'这项不分平台':'鼠标放到柱子上看当天数字',bars,
+      expo:[['淘宝','¥214,300.00','¥96,200.00','¥48,000.00','¥166,300.00'],['京东','¥118,600.00','¥52,400.00','¥31,500.00','¥87,100.00'],['拼多多','¥61,000.00','¥24,800.00','¥28,000.00','¥33,000.00'],['唯品会','¥0.00','¥0.00','¥0.00','¥0.00'],['抖音','¥0.00','¥0.00','¥0.00','¥0.00']].map(([p,a,b,x,e])=>({p,c:P[p],a,b,d:x,e,go:to('Orders',{plat:p})})),
+      defs:[...PL.map(p=>p+'平台'),'新人','老用户'],rgn:s.rg.map(x=>x.n),fgn:s.fz.map(x=>x.n),
+      rewards:REW.map(([n,c,x,w,t])=>({n,c,u:x,w,t})),
+      guide:[['淘宝','大淘客','好单库','正常','t-g','4,126','84.2%'],['京东','大淘客','好单库','正常','t-g','2,204','81.6%'],['拼多多','大淘客','好单库','正常','t-g','1,408','78.9%'],['唯品会','待配置','待配置','未接入','t-n','0','-'],['抖音','待配置','待配置','未接入','t-n','0','-']].map(([p,a,b,x,c,q,r])=>({p,pc:P[p],a,b,s:x,c,q,r})),
+      rg:s.rg.map((x,i)=>({...x,txt:x.tiers.map(t=>(t.lt?'小于等于 '+t.lt+' 元分 ':'其余分 ')+t.p+'%').join('；'),b:x.b+'%',u:us.filter(m=>m.g===x.n).length,go:to('Members',{group:x.n}),edit:()=>this.setState({dlg:'rg',ge:{...x,i}})})),
+      fz:s.fz.map((x,i)=>({...x,txt:x.tiers.map(t=>'大于 '+t.a+' 元冻结 '+t.d+' 天').join('；'),u:us.filter(m=>m.z===x.n).length,go:()=>this.go('Members',{}),edit:()=>this.setState({dlg:'fz',ze:{...x,i}})})),
+      newRg:()=>this.setState({dlg:'rg',ge:{n:'',b:'',tiers:[{k:1,lt:'',p:''}],i:-1}}),newFz:()=>this.setState({dlg:'fz',ze:{n:'',by:'按单笔返利金额',tiers:[{k:1,a:'0',d:''}],i:-1}}),ge:ge||{},ze:ze||{tiers:[]},
+      saveRg:()=>{const{n,b,tiers,i}=s.ge;if(!n)return;this.setState({dlg:'',rg:i<0?[...s.rg,{n,b,tiers}]:s.rg.map((x,j)=>j===i?{n,b,tiers}:x)});},
+      saveFz:()=>{const{n,by,tiers,i}=s.ze;if(!n)return;this.setState({dlg:'',fz:i<0?[...s.fz,{n,by,tiers}]:s.fz.map((x,j)=>j===i?{n,by,tiers}:x)});},
+      subs:[['订单绑定成功','订单绑定到用户后','启用','1,012'],['返利结算到账','冻结到期入账后','启用','864'],['订单失效或退款','订单失效、退款后','启用','96'],['提现到账','打款成功后','启用','486'],['提现失败','打款失败或驳回后','停用','0']].map(([n,t,x,q])=>({n,t,s:x,c:x==='启用'?'t-g':'t-n',q})),
+      subTag:s.subTag,setSubTag:e=>this.setState({subTag:e.target.value}),subUsers:to('Members',{tag:s.subTag}),tagn:s.tags.map(t=>t.n),tagr:s.tags.map(t=>({n:t.n,r:ruleT(t),way:t.c===NO?'手动同步':'每天自动',last:t.c===NO?(s.ts[t.n]||'未同步'):'今天 02:00',man:t.c===NO,go:to('Members',{tag:t.n}),sync:()=>this.setState({ts:{...s.ts,[t.n]:'2026-11-01 10:00'}})})),
+      tcn:TCOND.map(x=>x[0]),nt:{...s.nt,no:s.nt.c===NO,rng:s.nt.c!==NO,err:s.nterr,sn:e=>setNt({n:e.target.value}),sc:e=>setNt({c:e.target.value}),sgt:e=>setNt({gt:e.target.value}),slt:e=>setNt({lt:e.target.value})},
+      saveTag:()=>{const t={...s.nt,lt:s.nt.c===NO?'':s.nt.lt},err=m=>this.setState({nterr:m});if(!t.n)return err('请填写标签名称');if(s.tags.some(x=>x.n===t.n))return err('标签名称已存在');if(!t.gt&&!t.lt)return err(t.c===NO?'请填写天数':'大于、小于至少填一个');if(t.gt&&t.lt&&+t.gt>=+t.lt)return err('大于的数值要比小于的小');this.setState({tags:[...s.tags,t],nt:{n:'',c:'订单笔数',gt:'',lt:''},nterr:''});},
+      tagRbT:s.tags.length+' 个标签，已设置 '+s.tags.filter(t=>Object.values(s.tm[t.n]||{}).some(Boolean)).length+' 个',openTagRb:()=>this.setState({dlg:'tagrb',te:s.tm}),saveTagRb:()=>this.setState({dlg:'',tm:s.te,te:null}),pln:PL,trows,
+      banners:[{n:'活动图 1',u:'查券页',i:'1'},{n:'活动图 2',u:'邀请页',i:'2'}],links:['微信登录','手机号授权','订阅消息','消息推送回调'],
+      utabs:PL.map(t=>({t,c:t===s.up?'pri':'',go:()=>this.setState({up:t})})),ctabs:['大淘客','好单库'].map(t=>({t,c:t===s.up?'pri':'',go:()=>this.setState({up:t})})),uacc:ACC,uhas:ACC.length>0,unone:!ACC.length,addAcc:()=>this.setState({dlg:'acc'}),toPid:to('Pid',{plat:s.up}),pids,
+      mem,led:ledV,types:DICT.balanceType.filter(x=>!F.cat||x.g===F.cat).map(x=>x.v),risk:RK,ord:ordV,uno:UNO,forced,wd:wdV,pay:payV,ret:retV,rec:REC.filter(r=>(!F.plat||r.p===F.plat)&&(!F.st||r.s===F.st)),recTodo:REC.filter(r=>r.todo).length,
+      pen:[['1','J2026101522','10249','全部','¥4.00','通过'],['2','T2026101944','10250','部分','¥2.30','通过']].map(([n,no,uid,t,m,x])=>({n,no,t,m,s:x,sc:'t-g',open:openO(no),un:UN(uid),uo:det(uid)})),
+      penlog:[{id:'P20261015-01',f:'淘宝联盟处罚单-9月.xlsx',u:'财务 B',t:'10-15 10:22',b:'42',c:'0',s:'全部成功',sc:'t-g'},{id:'P20260916-01',f:'京东处罚单-8月.xlsx',u:'财务 B',t:'09-16 15:08',b:'16',c:'2',s:'部分失败',sc:'t-y'}],
+      otabs:['订单信息','商品信息','数据分析'].map((t,i)=>({t,c:i===s.otab?'pri':'',go:()=>this.setState({otab:i})})),ot:{a:s.otab===0,b:s.otab===1,c:s.otab===2},
+      ruleDlg:()=>this.setState({dlg:'rule'}),doCut:()=>this.setState({dlg:'',ncut:{...s.ncut,[u0.id]:true}}),doClaim:()=>this.setState({dlg:'',uno:{...s.uno,[s.claim]:'已认领'}}),
+      saveBal:()=>{const a=parseFloat(s.form.amt);if(!a)return;const up=s.form.dir==='增加';this.setState({led:addLed(up?'手动修改余额（加）':'手动修改余额（减）',up?a:-a),dlg:''});},
+      savePay:()=>{const a=parseFloat(s.form.amt);if(!a)return;const id='PAY'+(2026110200+s.pays.length);this.setState({led:addLed('人工转账',-a,id),pays:[[id,'人工转账',u0.id,a,'','已打款',s.form.op,'刚刚'],...s.pays],dlg:''});},
+      toWithdrawSet:to('WithdrawSet'),toRules:to('Rules'),toSettings:to('Settings'),toForced:to('Forced'),toGuide:to('Guide'),toSubscribe:to('Subscribe'),toExposure:to('Exposure')
+    };
+  }
+}
+</script>
+</body>
+</html>

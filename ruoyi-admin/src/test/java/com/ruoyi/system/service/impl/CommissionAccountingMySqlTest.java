@@ -1,6 +1,15 @@
 package com.ruoyi.system.service.impl;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
+import java.util.Date;
+import java.util.Optional;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import com.ruoyi.system.cps.settlement.PaymentInvitationSnapshotPort;
+import com.ruoyi.system.cps.settlement.PaymentInvitationSnapshotService;
+import com.ruoyi.union.adapter.Platform;
+import com.ruoyi.union.adapter.UnionOrderLine;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
@@ -34,14 +43,11 @@ import com.ruoyi.system.domain.SysAgentCommissionAccount;
 import com.ruoyi.system.domain.SysAgentCommissionConfig;
 import com.ruoyi.system.domain.SysCommissionFlow;
 import com.ruoyi.system.domain.SysOrderCommission;
-import com.ruoyi.system.domain.SysTbkAgentApply;
-import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.system.mapper.SysAgentCommissionAccountMapper;
 import com.ruoyi.system.mapper.SysAgentCommissionConfigMapper;
 import com.ruoyi.system.mapper.SysCommissionConfigMapper;
 import com.ruoyi.system.mapper.SysCommissionFlowMapper;
 import com.ruoyi.system.mapper.SysOrderCommissionMapper;
-import com.ruoyi.system.mapper.SysTbkAgentApplyMapper;
 import com.ruoyi.system.service.ICommissionCalculateService;
 
 import static org.junit.Assert.assertEquals;
@@ -114,14 +120,12 @@ public class CommissionAccountingMySqlTest
 
         SqlSessionFactoryBean factoryBean = new SqlSessionFactoryBean();
         factoryBean.setDataSource(dataSource);
-        factoryBean.setTypeAliases(SysTbkAgentApply.class, SysUser.class);
         factoryBean.setMapperLocations(
             new ClassPathResource("mapper/system/SysAgentCommissionAccountMapper.xml"),
             new ClassPathResource("mapper/system/SysCommissionFlowMapper.xml"),
             new ClassPathResource("mapper/system/SysOrderCommissionMapper.xml"),
             new ClassPathResource("mapper/system/SysAgentCommissionConfigMapper.xml"),
-            new ClassPathResource("mapper/system/SysCommissionConfigMapper.xml"),
-            new ClassPathResource("mapper/system/SysTbkAgentApplyMapper.xml"));
+            new ClassPathResource("mapper/system/SysCommissionConfigMapper.xml"));
         SqlSessionFactory factory = factoryBean.getObject();
         assertNotNull(factory);
         SqlSessionTemplate sessions = new SqlSessionTemplate(factory);
@@ -137,7 +141,7 @@ public class CommissionAccountingMySqlTest
         ReflectionTestUtils.setField(target, "flowMapper", flows);
         ReflectionTestUtils.setField(target, "orderCommissionMapper", orders);
         ReflectionTestUtils.setField(target, "commissionConfigMapper", sessions.getMapper(SysCommissionConfigMapper.class));
-        ReflectionTestUtils.setField(target, "agentApplyMapper", sessions.getMapper(SysTbkAgentApplyMapper.class));
+        ReflectionTestUtils.setField(target, "ledgerJdbc", jdbc);
         TransactionInterceptor interceptor = new TransactionInterceptor();
         interceptor.setTransactionManager(manager);
         interceptor.setTransactionAttributeSource(new AnnotationTransactionAttributeSource());
@@ -173,8 +177,12 @@ public class CommissionAccountingMySqlTest
         insertAgent(buyerId, invitation(referrerId));
         configureLifecycleRates();
 
+        String orderNo = "line4-lifecycle-" + nextId();
+        // Legacy calculation has no trusted paidAt. This fixture represents an already
+        // persisted upstream payment; the historical provider is synthetic, not line 9 integration.
+        persistVerifiedPaymentOrder(orderNo, buyerId, referrerId);
         SysOrderCommission calculated = commissions.calculateCommission(
-            "line4-lifecycle-" + nextId(), "tbk", "synthetic-item", "line4 synthetic order",
+            orderNo, "tbk", "synthetic-item", "line4 synthetic order",
             money("99.99"), money("1.2399"), money("12.34"), buyerId, "2026-10-01 10:11:12");
         assertNotNull(calculated.getId());
         SysOrderCommission stored = orders.selectSysOrderCommissionById(calculated.getId());
@@ -250,11 +258,11 @@ public class CommissionAccountingMySqlTest
     public void calculatedOrderWithOneBeneficiaryReversesSelfAndPromotionStatisticsSeparately()
     {
         long userId = nextId();
-        insertAgent(userId, invitation(userId));
-        configureLifecycleRates();
-        SysOrderCommission order = commissions.calculateCommission(
-            "line4-same-beneficiary-" + nextId(), "tbk", "synthetic-item", "line4 synthetic order",
-            money("99.99"), money("1.2399"), money("12.34"), userId, "2026-10-01 10:11:12");
+        // Historical same-beneficiary snapshot; new orders must never use self-invitation.
+        long historicalOrderId = insertOrder(userId, "50.00", userId, "10.00");
+        jdbc.update("UPDATE sys_order_commission SET estimated_commission = 1.2399, commission_rate = 12.34, "
+            + "self_commission_amount = 0.62, promotion_commission_amount = 0.12 WHERE id = ?", historicalOrderId);
+        SysOrderCommission order = orders.selectSysOrderCommissionById(historicalOrderId);
 
         assertTrue(commissions.settleOrder(order.getId(), money("1.2501")));
         assertLedger(userId, "0.76", 2);
@@ -694,18 +702,23 @@ public class CommissionAccountingMySqlTest
 
     private static void insertAgent(long userId, String referrerInvitation)
     {
-        jdbc.update("INSERT INTO sys_tbk_agent_apply "
-                + "(user_id, mini_app_id, real_name, phone, wechat, invitation_code, referrer_invitation_code, status) "
-                + "VALUES (?, ?, 'line4 synthetic agent', 'test-phone', 'test-wechat', ?, ?, '1')",
-            userId, "line4-synthetic-miniapp-" + userId, invitation(userId), referrerInvitation);
+        jdbc.update("INSERT INTO sys_user (user_id, user_name, nick_name, status, del_flag) "
+                + "VALUES (?, ?, 'line4 synthetic user', '0', '0')",
+            userId, "line4-" + userId);
+        Long inviterId = referrerInvitation == null ? null : jdbc.queryForObject(
+            "SELECT user_id FROM sys_wechat_user WHERE invitation_code = ?", Long.class, referrerInvitation);
+        jdbc.update("INSERT INTO sys_wechat_user (user_id, openid, invitation_code, inviter_user_id) "
+                + "VALUES (?, ?, ?, ?)",
+            userId, "line4-synthetic-openid-" + userId, invitation(userId), inviterId);
     }
 
     private static void configureLifecycleRates()
     {
         jdbc.update("INSERT INTO sys_commission_config (config_key, config_value) VALUES ('self_rate', 50.00) "
             + "ON DUPLICATE KEY UPDATE config_value = 50.00, status = '0'");
-        jdbc.update("INSERT INTO sys_commission_config (config_key, config_value) VALUES ('promotion_rate', 10.00) "
-            + "ON DUPLICATE KEY UPDATE config_value = 10.00, status = '0'");
+        // Promotion is a percentage of the buyer's self commission, not the alliance total.
+        jdbc.update("INSERT INTO sys_commission_config (config_key, config_value) VALUES ('promotion_rate', 20.00) "
+            + "ON DUPLICATE KEY UPDATE config_value = 20.00, status = '0'");
     }
 
     private static void assertAccountTotals(long userId, String total, String self, String promotion)
@@ -731,13 +744,59 @@ public class CommissionAccountingMySqlTest
     private static long insertOrder(long buyerId, String selfRate, Long referrerId, String promotionRate)
     {
         long id = nextId();
+        // Fixture arguments express each beneficiary's share of the alliance total.
+        // Persist promotion as a percentage of the self share, matching settlement's snapshot contract.
+        BigDecimal promotionOfSelf = money(promotionRate).signum() == 0 ? BigDecimal.ZERO
+            : money(promotionRate).multiply(money("100")).divide(money(selfRate), 2, RoundingMode.HALF_UP);
         jdbc.update("INSERT INTO sys_order_commission "
                 + "(id, order_id, platform_type, agent_user_id, buyer_user_id, self_commission_rate, "
                 + "has_referrer, referrer_user_id, promotion_commission_rate, order_status, settle_status, actual_commission) "
                 + "VALUES (?, ?, 'tbk', ?, ?, ?, ?, ?, ?, 'pending', 'unsettled', 0.00)",
             id, "line4-synthetic-" + id, buyerId, buyerId, money(selfRate),
-            referrerId == null ? "0" : "1", referrerId, money(promotionRate));
+            referrerId == null ? "0" : "1", referrerId, promotionOfSelf);
         return id;
+    }
+
+
+    private static void persistVerifiedPaymentOrder(String orderNo, long buyer, long inviter)
+    {
+        transactions.executeWithoutResult(status -> {
+            Instant paid = Instant.parse("2026-10-01T10:11:22Z");
+            SysOrderCommission order = new SysOrderCommission();
+            order.setOrderId(orderNo); order.setSubOrderNo(""); order.setPlatformType("tbk");
+            order.setItemId("synthetic-item"); order.setItemTitle("line4 synthetic order");
+            order.setOrderAmount(money("99.99")); order.setEstimatedCommission(money("1.2399"));
+            order.setCommissionRate(money("12.34")); order.setBuyerUserId(buyer); order.setAgentUserId(buyer);
+            order.setOrderTime(java.sql.Timestamp.valueOf("2026-10-01 10:11:12"));
+            order.setPaidTime(Date.from(paid)); order.setOrderStatus("pending"); order.setSettleStatus("unsettled");
+            order.setSelfCommissionRate(target.getSelfCommissionRate());
+            order.setSelfCommissionAmount(order.getEstimatedCommission().multiply(order.getSelfCommissionRate())
+                .divide(money("100"), 2, RoundingMode.HALF_UP));
+            order.setHasReferrer("0"); order.setPromotionCommissionRate(BigDecimal.ZERO);
+            order.setPromotionCommissionAmount(BigDecimal.ZERO);
+            assertEquals(1, orders.insertSysOrderCommission(order));
+            assertNotNull(order.getId());
+            UnionOrderLine line = new UnionOrderLine(Platform.TBK, orderNo, "", order.getItemId(), null, null,
+                order.getOrderAmount(), order.getEstimatedCommission(), null, "SYNTHETIC_PAID_EVIDENCE", paid, null, null);
+            PaymentInvitationSnapshotPort evidence = (platform, number, suborder, owner, paidAt) -> {
+                assertEquals(Platform.TBK, platform); assertEquals(orderNo, number); assertEquals("", suborder);
+                assertEquals(Long.valueOf(buyer), owner); assertEquals(paid, paidAt);
+                return Optional.of(new PaymentInvitationSnapshotPort.Snapshot(buyer, inviter, paid, "accounting-fixture-paid"));
+            };
+            StaticListableBeanFactory beans = new StaticListableBeanFactory();
+            beans.addBean("explicitHistoricalEvidenceStub", evidence);
+            var decision = new PaymentInvitationSnapshotService(jdbc, beans.getBeanProvider(PaymentInvitationSnapshotPort.class))
+                .resolve(order.getId(), buyer, line);
+            assertTrue("Only verified payment evidence may prepare the legacy referral order", !decision.manualReview());
+            assertEquals("accounting-fixture-paid", decision.evidenceId());
+            order.setReferrerUserId(decision.inviterUserId()); order.setHasReferrer("1");
+            order.setPromotionCommissionRate(target.getPromotionCommissionRate());
+            order.setPromotionCommissionAmount(order.getSelfCommissionAmount().multiply(order.getPromotionCommissionRate())
+                .divide(money("100"), 2, RoundingMode.HALF_UP));
+            assertEquals(1, orders.updateSysOrderCommission(order));
+            assertEquals("VERIFIED", jdbc.queryForObject(
+                "SELECT review_status FROM cps_payment_invitation_snapshot WHERE order_line_id=?", String.class, order.getId()));
+        });
     }
 
     /** Exercise the internal entry point with the real surrounding transaction. */

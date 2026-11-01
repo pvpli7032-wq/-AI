@@ -6,7 +6,8 @@
 文件：
 - `design/README.md`：本文件，通用规范和页面索引。
 - `design/miniapp.md`：小程序 7 个新页面、首页和用户中心的改动。
-- `design/admin.md`：后台 9 个模块。
+- `design/admin.md`：后台规则和各模块规格，末尾有待确认事项。
+- `design/admin-prototype/index.html`：后台可点击原型，2026-11-01 已确认，浏览器直接打开。
 
 ## 1. 目标与用户
 
@@ -131,17 +132,19 @@
 
 权限键统一为 `system:commission:*`，沿用现有写法（例：`system:commission:order:export`，见 `order/index.vue:51`）。新模块写成 `system:commission:<模块>:<动作>`，动作沿用若依惯例（`list`、`query`、`add`、`edit`、`remove`、`export`），模块段由实作按页面命名。
 
-| 编号 | 模块 | 菜单建议位置 | 权限键前缀 |
+| 编号 | 模块 | 菜单位置 | 权限键前缀 |
 |---|---|---|---|
-| A1 | 规则管理和试算 | 返利管理 > 规则管理 | `system:commission:*` |
-| A2 | 订单（列表、详情） | 返利管理 > 订单 | `system:commission:*` |
-| A3 | 无主订单 | 返利管理 > 无主订单 | `system:commission:*` |
-| A4 | 处罚导入 | 返利管理 > 处罚导入 | `system:commission:*` |
-| A5 | 提现审核 | 资金管理 > 提现审核 | `system:commission:*` |
-| A6 | 用户风控 | 资金管理 > 用户风控 | `system:commission:*` |
-| A7 | PID 池 | 运营配置 > PID 池 | `system:commission:*` |
-| A8 | 对账差异 | 资金管理 > 对账差异 | `system:commission:*` |
-| A9 | 敞口和运营看板 | 数据 > 敞口看板、运营看板 | `system:commission:*` |
+| A1 | 试算、校验和版本 | 功能管理 > 返利设置（待确认） | `system:commission:*` |
+| A2 | 订单（列表、详情） | 订单管理 > 总订单 | `system:commission:*` |
+| A3 | 无主订单 | 订单管理 > 无主订单 | `system:commission:*` |
+| A4 | 处罚导入 | 订单管理 > 处罚导入 | `system:commission:*` |
+| A5 | 提现审核 | 提现管理 > 提现列表 | `system:commission:*` |
+| A6 | 用户风控 | 用户管理 > 用户风控 | `system:commission:*` |
+| A7 | PID 池 | 联盟管理 > PID 池 | `system:commission:*` |
+| A8 | 对账差异 | 提现管理 > 对账差异 | `system:commission:*` |
+| A9 | 敞口和运营看板 | 数据看板 > 敞口看板、运营看板 | `system:commission:*` |
+
+完整菜单和其余栏目见 `admin.md`“菜单”一节。
 
 ## 8. 验收总清单（通用部分）
 
@@ -165,7 +168,7 @@
 1. 转发不带身份。商品、查券结果、订单类转发一律不带身份；邀请页的邀请卡只带接口返回的邀请码（`GET /miniapp/invite`），不带 userId、昵称、头像。
 2. 查券时就分配 PID，查券时就转链。M2 解析成功后立即请求转链，点按钮只复制，不再在点击时才转链。
 3. 收款信息字段等打款商户选定后再定。当前规格不定字段，页面留位，不编造字段（见 miniapp.md M6、接口缺口 E1）。
-4. 提现状态名固定为：审核中、已审核、已打款、已退回。
+4. 提现显示状态：审核中、打款中、已打款、打款失败、审核驳回，对应关系见 `admin.md`“提现”一节。
 5. 后台权限键用 `system:commission:*`。
 6. 后台旧订单页保留，新订单页另增。
 7. 订单号显示：后台不打码，小程序打码。

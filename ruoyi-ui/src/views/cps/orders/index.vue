@@ -73,7 +73,7 @@
             <el-descriptions-item label="绑定方式">{{ methodLabel(detail.order.attributionMethod) }}</el-descriptions-item>
             <el-descriptions-item label="置信度">{{ detail.order.attributionConfidence || '-' }}</el-descriptions-item>
           </el-descriptions>
-          <el-alert class="gap-alert" type="info" :closable="false" title="该接口未返回净佣金、用户返利、邀请提成、补贴、平台毛利、决策人/时间、异常记录或原始 JSON。" />
+          <el-alert class="gap-alert" type="info" :closable="false" title="净佣金、用户返利、邀请提成、补贴、平台毛利、决策人/时间及异常记录：接口未提供；原始证据未导出。" />
           <h3>归因历史</h3>
           <el-table :data="detail.attributionHistory || []" size="mini" border>
             <el-table-column label="时间" prop="createdAt" min-width="155"><template slot-scope="scope">{{ formatTime(scope.row.createdAt) }}</template></el-table-column>

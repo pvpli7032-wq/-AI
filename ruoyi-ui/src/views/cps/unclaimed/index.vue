@@ -5,7 +5,7 @@
       <el-form-item label="状态" prop="status"><el-select v-model="queryParams.status" clearable placeholder="全部状态"><el-option v-for="item in statuses" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
       <el-form-item><el-button type="primary" icon="el-icon-search" @click="handleQuery">搜索</el-button><el-button icon="el-icon-refresh" @click="resetQuery">重置</el-button></el-form-item>
     </el-form>
-    <el-alert type="warning" :closable="false" show-icon title="接口返回的订单号已打码，不能满足后台完整显示要求；接口也未提供商品、付款金额、候选用户、进入时间或 PID 屏蔽信息。屏蔽 PID 禁认领规则无法在本页面判断。" />
+    <el-alert type="warning" :closable="false" show-icon title="接口返回的订单号已打码，不能满足后台完整显示要求；接口也未提供商品、付款金额、候选用户、进入时间或该订单的 PID 屏蔽依据。PID 屏蔽状态未由服务端返回时，页面无法判定禁认领规则。" />
     <el-row :gutter="10" class="mb8"><el-col :span="24"><right-toolbar :showSearch.sync="showSearch" @queryTable="getList" /></el-col></el-row>
     <el-table v-loading="loading" :data="pageRows">
       <el-table-column label="订单号（接口脱敏）" prop="maskedOrderNo" min-width="160" show-overflow-tooltip />

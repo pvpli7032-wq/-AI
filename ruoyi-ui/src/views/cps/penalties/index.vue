@@ -1,6 +1,6 @@
 <template>
   <div class="app-container">
-    <el-alert type="warning" :closable="false" show-icon class="gap-alert" title="当前后端没有文件模板下载、文件上传、预览、导入记录列表或回显原文件名接口。可用接口要求显式提供订单行 ID、联盟状态时间及累计追回佣金证据；以下表单直接提交真实扣回接口，不解析或伪造预览结果。" />
+    <el-alert type="warning" :closable="false" show-icon class="gap-alert" title="当前后端没有文件模板下载、文件上传、预览、导入记录列表或回显原文件名接口。请先在线下核对联盟模板和每行来源证据；可用接口要求显式提供订单行 ID、联盟状态时间及累计追回佣金证据。以下表单直接提交真实扣回接口，不解析或伪造预览结果。" />
     <el-card shadow="never" class="panel">
       <div slot="header"><span>提交处罚证据</span></div>
       <el-form ref="importForm" :model="form" :rules="rules" label-width="150px" v-loading="submitting">

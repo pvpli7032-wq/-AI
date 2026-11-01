@@ -4,6 +4,10 @@
 
 最后更新：2026-11-01，后台设计稿确认后。
 
+## 现在做什么
+
+验收并合并线 9～12，然后线 15、线 13、线 14。新人阅读顺序：本文件、`plan.md`、`tasks/batch-02.md`、`design/README.md`、`design/admin.md`，再打开 `design/admin-prototype/index.html`。
+
 ## 各线状态
 
 | 线 | 内容 | 状态 |
@@ -43,7 +47,7 @@
 - 全部完成后列出旧代码、旧说明的清理清单，经确认后再删。
 
 - 公共字典接口 `GET /admin/dict` 是暂定路径，线 13 开工前定下。
-- `design/admin.md` 末尾 4 条待确认事项，线 13 开工前用户拍板。
+- `design/admin.md` 末尾 5 条待确认事项，线 13 开工前用户拍板。
 
 ## 工作规矩
 

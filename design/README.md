@@ -26,7 +26,7 @@
 6. 不写未定的数字（返利比例、冻结天数、最低提现额、N 分钟、租约小时等）。这些值全部来自接口或配置，设计稿里用占位符 `{配置:xxx}`。
 7. 不新增 plan 没有的功能。不做：团队多级、代理 PID、尾号绑定、淘宝授权、手续费展示、实名认证页（未在 plan 内定义）、深色模式。
 8. 后台只用 Element UI 2.x（Vue 2），沿用 `ruoyi-ui/src/views/system/commission/` 的写法（`app-container`、搜索表单 inline、`el-table`、`pagination`、`right-toolbar`、`v-hasPermi`、`el-dialog append-to-body`）。不引入新组件库、新图表库以外的依赖（看板图表用已有依赖 echarts，见 admin.md 顶部）。
-9. 现有 10 个小程序页面全部保留，不删页面。现有 `pages/goods/list/list`（tab「收益」）、`pages/share/index`、`pages/agent/apply/apply` 不改动逻辑。后台旧订单页 `views/system/commission/order/index.vue` 保留，不删不改。
+9. 现有小程序页面保留，只有 `pages/agent/apply/` 由线 15 删除。现有 `pages/goods/list/list`（tab「收益」）、`pages/share/index` 不改动逻辑。后台旧订单页 `views/system/commission/order/index.vue` 保留，不删不改。
 
 ## 3. 现有风格（读自代码）
 
@@ -150,7 +150,7 @@
 
 各页具体验收见两份文件末尾。通用项：
 
-1. 全部新页面已登记进 `app.json`，tabBar 仍为 3 项，原 10 个页面文件未删。
+1. 全部新页面已登记进 `app.json`，tabBar 仍为 3 项，除线 15 删除的代理申请页外，原页面文件未删。
 2. 任何页面在 `onLoad`、`onShow` 中没有读剪贴板（全局搜索 `getClipboardData`，只允许出现在用户点击「粘贴」的处理函数里）。
 3. 全局搜索，界面文案中没有出现内部状态码或英文枚举（`pending`、`confirmed`、`settled`、`refunded`、`FROZEN` 等）。
 4. 所有 `onShareAppMessage` 返回的 path 不含 `userId`、`pid`、`nick`、`avatar`；邀请页除外且只带接口给的邀请码。

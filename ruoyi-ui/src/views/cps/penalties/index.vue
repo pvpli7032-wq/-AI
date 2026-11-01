@@ -67,7 +67,7 @@ export default {
           this.$modal.msgError('第 ' + (i + 1) + ' 行字段无效，请核对 DTO 所需的 orderLineId、allianceStatusTime、cumulativeRecoveredCommission、rawEvidence')
           return null
         }
-        if (row.cumulativeRecoveredCommission !== null && (typeof row.cumulativeRecoveredCommission !== 'string' || !/^\\d+(\\.\\d{1,8})?$/.test(row.cumulativeRecoveredCommission))) {
+        if (row.cumulativeRecoveredCommission !== null && (typeof row.cumulativeRecoveredCommission !== 'string' || !/^[0-9]+(\.[0-9]{1,8})?$/.test(row.cumulativeRecoveredCommission))) {
           this.$modal.msgError('第 ' + (i + 1) + ' 行累计追回佣金必须是非负金额字符串或 null')
           return null
         }

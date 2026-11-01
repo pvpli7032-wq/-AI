@@ -22,7 +22,7 @@
       </el-form-item>
     </el-form>
 
-    <el-alert v-if="apiGaps.length" type="warning" :closable="false" show-icon class="gap-alert">
+    <el-alert type="warning" :closable="false" show-icon class="gap-alert">
       <template slot="title">当前订单接口只支持平台、内部状态、归因方式筛选；展示状态、金额拆分、可疑标记和原始数据未由接口提供。</template>
     </el-alert>
 
@@ -30,7 +30,7 @@
       <el-col :span="24"><right-toolbar :showSearch.sync="showSearch" @queryTable="getList" /></el-col>
     </el-row>
 
-    <el-table v-loading="loading" :data="orderList" @row-dblclick="handleView">
+    <el-table v-loading="loading" :data="orderList">
       <el-table-column label="订单号" prop="orderNo" min-width="170" show-overflow-tooltip />
       <el-table-column label="子订单号" prop="subOrderNo" min-width="145" show-overflow-tooltip />
       <el-table-column label="平台" prop="platform" width="100" align="center">

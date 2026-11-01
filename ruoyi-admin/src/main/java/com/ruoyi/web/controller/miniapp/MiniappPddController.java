@@ -205,7 +205,7 @@ public class MiniappPddController extends BaseController {
         String[] config = getAgentPddConfig(invitationCode, userId);
         // 调用服务层
         JSONObject result = pddApiService.generatePromotionUrl(goodsSign, currentUserId(), config[0], config[1]);
-        logger.info("生成推广链接 generatePromotionUrl >>>> " +  result.toString());
+        // The generated URL can contain a private attribution token; do not log it.
         return success(result);
     }
 

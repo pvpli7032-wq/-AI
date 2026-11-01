@@ -187,6 +187,11 @@ function publicGet(url, data) {
   return request(url, 'GET', data, false);
 }
 
+/** 商品浏览和转链可匿名访问；有会话时仍发送当前用户的 token。 */
+function optionalGet(url, data) {
+  return request(url, 'GET', data, true);
+}
+
 /**
  * POST请求（公开接口，不需要认证）
  */
@@ -198,7 +203,7 @@ function publicPost(url, data) {
  * POST请求，发送表单数据（application/x-www-form-urlencoded）
  * 适用于后端使用 @RequestParam 接收参数的场景
  */
-function publicPostForm(url, data) {
+function publicPostForm(url, data, options = {}) {
   return new Promise((resolve, reject) => {
     const header = {
       'Content-Type': 'application/x-www-form-urlencoded'
@@ -222,18 +227,13 @@ function publicPostForm(url, data) {
       formData = params.join('&');
     }
     
-    console.log('发起表单请求:', {
-      url: fullUrl,
-      method: 'POST',
-      originalData: data,
-      formData: formData
-    });
+    if (!options.silent) console.log('发起表单请求:', { url: fullUrl, method: 'POST' });
     
     // 检查API地址是否配置
     if (apiUrl === '') {
       console.error('API地址未配置！请在 app.js 中设置 apiUrl');
       const errMsg = 'API地址未配置，请在 app.js 的 globalData 中设置 apiUrl';
-      wx.showModal({
+      if (!options.silent) wx.showModal({
         title: '配置错误',
         content: errMsg,
         showCancel: false
@@ -249,33 +249,15 @@ function publicPostForm(url, data) {
       header: header,
       timeout: 10000,
       success: res => {
-        console.log('请求响应:', {
-          url: fullUrl,
-          statusCode: res.statusCode,
-          data: res.data
-        });
-        
-        // 详细调试信息
-        console.log('=== publicPostForm 响应详情 ===');
-        console.log('响应状态码:', res.statusCode);
-        console.log('响应数据类型:', typeof res.data);
-        console.log('响应数据:', JSON.stringify(res.data, null, 2));
-        if (res.data) {
-          console.log('res.data.code:', res.data.code);
-          console.log('res.data.msg:', res.data.msg);
-          console.log('res.data.data:', res.data.data);
-        }
-        console.log('===============================');
-        
         if (res.statusCode === 200) {
           resolve(res.data);
         } else if (res.statusCode === 401) {
-          handleUnauthorized();
+          if (!options.silent) handleUnauthorized();
           reject(new Error('未授权，请重新登录'));
         } else {
           const errMsg = (res.data && res.data.msg) || '请求失败';
-          console.error('请求失败:', errMsg, res);
-          wx.showToast({
+          console.error('请求失败:', errMsg);
+          if (!options.silent) wx.showToast({
             title: errMsg,
             icon: 'none',
             duration: 3000
@@ -298,7 +280,7 @@ function publicPostForm(url, data) {
           }
         }
         
-        wx.showToast({
+        if (!options.silent) wx.showToast({
           title: errMsg,
           icon: 'none',
           duration: 3000
@@ -363,6 +345,7 @@ module.exports = {
   put,
   del,
   publicGet,
+  optionalGet,
   publicPost,
   publicPostForm,
   upload

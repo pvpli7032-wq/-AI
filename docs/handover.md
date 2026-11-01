@@ -48,6 +48,7 @@
 6. **线 14 收尾加固。**
 7. **同步 `test/real-integration`，** 用真实账号跑实测，核对真实订单。
 8. **全部完成后列旧代码、旧说明清理清单，** 用户确认后再删。
+9. **删已合并的远端旧分支（随时可做）：** 用户已同意。只删 `git rev-list --count origin/main..分支` 为 0 的，当时有 26 个。不删 `main`、`test/real-integration` 和有未合并提交的分支（如 `codex/line-4-commission-ledger`、`chore/guardrails-line-11-test-fixtures`），这两个有提交不在 main 上，先看内容再问用户。
 
 ## 已定规则（文档里没有或容易漏）
 

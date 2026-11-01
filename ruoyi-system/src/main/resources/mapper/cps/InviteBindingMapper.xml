@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.cps.mapper.InviteBindingMapper">
+    <resultMap id="InviteUser" type="com.ruoyi.system.domain.SysWechatUser">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="openid" column="openid"/>
+        <result property="invitationCode" column="invitation_code"/>
+        <result property="inviterUserId" column="inviter_user_id"/>
+    </resultMap>
+    <select id="lockSystemUser" resultType="java.lang.Long">
+        SELECT user_id FROM sys_user WHERE user_id = #{userId} AND del_flag = '0' AND status = '0' FOR UPDATE
+    </select>
+    <select id="lockInvitationMutex" resultType="java.lang.Integer">
+        SELECT id FROM cps_invitation_mutex WHERE id = 1 FOR UPDATE
+    </select>
+    <select id="countCodesOfLength" resultType="long">
+        SELECT COUNT(*) FROM sys_wechat_user
+        WHERE CHAR_LENGTH(invitation_code) = #{length} AND invitation_code REGEXP '^[1-9][0-9]*$' FOR SHARE
+    </select>
+    <select id="countCode" resultType="long">
+        SELECT COUNT(*) FROM sys_wechat_user WHERE invitation_code = #{code} FOR SHARE
+    </select>
+    <select id="selectByUserId" resultMap="InviteUser">
+        SELECT id, user_id, openid, invitation_code, inviter_user_id FROM sys_wechat_user WHERE user_id = #{userId} FOR SHARE
+    </select>
+    <select id="selectLockedUser" resultMap="InviteUser">
+        SELECT id, user_id, openid, invitation_code, inviter_user_id FROM sys_wechat_user WHERE user_id = #{userId} FOR UPDATE
+    </select>
+    <select id="findInviter" resultMap="InviteUser">
+        SELECT w.id, w.user_id, w.openid, w.invitation_code, w.inviter_user_id
+        FROM sys_wechat_user w INNER JOIN sys_user u ON u.user_id = w.user_id
+        WHERE w.invitation_code = #{code} AND u.del_flag = '0' AND u.status = '0' FOR SHARE
+    </select>
+    <select id="countHistoricalOrders" resultType="long">
+        SELECT COUNT(*) FROM sys_order_commission WHERE buyer_user_id = #{userId} OR agent_user_id = #{userId}
+    </select>
+    <update id="setInvitationCode">
+        UPDATE sys_wechat_user SET invitation_code = #{code}, update_time = NOW()
+        WHERE user_id = #{userId}
+    </update>
+    <update id="changeInviter">
+        UPDATE sys_wechat_user SET inviter_user_id = #{inviterUserId}, update_time = NOW() WHERE user_id = #{userId}
+    </update>
+    <insert id="appendAudit">
+        INSERT INTO cps_invite_binding_audit(user_id, previous_inviter_user_id, next_inviter_user_id,
+            operator_id, event_type, reason, created_at)
+        VALUES (#{userId}, #{previousInviter}, #{nextInviter}, #{operatorId}, #{eventType}, #{reason}, #{createdAt})
+    </insert>
+    <select id="databaseUtcNow" resultType="java.time.LocalDateTime">
+        SELECT UTC_TIMESTAMP(3)
+    </select>
+    <select id="resolveAt" resultType="java.lang.Long">
+        SELECT next_inviter_user_id FROM cps_invite_binding_audit
+        WHERE user_id = #{userId} AND created_at &lt;= #{paidAt}
+        ORDER BY created_at DESC, id DESC LIMIT 1 FOR SHARE
+    </select>
+</mapper>

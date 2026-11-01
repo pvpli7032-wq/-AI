@@ -40,10 +40,10 @@
     </view>
 
     <!-- 预估佣金（仅代理可见） isAgent &&  -->
-    <view class="commission-section" wx:if="{{goods.commission && goods.commission != '0'}}">
+    <view class="commission-section" wx:if="{{goods.estimatedRebate !== null && goods.estimatedRebate !== undefined && goods.estimatedRebate !== ''}}">
       <view class="commission-icon">💰</view>
-      <text class="commission-label">预估佣金：</text>
-      <text class="commission-value">¥{{goods.commission}}</text>
+      <text class="commission-label">预计返利：</text>
+      <text class="commission-value">¥{{goods.estimatedRebate}}</text>
     </view>
 
     <!-- 天猫活动信息 -->

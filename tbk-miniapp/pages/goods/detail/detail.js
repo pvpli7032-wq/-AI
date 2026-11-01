@@ -29,34 +29,10 @@ Page({
         invitationCode: app.globalData.invitationCode
       });
       
-      // 检查是否从分享链接传递了关键数据
-      if (options.price || options.monthSales || options.commission) {
-        console.log('检测到分享链接传递的数据，使用URL参数构建商品信息');
-        // 从URL参数构建商品基本信息，避免API查询
-        const shareGoods = {
-          id: options.id,
-          title: decodeURIComponent(options.title || ''),
-          mainPic: decodeURIComponent(options.pic || ''),
-          actualPrice: options.price || '0',
-          originalPrice: options.originalPrice || options.price || '0',
-          monthSales: options.monthSales || '0',
-          commission: options.commission || '0',
-          commissionRate: options.commissionRate || '0',
-          platform: platform
-        };
-        
-        // 从URL参数中获取推广链接（如果有）
-        if (options.couponShareUrl) {
-          shareGoods.couponShareUrl = decodeURIComponent(options.couponShareUrl);
-          console.log('从分享链接获取到couponShareUrl');
-        }
-        if (options.clickUrl) {
-          shareGoods.clickUrl = decodeURIComponent(options.clickUrl);
-          console.log('从分享链接获取到clickUrl');
-        }
-        
-        // 将分享数据存入全局数据，供loadGoodsDetail使用
-        app.globalData.currentGoods = shareGoods;
+      // 卡片只传商品定位信息；旧卡片里的推广链接、佣金和发卡人字段全部忽略。
+      // 收件人应重新获取自己的详情，不能用 URL 数据绕过服务端转链。
+      if (options.clickUrl || options.couponShareUrl || options.commission || options.invitationCode) {
+        app.globalData.currentGoods = null;
       }
       
       this.loadGoodsDetail();
@@ -69,7 +45,8 @@ Page({
   loadGoodsDetail() {
     // 优先使用全局数据中的商品信息（从列表页传递过来）
     let cachedGoods = null; // 保存缓存数据用于兜底
-    if (app.globalData.currentGoods) {
+    if (app.globalData.currentGoods && String(app.globalData.currentGoods.id) === String(this.data.goodsId)
+        && (app.globalData.currentGoods.platform || this.data.currentPlatform) === this.data.currentPlatform) {
       cachedGoods = app.globalData.currentGoods;
       const cachedPlatform = cachedGoods.platform || this.data.currentPlatform;
       
@@ -131,6 +108,7 @@ Page({
         clickUrl: cachedGoods.clickUrl || '',
         couponShareUrl: cachedGoods.couponShareUrl || '',
         categoryName: cachedGoods.categoryName || '',
+        estimatedRebate: this.estimatedRebate(cachedGoods),
         commission: cachedGoods.commission || '0',
         commissionRate: cachedGoods.commissionRate || '0',
         // 新增字段 - 提取文本内容
@@ -154,23 +132,34 @@ Page({
     console.log('全局数据为空,调用后端API查询商品详情，当前平台:', this.data.currentPlatform);
     this.setData({ loading: true });
     
-    // 根据平台类型选择不同的API
-    if (this.data.currentPlatform === PLATFORM_TYPES.JD) {
+    // 分享链接不再携带商品数据；按平台重新请求，避免拼多多/大淘客走淘宝详情。
+    if (this.data.currentPlatform !== PLATFORM_TYPES.TBK && this.data.currentPlatform !== PLATFORM_TYPES.JD) {
+      platformApi.getGoodsDetail(this.data.currentPlatform, { id: this.data.goodsId })
+        .then(res => {
+          if (res.code !== 200 || !res.data) throw new Error(res.msg || '商品详情获取失败');
+          const goods = res.data;
+          this.setData({
+            goods: {
+              ...goods,
+              estimatedRebate: this.estimatedRebate(goods),
+              images: goods.images || [goods.mainPic],
+              platform: this.data.currentPlatform
+            },
+            loading: false
+          });
+        })
+        .catch(err => {
+          this.setData({ loading: false });
+          wx.showToast({ title: err.message || '加载失败', icon: 'none' });
+        });
+    } else if (this.data.currentPlatform === PLATFORM_TYPES.JD) {
       // 京东商品：调用京东商品详情API
       console.log('调用京东商品详情API');
       const params = {
         skuIds: this.data.goodsId
       };
 
-      // 如果有推荐人邀请码，添加到请求参数
-      if (app.globalData.referralCode) {
-        params.invitationCode = app.globalData.referralCode;
-      } else if (app.globalData.userInfo && app.globalData.userInfo.userId) {
-        // 如果没有邀请码，但用户已登录，传入用户ID
-        params.userId = app.globalData.userInfo.userId;
-      }
-      
-      request.publicGet('/miniapp/jd/getGoodsDetail', params)
+      request.optionalGet('/miniapp/jd/getGoodsDetail', params)
         .then(res => {
           if (res.code === 200 && res.data) {
             const jdGoods = res.data;
@@ -353,6 +342,7 @@ Page({
               promotionTags: [],
               
               // 佣金信息 - 多级优先级处理（后端数据 -> 缓存数据 -> 默认值）
+              estimatedRebate: this.estimatedRebate(jdGoods),
               commission: (jdGoods.commissionInfo && jdGoods.commissionInfo.commission) 
                 || (cachedGoods && cachedGoods.commission)
                 || '0',
@@ -399,15 +389,7 @@ Page({
       let url = `/miniapp/tbk/goods/${this.data.goodsId}`;
       const params = {};
       
-      // 如果有推荐人邀请码，添加到请求参数
-      if (app.globalData.referralCode) {
-        params.invitationCode = app.globalData.referralCode;
-      } else if (app.globalData.userInfo && app.globalData.userInfo.userId) {
-        // 如果没有邀请码，但用户已登录，传入用户ID
-        params.userId = app.globalData.userInfo.userId;
-      }
-      
-      request.publicGet(url, params)
+      request.optionalGet(url, params)
         .then(res => {
           if (res.code === 200) {
             // 适配后端返回的数据结构（dgMaterialOptionalUpgrade接口）
@@ -436,6 +418,7 @@ Page({
               // 新增字段 - 提取文本内容
               couponInfo: this.extractTextFromArray(pricePromotionInfo.finalPromotionPathList),
               promotionTags: this.extractTextFromArray(pricePromotionInfo.promotionTagList),
+              estimatedRebate: this.estimatedRebate(itemInfo),
               commissionAmount: publishInfo.incomeInfo ? publishInfo.incomeInfo.commissionAmount : '0',
               tmallActivityInfo: itemBasicInfo.tmallPlayActivityInfo || '',
               platform: PLATFORM_TYPES.TBK,
@@ -521,33 +504,9 @@ Page({
       params.couponId = goods.couponId || '';
       params.goodsName = goods.title || '';
     } else {
-      // 淘宝客需要文案、链接和图片
-      let itemUrl = goods.couponShareUrl || goods.clickUrl;
-      
-      if (!itemUrl) {
-        wx.hideLoading();
-        wx.showToast({
-          title: '商品推广链接获取失败',
-          icon: 'none'
-        });
-        return;
-      }
-      
-      // 确保URL以https:开头
-      if (itemUrl && !itemUrl.startsWith('http')) {
-        itemUrl = 'https:' + itemUrl;
-      }
-      
+      // 按商品重新转链；不把详情中的推广 URL 传回口令接口。
       params.text = goods.title;
-      params.url = itemUrl;
       params.logo = goods.mainPic;
-    }
-    
-    // 添加邀请码或用户ID
-    if (app.globalData.referralCode) {
-      params.invitationCode = app.globalData.referralCode;
-    } else if (app.globalData.userInfo && app.globalData.userInfo.userId) {
-      params.userId = app.globalData.userInfo.userId;
     }
     
     // 调用统一的getTpwd接口
@@ -712,36 +671,9 @@ Page({
     const goods = this.data.goods;
     const shareData = {
       title: goods ? goods.title : '淘宝客优选好货',
-      path: `/pages/goods/detail/detail?id=${this.data.goodsId}&platform=${this.data.currentPlatform}`,
+      path: `/pages/goods/detail/detail?id=${encodeURIComponent(this.data.goodsId)}&platform=${encodeURIComponent(this.data.currentPlatform)}`,
       imageUrl: goods ? goods.mainPic : ''
     };
-    
-    // 附加关键数据到分享链接，避免接收者需要额外API查询
-    if (goods) {
-      // URL编码商品标题和图片，避免特殊字符导致参数解析错误
-      shareData.path += `&title=${encodeURIComponent(goods.title || '')}`;
-      shareData.path += `&pic=${encodeURIComponent(goods.mainPic || '')}`;
-      // 附加价格、月销量、佣金等关键数据
-      shareData.path += `&price=${goods.actualPrice || '0'}`;
-      shareData.path += `&originalPrice=${goods.originalPrice || '0'}`;
-      shareData.path += `&monthSales=${goods.monthSales || '0'}`;
-      shareData.path += `&commission=${goods.commission || '0'}`;
-      shareData.path += `&commissionRate=${goods.commissionRate || '0'}`;
-      
-      // 添加推广链接参数（用于淘口令生成）
-      // 注意：这些链接可能包含特殊字符，需要URL编码
-      if (goods.couponShareUrl) {
-        shareData.path += `&couponShareUrl=${encodeURIComponent(goods.couponShareUrl)}`;
-      }
-      if (goods.clickUrl) {
-        shareData.path += `&clickUrl=${encodeURIComponent(goods.clickUrl)}`;
-      }
-    }
-    
-    // 如果是代理，添加邀请码
-    if (this.data.isAgent && this.data.invitationCode) {
-      shareData.path += `&invitationCode=${this.data.invitationCode}`;
-    }
     
     return shareData;
   },
@@ -753,35 +685,18 @@ Page({
     const goods = this.data.goods;
     const shareData = {
       title: goods ? goods.title : '淘宝客优选好货',
-      query: `id=${this.data.goodsId}&platform=${this.data.currentPlatform}`,
+      query: `id=${encodeURIComponent(this.data.goodsId)}&platform=${encodeURIComponent(this.data.currentPlatform)}`,
       imageUrl: goods ? goods.mainPic : ''
     };
     
-    // 附加关键数据到分享链接
-    if (goods) {
-      shareData.query += `&title=${encodeURIComponent(goods.title || '')}`;
-      shareData.query += `&pic=${encodeURIComponent(goods.mainPic || '')}`;
-      shareData.query += `&price=${goods.actualPrice || '0'}`;
-      shareData.query += `&originalPrice=${goods.originalPrice || '0'}`;
-      shareData.query += `&monthSales=${goods.monthSales || '0'}`;
-      shareData.query += `&commission=${goods.commission || '0'}`;
-      shareData.query += `&commissionRate=${goods.commissionRate || '0'}`;
-      
-      // 添加推广链接参数（用于淘口令生成）
-      if (goods.couponShareUrl) {
-        shareData.query += `&couponShareUrl=${encodeURIComponent(goods.couponShareUrl)}`;
-      }
-      if (goods.clickUrl) {
-        shareData.query += `&clickUrl=${encodeURIComponent(goods.clickUrl)}`;
-      }
-    }
-    
-    // 如果是代理，添加邀请码
-    if (this.data.isAgent && this.data.invitationCode) {
-      shareData.query += `&invitationCode=${this.data.invitationCode}`;
-    }
-    
     return shareData;
+  },
+
+  /** 只展示服务端试算后的返利；原始佣金不能冒充用户返利。 */
+  estimatedRebate(goods) {
+    const value = goods && (goods.estimatedRebate ?? goods.shownRebate ?? goods.rebateAmount);
+    if (value === null || value === undefined || value === '') return null;
+    return /^\d+(\.\d{1,2})?$/.test(String(value)) ? String(value) : null;
   },
 
   /**

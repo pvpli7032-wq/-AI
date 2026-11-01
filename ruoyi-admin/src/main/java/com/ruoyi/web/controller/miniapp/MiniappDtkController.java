@@ -69,11 +69,11 @@ public class MiniappDtkController extends BaseController {
         String appSecret = null;
         if (agentApply != null) {
             SysAgentUnionRelation dtkRelation = getDtkRelation(agentApply.getId());
-            if (dtkRelation == null || dtkRelation.getUnionPlatform() == null) {
-                return AjaxResult.error("该代理未分配大淘客联盟信息");
+            if (dtkRelation != null && dtkRelation.getUnionPlatform() != null) {
+                appKey = dtkRelation.getUnionPlatform().getAppKey();
+                appSecret = dtkRelation.getUnionPlatform().getAppSecret();
             }
-            appKey = dtkRelation.getUnionPlatform().getAppKey();
-            appSecret = dtkRelation.getUnionPlatform().getAppSecret();
+            // Logged-in browsing remains available through system credentials when unassigned.
         }
         
         // 3、调用大淘客API获取轮播图
@@ -103,11 +103,11 @@ public class MiniappDtkController extends BaseController {
         String appSecret = null;
         if (agentApply != null) {
             SysAgentUnionRelation dtkRelation = getDtkRelation(agentApply.getId());
-            if (dtkRelation == null || dtkRelation.getUnionPlatform() == null) {
-                return AjaxResult.error("该代理未分配大淘客联盟信息");
+            if (dtkRelation != null && dtkRelation.getUnionPlatform() != null) {
+                appKey = dtkRelation.getUnionPlatform().getAppKey();
+                appSecret = dtkRelation.getUnionPlatform().getAppSecret();
             }
-            appKey = dtkRelation.getUnionPlatform().getAppKey();
-            appSecret = dtkRelation.getUnionPlatform().getAppSecret();
+            // Logged-in browsing remains available through system credentials when unassigned.
         }
         
         // 3、调用大淘客API获取分类列表
@@ -142,11 +142,11 @@ public class MiniappDtkController extends BaseController {
         String appSecret = null;
         if (agentApply != null) {
             SysAgentUnionRelation dtkRelation = getDtkRelation(agentApply.getId());
-            if (dtkRelation == null || dtkRelation.getUnionPlatform() == null) {
-                return AjaxResult.error("该代理未分配大淘客联盟信息");
+            if (dtkRelation != null && dtkRelation.getUnionPlatform() != null) {
+                appKey = dtkRelation.getUnionPlatform().getAppKey();
+                appSecret = dtkRelation.getUnionPlatform().getAppSecret();
             }
-            appKey = dtkRelation.getUnionPlatform().getAppKey();
-            appSecret = dtkRelation.getUnionPlatform().getAppSecret();
+            // Logged-in browsing remains available through system credentials when unassigned.
         }
         
         // 3、调用大淘客API获取商品列表
@@ -186,11 +186,11 @@ public class MiniappDtkController extends BaseController {
         String appSecret = null;
         if (agentApply != null) {
             SysAgentUnionRelation dtkRelation = getDtkRelation(agentApply.getId());
-            if (dtkRelation == null || dtkRelation.getUnionPlatform() == null) {
-                return AjaxResult.error("该代理未分配大淘客联盟信息");
+            if (dtkRelation != null && dtkRelation.getUnionPlatform() != null) {
+                appKey = dtkRelation.getUnionPlatform().getAppKey();
+                appSecret = dtkRelation.getUnionPlatform().getAppSecret();
             }
-            appKey = dtkRelation.getUnionPlatform().getAppKey();
-            appSecret = dtkRelation.getUnionPlatform().getAppSecret();
+            // Logged-in browsing remains available through system credentials when unassigned.
         }
         
         // 3、调用大淘客API获取商品详情
@@ -223,11 +223,11 @@ public class MiniappDtkController extends BaseController {
         String appSecret = null;
         if (agentApply != null) {
             SysAgentUnionRelation dtkRelation = getDtkRelation(agentApply.getId());
-            if (dtkRelation == null || dtkRelation.getUnionPlatform() == null) {
-                return AjaxResult.error("该代理未分配大淘客联盟信息");
+            if (dtkRelation != null && dtkRelation.getUnionPlatform() != null) {
+                appKey = dtkRelation.getUnionPlatform().getAppKey();
+                appSecret = dtkRelation.getUnionPlatform().getAppSecret();
             }
-            appKey = dtkRelation.getUnionPlatform().getAppKey();
-            appSecret = dtkRelation.getUnionPlatform().getAppSecret();
+            // Logged-in browsing remains available through system credentials when unassigned.
         }
 
         // 3、调用大淘客API获取热门商品
@@ -260,11 +260,11 @@ public class MiniappDtkController extends BaseController {
         String appSecret = null;
         if (agentApply != null) {
             SysAgentUnionRelation dtkRelation = getDtkRelation(agentApply.getId());
-            if (dtkRelation == null || dtkRelation.getUnionPlatform() == null) {
-                return AjaxResult.error("该代理未分配大淘客联盟信息");
+            if (dtkRelation != null && dtkRelation.getUnionPlatform() != null) {
+                appKey = dtkRelation.getUnionPlatform().getAppKey();
+                appSecret = dtkRelation.getUnionPlatform().getAppSecret();
             }
-            appKey = dtkRelation.getUnionPlatform().getAppKey();
-            appSecret = dtkRelation.getUnionPlatform().getAppSecret();
+            // Logged-in browsing remains available through system credentials when unassigned.
         }
 
         // 3、调用大淘客API搜索商品
@@ -299,12 +299,13 @@ public class MiniappDtkController extends BaseController {
         String agentPid = null;
         if (agentApply != null) {
             SysAgentUnionRelation dtkRelation = getDtkRelation(agentApply.getId());
-            if (dtkRelation == null || dtkRelation.getUnionPlatform() == null) {
-                return AjaxResult.error("该代理未分配大淘客联盟信息");
+            if (dtkRelation != null && dtkRelation.getUnionPlatform() != null) {
+                appKey = dtkRelation.getUnionPlatform().getAppKey();
+                appSecret = dtkRelation.getUnionPlatform().getAppSecret();
+                agentPid = dtkRelation.getUnionPlatform().getAdzoneId();
             }
-            appKey = dtkRelation.getUnionPlatform().getAppKey();
-            appSecret = dtkRelation.getUnionPlatform().getAppSecret();
-            agentPid = dtkRelation.getUnionPlatform().getAdzoneId(); // 获取代理的推广位ID作为PID
+            // The common conversion service owns identity and PID selection even when this
+            // legacy agent has no separately assigned DTK credentials.
         }
 
         // Ignore the client-supplied pid and use only server-side configuration.
@@ -312,7 +313,7 @@ public class MiniappDtkController extends BaseController {
 
         // 如果还是为空，则取系统默认
         if (pid == null || pid.trim().isEmpty()) {
-            pid = dtkConfig.getAdzoneId().toString();
+            pid = dtkConfig.getAdzoneId();
         }
 
         // 4、调用大淘客API高效转链获取淘口令

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'test/**']
   pull_request:
   workflow_dispatch:
 
@@ -216,6 +216,51 @@ jobs:
           test "$(mysql_query "SELECT COUNT(*) FROM sys_user WHERE user_id = 1 AND user_name = 'admin' AND pwd_update_date IS NULL")" = 1
           mysql_query 'SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank'
           kill -0 "$app_pid"
+
+  package-test:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/test/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Build placeholder alliance SDKs
+        run: bash scripts/build-sdk-stub.sh
+      - name: Package backend without tests
+        run: ./mvnw -B -DskipTests package
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Build admin UI
+        working-directory: ruoyi-ui
+        env:
+          NODE_OPTIONS: --openssl-legacy-provider
+        run: |
+          npm install
+          npm run build:prod
+      - name: List union SDK jars packaged in ruoyi-admin.jar
+        run: |
+          set -euo pipefail
+          ls -l ruoyi-admin/target/*.jar
+          jar_list=$(unzip -Z1 ruoyi-admin/target/ruoyi-admin.jar | grep -E '^BOOT-INF/lib/' | grep -iE 'taobao|jd-api|pop-sdk' || true)
+          printf '%s\n' "$jar_list"
+          test -n "$jar_list"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ruoyi-admin-jar
+          path: ruoyi-admin/target/ruoyi-admin.jar
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ruoyi-ui-dist
+          path: ruoyi-ui/dist
+          retention-days: 14
 
   scope-check:
     if: github.event_name == 'pull_request'

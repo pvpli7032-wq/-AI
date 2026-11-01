@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.cps.mapper.OrderCollectionRetryMapper">
+    <resultMap id="retry" type="com.ruoyi.system.cps.order.OrderCollectionRetry">
+        <id property="id" column="id"/><result property="dedupeKey" column="dedupe_key"/>
+        <result property="platform" column="platform"/><result property="taskType" column="task_type"/>
+        <result property="windowFrom" column="window_from"/><result property="windowTo" column="window_to"/>
+        <result property="pageCursor" column="page_cursor"/><result property="status" column="status"/>
+        <result property="attempts" column="attempts"/><result property="errorCode" column="error_code"/>
+        <result property="nextAttemptAt" column="next_attempt_at"/><result property="leaseToken" column="lease_token"/>
+        <result property="leaseUntil" column="lease_until"/>
+    </resultMap>
+    <insert id="record" parameterType="com.ruoyi.system.cps.order.OrderCollectionRetry">
+        INSERT INTO cps_order_collection_retry (dedupe_key, platform, task_type, window_from, window_to, page_cursor, error_code)
+        VALUES (#{dedupeKey}, #{platform}, #{taskType}, #{windowFrom}, #{windowTo}, #{pageCursor}, #{errorCode})
+        ON DUPLICATE KEY UPDATE id = id
+    </insert>
+    <select id="findByKey" resultMap="retry">
+        SELECT * FROM cps_order_collection_retry WHERE dedupe_key = #{key}
+    </select>
+    <select id="findReadyId" resultType="long" useCache="false" flushCache="true">
+        SELECT id FROM cps_order_collection_retry
+        WHERE (status = 'PENDING' AND next_attempt_at &lt;= CURRENT_TIMESTAMP(6))
+           OR (status = 'LEASED' AND lease_until &lt;= CURRENT_TIMESTAMP(6))
+        ORDER BY id LIMIT 1
+    </select>
+    <update id="claim">
+        UPDATE cps_order_collection_retry
+        SET status = 'LEASED', lease_token = #{token},
+            lease_until = TIMESTAMPADD(SECOND, #{leaseSeconds}, CURRENT_TIMESTAMP(6)),
+            attempts = attempts + 1, updated_at = CURRENT_TIMESTAMP(6)
+        WHERE id = #{id} AND ((status = 'PENDING' AND next_attempt_at &lt;= CURRENT_TIMESTAMP(6))
+           OR (status = 'LEASED' AND lease_until &lt;= CURRENT_TIMESTAMP(6)))
+    </update>
+    <select id="findByLease" resultMap="retry" useCache="false" flushCache="true">
+        SELECT * FROM cps_order_collection_retry WHERE id = #{id} AND status = 'LEASED' AND lease_token = #{token}
+    </select>
+    <update id="complete">
+        UPDATE cps_order_collection_retry SET status = 'DONE', lease_token = NULL, lease_until = NULL,
+            updated_at = CURRENT_TIMESTAMP(6)
+        WHERE id = #{id} AND status = 'LEASED' AND lease_token = #{token} AND lease_until &gt; CURRENT_TIMESTAMP(6)
+    </update>
+    <update id="fail">
+        UPDATE cps_order_collection_retry SET status = 'PENDING', lease_token = NULL, lease_until = NULL,
+            next_attempt_at = #{nextAttemptAt}, error_code = #{errorCode}, updated_at = CURRENT_TIMESTAMP(6)
+        WHERE id = #{id} AND status = 'LEASED' AND lease_token = #{token} AND lease_until &gt; CURRENT_TIMESTAMP(6)
+    </update>
+</mapper>

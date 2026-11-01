@@ -68,9 +68,9 @@ export const constantRoutes = [
     children: [
       {
         path: 'index',
-        component: () => import('@/views/index'),
-        name: 'Index',
-        meta: { title: '首页', icon: 'dashboard', affix: true }
+        component: () => import('@/views/cps/dashboard/index'),
+        name: 'CpsDashboard',
+        meta: { title: '运营看板', icon: 'dashboard', affix: true }
       }
     ]
   },

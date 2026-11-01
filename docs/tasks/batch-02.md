@@ -1,6 +1,6 @@
 # 第二批任务：业务主线
 
-原则：默认在基座现有代码上增加。替换或删除旧模块的条件见 `AGENTS.md`，没写进任务单的一律不删。业务依据是 `docs/plan.md`，本文件只定每条线做什么、能改什么、怎么验收。开工前读 `AGENTS.md`。
+原则：默认在基座现有代码上增加。业务依据是 `docs/plan.md`，本文件只定每条线做什么、怎么验收。开工前读 `AGENTS.md`。
 
 ## 开工条件和顺序
 
@@ -34,8 +34,6 @@
 
 **迁移编号：** V400～V499。
 
-**能改：** `ruoyi-union-sdk` 新增 `adapter` 包、`ruoyi-system` 新增 `cps` 包和对应 Mapper、`db/migration/`、`SysOrderCommission`、`SysWechatUser`、`SysUnionPlatform`、`SysAgentCommissionAccount` 的实体和 XML（只加字段），以及 `sys_order_commission` 的单行查询（改唯一键后必须同步）。
-
 **要求：**
 
 1. **联盟适配接口** `UnionAdapter`，按平台实现，方法见 `plan.md` 第 5.2 节：解析链接、查佣金、转链、拉订单、拉维权单、拉处罚单。
@@ -55,8 +53,6 @@
 ## 线 9 查券归因
 
 **对应：** `plan.md` 第 4.1、4.2、4.10 节，阶段 2。**迁移编号：** V500～V599。
-
-**能改：** `union/adapter/` 的实现、`cps/attribution/`、新增 `MiniappConvertController` 和无主订单、PID 池的后台接口，`MiniappDtkController`、`MiniappJdController`、`MiniappPddController`、`MiniappTbkController`（只接入新逻辑），`ISysWechatUserService` 相关（只改邀请绑定），`tbk-miniapp/api/platform-api.js`、`tbk-miniapp/utils/request.js`（只改第 11 项），`tbk-miniapp/utils/auth.js`、`MiniappAuthController`（只改第 8 项首次授权传邀请码），`tbk-miniapp/pages/index/index.js`、`tbk-miniapp/pages/goods/detail/`（只改转发不带身份和第 9 项），`WebUtils`（只改第 10 项超时），`ruoyi-quartz` 新增到期处理和重试任务类，`tbk-miniapp/app.js`（只改启动无感登录），`tbk-miniapp/pages/share/index.js`、`tbk-miniapp/pages/user/center/center.js`、`tbk-miniapp/pages/agent/apply/apply.js`、`tbk-miniapp/pages/goods/list/list.js`（只改转发的邀请码）。
 
 **要求：**
 
@@ -103,8 +99,6 @@
 
 **对应：** `plan.md` 第 4.5、5.4 节，阶段 3。**迁移编号：** V600～V699。
 
-**能改：** `union/adapter/` 里订单、维权、处罚相关方法的实现（文件和线 9 分开放），`cps/order/`，`ruoyi-quartz` 新增同步任务类，新增订单查询的小程序和后台接口。
-
 **要求：**
 
 1. **来源：** `DtkGetOrderDetailsRequest`（淘宝）、`DtkJdOrderQueryV2Request`（京东）、`DtkPddOrderIncrementSearchRequest`（拼多多）、`DtkTbkScRelationRefundRequest`（维权）、`DtkTbkScPunishOrderGetRequest`（处罚）。
@@ -129,8 +123,6 @@
 ## 线 11 规则账务
 
 **对应：** `plan.md` 第 4.3、4.4、4.6、4.7 节，阶段 4。**迁移编号：** V700～V799。
-
-**能改：** `cps/rule/`、`cps/settlement/`、`cps/ledger/`，`CommissionCalculateServiceImpl`（放宽和接入，不重写），新增规则管理后台接口，钱包小程序接口。
 
 **要求：**
 
@@ -158,8 +150,6 @@
 
 **对应：** `plan.md` 第 4.8、4.9 节，阶段 5。**迁移编号：** V800～V899。
 
-**能改：** `cps/withdraw/`、`cps/recon/`、`cps/risk/`，`MiniappUserController` 的提现方法，新增提现、对账、敞口的后台接口，`ruoyi-quartz` 新增对账、敞口、健康检查任务类。
-
 **要求：**
 
 1. **提现单：** 申请、审核、打款、失败退回。「已审核」和「已打款」分开。负余额、封禁、敞口超限不能提现。
@@ -186,8 +176,6 @@
 
 **开始条件：** 设计规格在 `design/` 入库。规格单独安排，Codex 不自己设计。
 
-**能改：** `tbk-miniapp/`、`ruoyi-ui/src/views/`、`ruoyi-ui/src/api/`、`ruoyi-ui/src/router/`。不改后端。接口有缺失时在 PR 里提，不自己加。
-
 **要求：**
 
 - **小程序：** 首页粘贴入口（用户主动粘贴，不读剪贴板）、查券结果、我的订单、提交订单号、钱包、提现、邀请。现有 10 个页面全部保留。
@@ -203,7 +191,7 @@ cd ruoyi-ui && npm install && npm run build:prod
 
 ## 线 15 删除代理申请模块
 
-**前置：** 线 9、10、11 合并，且线 11 的佣金计算不再依赖 `sys_tbk_agent_apply`。线 13 排在本线之后。开工前在 `.github/pr-scope.conf` 登记范围，迁移用 V1100～V1199。
+**前置：** 线 9、10、11 合并，且线 11 的佣金计算不再依赖 `sys_tbk_agent_apply`。线 13 排在本线之后。迁移用 V1100～V1199。
 
 **删除：** `SysTbkAgentApply` 的实体、Mapper、Service、后台控制器，小程序 `pages/agent/apply/`，以及各控制器和页面里的代理申请、`isAgent`、`agentInfo` 分支。
 

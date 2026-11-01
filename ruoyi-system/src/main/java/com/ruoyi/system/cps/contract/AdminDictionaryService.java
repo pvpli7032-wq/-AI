@@ -47,9 +47,10 @@ public class AdminDictionaryService {
         // These are persisted ledger flow_type values emitted by current ledger/settlement/withdrawal code.
         return options(new String[][] {
             {"settle_freeze", "订单冻结"}, {"settle_release", "订单结算"},
-            {"income_self", "订单返利入账"}, {"income_promotion", "上级提成入账"},
-            {"refund_self", "订单返利追回"}, {"refund_promotion", "上级提成追回"},
-            {"withdraw", "提现"}, {"reversal", "冲正"}
+            {"income_self", "自购佣金入账"}, {"income_promotion", "推广佣金入账"},
+            {"refund_self", "自购佣金追回"}, {"refund_promotion", "推广佣金追回"},
+            {"reward_freeze", "奖励冻结"}, {"reward_credit", "奖励入账"},
+            {"reward_recovery", "奖励追回"}, {"withdraw", "提现"}, {"reversal", "冲正"}
         });
     }
 }

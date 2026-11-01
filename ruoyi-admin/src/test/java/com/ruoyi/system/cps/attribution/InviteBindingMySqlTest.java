@@ -64,7 +64,8 @@ public class InviteBindingMySqlTest {
         String path = q < 0 ? url : url.substring(0, q);
         String options = q < 0 ? "" : url.substring(q);
         int slash = path.indexOf('/', "jdbc:mysql://".length());
-        databaseUrl = (slash < 0 ? path : path.substring(0, slash)) + "/" + database + options;
+        databaseUrl = (slash < 0 ? path : path.substring(0, slash)) + "/" + database + options
+            + (options.contains("?") ? "&" : "?") + "connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true";
         DriverManagerDataSource ds = new DriverManagerDataSource(databaseUrl, user, password);
         Flyway.configure().dataSource(ds).locations("classpath:db/migration").outOfOrder(true).load().migrate();
         jdbc = new JdbcTemplate(ds);
@@ -290,6 +291,39 @@ public class InviteBindingMySqlTest {
             assertNull(users.selectByUserId(id).getInviterUserId());
             assertEquals(Long.valueOf(0), jdbc.queryForObject("SELECT COUNT(*) FROM cps_invite_binding_audit WHERE user_id=?", Long.class, id));
         } finally { pool.shutdownNow(); }
+    }
+
+    @Test public void productionPaymentAdapterUsesAuditAtPaymentRatherThanCurrentInviter() {
+        SysWechatUser a=register(null), b=register(null), child=register(a.getInvitationCode());
+        String order="payment-port-"+child.getUserId();
+        Instant payment=Instant.parse("2026-05-04T12:00:00Z");
+        jdbc.update("UPDATE cps_invite_binding_audit SET created_at=? WHERE user_id=?",java.sql.Timestamp.from(payment.minusSeconds(60)),child.getUserId());
+        jdbc.update("INSERT INTO sys_order_commission(order_id,platform_type,sub_order_no,agent_user_id,buyer_user_id,paid_time) VALUES (?,'tbk','',?,?,?)",order,child.getUserId(),child.getUserId(),java.sql.Timestamp.from(payment));
+        jdbc.update("UPDATE sys_order_commission SET cps_paid_second=?,cps_paid_nano=? WHERE order_id=?",payment.getEpochSecond(),payment.getNano(),order);
+        service.changeInviter(child.getUserId(),b.getUserId(),1L,"verify payment-time evidence");
+        var adapter=new AuditedPaymentInvitationAdapter(jdbc);
+        var snapshot=adapter.findAtPayment(com.ruoyi.union.adapter.Platform.TBK,order,"",child.getUserId(),payment).orElseThrow();
+        assertEquals(a.getUserId(),snapshot.inviterUserId());
+        assertEquals(payment,snapshot.paidAt());
+        assertTrue(snapshot.evidenceId().startsWith("invite-audit:"));
+        assertTrue(adapter.findAtPayment(com.ruoyi.union.adapter.Platform.JD,order,"",child.getUserId(),payment).isEmpty());
+        assertTrue(adapter.findAtPayment(com.ruoyi.union.adapter.Platform.TBK,order,"other",child.getUserId(),payment).isEmpty());
+        assertTrue(adapter.findAtPayment(com.ruoyi.union.adapter.Platform.TBK,order,"",child.getUserId(),payment.plusSeconds(1)).isEmpty());
+    }
+
+    @Test public void productionPaymentAdapterDistinguishesKnownNoInviterFromUnknownLegacyHistory() {
+        SysWechatUser child=register(null);
+        String order="payment-null-"+child.getUserId();
+        Instant payment=Instant.now().plusSeconds(3).truncatedTo(ChronoUnit.MILLIS);
+        jdbc.update("INSERT INTO sys_order_commission(order_id,platform_type,sub_order_no,agent_user_id,buyer_user_id,paid_time) VALUES (?,'pdd','',?,?,?)",order,child.getUserId(),child.getUserId(),java.sql.Timestamp.from(payment));
+        var adapter=new AuditedPaymentInvitationAdapter(jdbc);
+        var known=adapter.findAtPayment(com.ruoyi.union.adapter.Platform.PDD,order,null,child.getUserId(),payment).orElseThrow();
+        assertNull(known.inviterUserId());
+        assertTrue(known.evidenceId().startsWith("invite-audit:"));
+        jdbc.update("UPDATE cps_invite_binding_audit SET event_type='LEGACY_BACKFILL' WHERE user_id=?",child.getUserId());
+        assertTrue(adapter.findAtPayment(com.ruoyi.union.adapter.Platform.PDD,order,"",child.getUserId(),payment).isEmpty());
+        jdbc.update("DELETE FROM cps_invite_binding_audit WHERE user_id=?",child.getUserId());
+        assertTrue(adapter.findAtPayment(com.ruoyi.union.adapter.Platform.PDD,order,"",child.getUserId(),payment).isEmpty());
     }
 
     private static boolean attempt(long id, String code, CountDownLatch ready, CountDownLatch start) throws Exception {

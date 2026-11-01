@@ -22,6 +22,11 @@ public class CpsAttributionController {
     public record AssignmentRequest(Long userId, String reason) {}
     public record InviterRequest(Long inviterUserId, String reason) {}
     @PreAuthorize("@ss.hasPermi('system:commission:pid:list')")
+    @GetMapping("/pid")
+    public AjaxResult registered(@RequestParam Platform platform) {
+        return AjaxResult.success(pids.registered(platform));
+    }
+    @PreAuthorize("@ss.hasPermi('system:commission:pid:list')")
     @GetMapping("/pid/occupancy")
     public AjaxResult occupancy(@RequestParam Platform platform, @RequestParam(required = false) String itemId) {
         return AjaxResult.success(pids.occupancy(platform, itemId));

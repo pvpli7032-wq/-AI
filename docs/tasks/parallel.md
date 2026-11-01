@@ -1,6 +1,6 @@
 # 并行分工
 
-最多 5 个 Codex 同时开发，按本文件分线。任务的具体要求看 `batch-01.md`，本文件只定谁做什么、什么时候开始、能改哪些文件。
+最多 5 个 Codex 同时开发，按本文件分线。任务的具体要求看 `batch-01.md`，本文件只定谁做什么、什么时候开始。
 
 开工前读 `AGENTS.md`。
 
@@ -24,15 +24,11 @@
 
 ### 线 1 基础
 
-**能改：** Maven Wrapper、`.github/workflows/ci.yml`、`ruoyi-union-sdk/sdk-stub/`、`scripts/build-sdk-stub.sh`、`.gitignore`，以及 `ruoyi-system`、`ruoyi-admin`、`ruoyi-framework` 的 `pom.xml`（只加测试依赖）。
-
 T00 和 T01 分开提 PR。
 
 **测试底座（和 T01 同一个 PR）：** 当前仓库没有测试依赖，也没有测试文件。给上面三个模块加 test 范围的测试依赖，并各放一个能跑通的最小测试，`./mvnw -B test` 能执行。第 2 轮的线不再改 `pom.xml` 的测试依赖。
 
 ### 线 2 后台路径
-
-**能改：** `ruoyi-ui/src/api/system/commissionAccount.js`、`ruoyi-ui/src/api/system/commissionFlow.js`，以及 `ruoyi-ui/src/views/system/commission/` 下调用它们的页面。
 
 **要求：** 只改前端路径，对齐后端现有路径，后端不动。账户接口前缀改成 `/system/commissionAccount`，流水接口对齐 `SysCommissionFlowController`。冻结和解冻用 `/system/commissionAccount/freeze/{accountId}`、`/system/commissionAccount/unfreeze/{accountId}`，HTTP 方法保持前端现有写法，后端接口由线 4 补。
 
@@ -42,8 +38,6 @@ cd ruoyi-ui && npm install && npm run build:prod
 ```
 
 ### 线 3 建库
-
-**能改：** `README.md`、`docs/deploy-test.md`、`sql/`、`ruoyi-admin/src/main/resources/db/migration/`、`ruoyi-admin/pom.xml`（只加 Flyway 和打包配置）、`ruoyi-admin/src/main/resources/application.yml`（只加 `spring.flyway` 配置）、`docker-compose.yml`、`.github/workflows/ci.yml`、`.env.example`。
 
 **迁移目录固定为：** `ruoyi-admin/src/main/resources/db/migration/`，线 4 也按这个目录放脚本。
 
@@ -67,8 +61,6 @@ cd ruoyi-ui && npm install && npm run build:prod
 
 ### 线 4 账务
 
-**能改：** `CommissionCalculateServiceImpl`、`ISysAgentCommissionAccountService`、`SysAgentCommissionAccountServiceImpl`、`SysAgentCommissionAccountController`、`SysAgentCommissionAccountMapper`（含 XML）、`SysCommissionFlowMapper`（含 XML）、新增 `SysAgentCommissionConfigMapper.xml`、`SysOrderCommissionMapper.xml`、`SysOrderCommission` 实体。
-
 **要求：** 补冻结和解冻接口，路径见线 2。这两个接口改的是账户状态，不直接改余额。
 
 **合并前修改（评审结果，分支 `codex/line-4-commission-ledger`，当前不通过）：**
@@ -86,8 +78,6 @@ cd ruoyi-ui && npm install && npm run build:prod
 
 ### 线 5 认证安全
 
-**能改：** `MiniappAuthController`、`SecurityConfig`、`ruoyi-admin/src/main/resources/application.yml` 的 swagger 开关、`application-druid.yml` 的 Druid 控制台开关。
-
 **要求：**
 - 补 `/miniapp/auth/refresh`，请求和返回格式按 `tbk-miniapp/utils/auth.js:233` 现有调用来，小程序不改。
 - `MiniappAuthController.java:195` 的固定密码改成每个用户随机生成。
@@ -99,8 +89,6 @@ cd ruoyi-ui && npm install && npm run build:prod
 **验收：** T04 的第 3 条：小程序创建的用户无法登录后台。`/miniapp/auth/refresh` 有测试。用户 A 看不到 B 的流水。
 
 ### 线 6 转链身份和邀请
-
-**能改：** `MiniappTbkController`、`MiniappJdController`、`MiniappPddController`、`MiniappDtkController`、`MiniappHdkController`、`SysTbkAgentApply` 相关类和 Mapper、`SysWechatUser` 相关类和 Mapper、`tbk-miniapp/`、`ruoyi-ui/src/views/system/tbkApply/`。
 
 **要求：**
 - 邀请参数统一为 `invitationCode`。`MiniappAuthController` 读的名字改动前先核对；要改它时，协调线 5，不在本线直接改。
@@ -121,7 +109,7 @@ cd ruoyi-ui && npm install && npm run build:prod
 - 假提现接口返回明确的「暂未开放」。
 - appSecret、accessToken 不再下发（后台展示脱敏）。
 
-**能改：** 上述 5 项涉及的文件，以及验收中发现的问题。**迁移编号：** V90～V99。
+**迁移编号：** V90～V99。
 
 **第 1 步已合并（PR #5、#6）。** 已落地的规则：
 - 比例种子 V90、V92 是停用的占位，后台保存后才启用。
@@ -152,5 +140,5 @@ cd ruoyi-ui && npm install && npm run build:prod
 每条线开一个 Codex 任务，发一句：
 
 ```text
-读 AGENTS.md 和 docs/tasks/parallel.md，只做线 N（按 docs/tasks/batch-01.md 的对应要求），完成后开 PR。
+读 AGENTS.md 和 docs/tasks/parallel.md，做线 N（按 docs/tasks/batch-01.md 的对应要求），完成后开 PR。
 ```

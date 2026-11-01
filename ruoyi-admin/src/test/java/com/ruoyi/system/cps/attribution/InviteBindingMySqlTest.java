@@ -316,10 +316,14 @@ public class InviteBindingMySqlTest {
         String order="payment-null-"+child.getUserId();
         Instant payment=Instant.now().plusSeconds(3).truncatedTo(ChronoUnit.MILLIS);
         jdbc.update("INSERT INTO sys_order_commission(order_id,platform_type,sub_order_no,agent_user_id,buyer_user_id,paid_time) VALUES (?,'pdd','',?,?,?)",order,child.getUserId(),child.getUserId(),java.sql.Timestamp.from(payment));
+        jdbc.update("UPDATE sys_order_commission SET cps_paid_second=?,cps_paid_nano=? WHERE order_id=?",payment.getEpochSecond(),payment.getNano(),order);
         var adapter=new AuditedPaymentInvitationAdapter(jdbc);
         var known=adapter.findAtPayment(com.ruoyi.union.adapter.Platform.PDD,order,null,child.getUserId(),payment).orElseThrow();
         assertNull(known.inviterUserId());
         assertTrue(known.evidenceId().startsWith("invite-audit:"));
+        jdbc.update("UPDATE sys_order_commission SET cps_paid_second=NULL,cps_paid_nano=NULL WHERE order_id=?",order);
+        assertTrue(adapter.findAtPayment(com.ruoyi.union.adapter.Platform.PDD,order,"",child.getUserId(),payment).isEmpty());
+        jdbc.update("UPDATE sys_order_commission SET cps_paid_second=?,cps_paid_nano=? WHERE order_id=?",payment.getEpochSecond(),payment.getNano(),order);
         jdbc.update("UPDATE cps_invite_binding_audit SET event_type='LEGACY_BACKFILL' WHERE user_id=?",child.getUserId());
         assertTrue(adapter.findAtPayment(com.ruoyi.union.adapter.Platform.PDD,order,"",child.getUserId(),payment).isEmpty());
         jdbc.update("DELETE FROM cps_invite_binding_audit WHERE user_id=?",child.getUserId());

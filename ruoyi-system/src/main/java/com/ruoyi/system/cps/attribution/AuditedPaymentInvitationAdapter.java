@@ -31,15 +31,14 @@ public class AuditedPaymentInvitationAdapter implements PaymentInvitationSnapsho
         Long count = jdbc.queryForObject("""
             SELECT COUNT(*) FROM sys_order_commission
             WHERE LOWER(platform_type)=? AND order_id=? AND sub_order_no=? AND buyer_user_id=?
-              AND ( (cps_paid_second IS NOT NULL AND cps_paid_second=? AND cps_paid_nano=?)
-                OR (cps_paid_second IS NULL AND DATE_FORMAT(CONVERT_TZ(?, '+00:00', @@session.time_zone),'%Y-%m-%d %H:%i:%s.%f')=DATE_FORMAT(paid_time,'%Y-%m-%d %H:%i:%s.%f')) )
+              AND cps_paid_second=? AND cps_paid_nano=?
             """, Long.class, platform.name().toLowerCase(Locale.ROOT),orderNo,sub,buyerUserId,
-            paidAt.getEpochSecond(),paidAt.getNano(),Timestamp.from(paidAt));
+            paidAt.getEpochSecond(),paidAt.getNano());
         if (count == null || count != 1) return Optional.empty();
         var history = jdbc.query("""
             SELECT id,next_inviter_user_id,event_type FROM cps_invite_binding_audit
             WHERE user_id=? AND created_at<=?
-            ORDER BY created_at DESC,id DESC LIMIT 1
+            ORDER BY created_at DESC,id DESC LIMIT 1 FOR SHARE
             """, (r,n)->new Audit(r.getLong("id"),r.getObject("next_inviter_user_id",Long.class),r.getString("event_type")),
             buyerUserId,Timestamp.from(paidAt));
         if (history.isEmpty()) return Optional.empty();

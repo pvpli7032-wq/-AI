@@ -49,7 +49,8 @@ public class MemberQueryService {
     }
 
     private String select() {
-        return """ SELECT w.user_id,w.nickname,w.avatar,w.phone,w.risk_level,w.invitation_code,w.inviter_user_id,w.create_time,
+        return """
+            SELECT w.user_id,w.nickname,w.avatar,w.phone,w.risk_level,w.invitation_code,w.inviter_user_id,w.create_time,
             a.balance,a.frozen_amount,a.withdrawing_amount,a.withdrawn,a.total_earned,a.status
             FROM sys_wechat_user w LEFT JOIN sys_agent_commission_account a ON a.user_id=w.user_id """;
     }

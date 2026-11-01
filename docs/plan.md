@@ -302,7 +302,7 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 
 ### 4.6 异常场景
 
-这张表就是验收清单，每一行都要有测试用例。
+这张表是验收清单，场景都要有测试覆盖。
 
 | 场景 | 处理 |
 |---|---|
@@ -737,7 +737,7 @@ SkaFull/cps 可以继续当基座，但它的价值比上一版说的小。**能
 
 其他发现：京东 positionId 客户端传入、详情用默认推广位、搜索忽略 keyword；`SysConfigController` 无权限注解；`TestController` 残留；Druid 白名单空；`rate-limit` 配置未引用；详情页佣金所有人可见；`request.js` 只看 HTTP 200 不看业务 code；日志打印 token；退款按钮不可达；`wechat.sql` 与 `mt.sql` 两版；session_key、token 明文存放；`IpUtils` 取 IP 可伪造；淘宝网关默认 http；`ruoyi-ui` 标题仍为「若依管理系统」。
 
-风险处理归属见 `docs/tasks/batch-01.md` 和 `docs/tasks/batch-02.md`。
+风险处理归属见 `docs/tasks/batch-02.md`。
 
 ---
 

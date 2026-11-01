@@ -14,7 +14,9 @@
 | `ruoyi-union-sdk` | 联盟接口封装 |
 | `ruoyi-ui` | 后台页面（Vue 2、Element UI） |
 | `tbk-miniapp` | 微信小程序 |
-| `sql` | 数据库脚本 |
+| `scripts` | 构建和检查脚本 |
+| `design` | 设计规格和后台原型 |
+| `docs` | 方案、任务、进度、部署说明 |
 
 ## 配置
 
@@ -129,7 +131,7 @@ BROWSER=none port=18081 NODE_OPTIONS=--openssl-legacy-provider npm run dev -- --
 ## 数据库版本与部署
 
 - [字段差异清单](sql/schema-differences.md) 覆盖 43 张表、实体与 Mapper；区分缺列、查询投影和已有的读写不一致。旧会话/登录日志的新旧命名冲突仍需后续认证任务处理，补列不代表这些功能已修好。
-- V1 采用 `sql/cps-202604112202-mt.sql` 的全部表，保留旧 SQL 文件；不复制历史用户、日志、联盟凭据或财务配置。返利比例默认值使用中性 `0.00`，不代表生产业务配置。
+- V1 采用基座旧 SQL 的全部表，旧 SQL 文件已清理，以迁移文件为准；不复制历史用户、日志、联盟凭据或财务配置。返利比例默认值使用中性 `0.00`，不代表生产业务配置。
 - `out-of-order=true` 支持并行迁移合并；线 3 使用 V1～V99，后续线使用各自编号段。`baseline-on-migrate=false`、`clean-disabled=true`，已有非空且未受 Flyway 管理的库需要单独核对接入，不能自动覆盖。
 - [宝塔测试部署说明](docs/deploy-test.md) 由管理员人工执行，使用独立项目目录、Java、数据库及 Redis 库；只修改本项目站点的 Nginx 配置。
 

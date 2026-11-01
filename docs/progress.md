@@ -6,7 +6,7 @@
 
 ## 现在做什么
 
-先改线 11，验收并合并线 9、10、11，然后线 15、线 13、线 14。新人阅读顺序：`handover.md`、本文件、`plan.md`、`tasks/batch-02.md`、`design/README.md`、`design/admin.md`，再打开 `design/admin-prototype/index.html`。
+先加自动检查，再改线 11，验收并合并线 9、10、11，然后线 15、线 13、线 14。新人阅读顺序：`handover.md`、本文件、`plan.md`、`tasks/batch-02.md`、`design/README.md`、`design/admin.md`，再打开 `design/admin-prototype/index.html`。
 
 ## 各线状态
 
@@ -48,7 +48,4 @@
 
 ## 工作规矩
 
-- 见 `handover.md`“工作规矩”。验收看 `git diff` 和 CI 原始日志，不只看汇报。
-- CI 通过、评审通过、抽查通过才合并，一次一个，先同步 `main`。验收和合并只在一个会话里做，作者不验收自己的线。
-- 部署、改线上库、删数据只给步骤，由人工执行。
-- 服务器地址、账号、密码、密钥一律不写进本仓库。
+见 `AGENTS.md`。

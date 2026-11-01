@@ -18,6 +18,9 @@ ruoyi-union-sdk/lib/.sdk-stub-build.*/
 
 # Package Files #
 *.jar
+!ruoyi-union-sdk/lib/taobao-sdk-java-auto_1761200125504-20261031.jar
+!ruoyi-union-sdk/lib/taobao-sdk-java-auto_1761200125504-20261031-source.jar
+!ruoyi-union-sdk/lib/jd-api-sdk-java-20261031.jar
 *.war
 *.nar
 *.ear
